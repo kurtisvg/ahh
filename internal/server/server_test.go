@@ -42,8 +42,12 @@ func TestIndex(t *testing.T) {
 		t.Fatalf("body does not contain shell marker: %q", got)
 	}
 
-	if got := rec.Body.String(); !strings.Contains(got, "<style>") || !strings.Contains(got, ".app-shell") {
-		t.Fatalf("body does not contain inline shell styles: %q", got)
+	if got := rec.Body.String(); strings.Contains(got, "<style>") {
+		t.Fatalf("body contains inline styles: %q", got)
+	}
+
+	if got := rec.Body.String(); !strings.Contains(got, `href="./static/styles.css"`) {
+		t.Fatalf("body does not contain relative stylesheet link: %q", got)
 	}
 
 	if got := rec.Body.String(); strings.Contains(got, `href="/`) || strings.Contains(got, `src="/`) {
