@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -25,10 +26,44 @@ func TestHealthz(t *testing.T) {
 	}
 }
 
-func TestNotFound(t *testing.T) {
+func TestIndex(t *testing.T) {
 	t.Parallel()
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	if got := rec.Body.String(); !strings.Contains(got, "No conversation running") {
+		t.Fatalf("body does not contain shell marker: %q", got)
+	}
+}
+
+func TestStaticStyles(t *testing.T) {
+	t.Parallel()
+
+	req := httptest.NewRequest(http.MethodGet, "/static/styles.css", nil)
+	rec := httptest.NewRecorder()
+
+	NewHandler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	if got := rec.Body.String(); !strings.Contains(got, ".app-shell") {
+		t.Fatalf("body does not contain stylesheet marker: %q", got)
+	}
+}
+
+func TestNotFound(t *testing.T) {
+	t.Parallel()
+
+	req := httptest.NewRequest(http.MethodGet, "/missing", nil)
 	rec := httptest.NewRecorder()
 
 	NewHandler().ServeHTTP(rec, req)

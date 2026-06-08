@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ahh</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <div class="brand">Ahh</div>
+        <div class="tagline">the agent harness harness</div>
+      </div>
+      <div class="server-pill">
+        <span class="status-dot" aria-hidden="true"></span>
+        Local
+      </div>
+    </header>
+
+    <main class="app-shell">
+      <nav class="rail" aria-label="Primary">
+        <a class="rail-link active" href="/">Conversations</a>
+        <span class="rail-link disabled">Agents</span>
+        <span class="rail-link disabled">Projects</span>
+        <span class="rail-link disabled">Wrappers</span>
+      </nav>
+
+      <section class="workspace" aria-labelledby="workspace-title">
+        <div class="workspace-header">
+          <div>
+            <p class="eyebrow">Local workspace</p>
+            <h1 id="workspace-title">No conversation running</h1>
+          </div>
+          <div class="status-line">
+            <span class="status-dot" aria-hidden="true"></span>
+            Ahh server online
+          </div>
+        </div>
+
+        <div class="empty-state">
+          <p>Conversation controls will appear here once the wrapper and harness path are connected.</p>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
