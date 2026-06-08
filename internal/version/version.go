@@ -5,6 +5,8 @@ import (
 	"strings"
 )
 
+// Version is the current Ahh version.
+//
 //go:embed version.txt
 var Version string
 

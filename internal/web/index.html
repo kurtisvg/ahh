@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ahh</title>
+    <link rel="stylesheet" href="./static/styles.css?v=2" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <aside class="conversation-list" aria-label="Open conversations">
+        <header class="sidebar-header">
+          <div class="brand-mark">Ahh -- the agent harness harness</div>
+        </header>
+
+        <div class="project-picker">
+          <span>Projects</span>
+          <span class="divider" aria-hidden="true"></span>
+          <select aria-label="Project">
+            <option>project1</option>
+          </select>
+          <span class="divider" aria-hidden="true"></span>
+        </div>
+
+        <div class="list-header">
+          <p class="section-title">
+            <span class="message-icon" aria-hidden="true"></span>
+            Conversations
+          </p>
+        </div>
+        <a class="conversation-row active" href="./">
+          <span class="conversation-title">conversation1</span>
+          <span class="conversation-meta">agent1</span>
+        </a>
+      </aside>
+
+      <section class="conversation" aria-labelledby="conversation-title">
+        <div class="conversation-header">
+          <div>
+            <h1 id="conversation-title">conversation1</h1>
+            <p class="eyebrow">agent1</p>
+          </div>
+        </div>
+
+        <div class="transcript" aria-label="Conversation preview">
+          <article class="message user-message">
+            <div class="message-author">You</div>
+            <p>Set up the local Ahh server and keep it easy to supervise from the browser.</p>
+          </article>
+          <article class="message agent-message">
+            <div class="message-author">Agent</div>
+            <p>Added a localhost HTTP server with a health endpoint and graceful shutdown coverage.</p>
+          </article>
+          <article class="message user-message">
+            <div class="message-author">You</div>
+            <p>Now shape the first browser view around a conversation list and a simple chat preview.</p>
+          </article>
+          <article class="message agent-message">
+            <div class="message-author">Agent</div>
+            <p>Updated the shell with project selection, conversation navigation, and a fixed composer area.</p>
+          </article>
+        </div>
+
+        <div class="composer" aria-label="Message composer preview">
+          <span>Message input will be enabled when Conversations are implemented.</span>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
