@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"net"
 	"os"
 	"os/signal"
 	"syscall"
@@ -46,9 +45,14 @@ func Execute() {
 	defer stop()
 
 	fmt.Printf("Ahh %s -- the agent harness harness\n", version.Version)
-	fmt.Printf("Listening on http://%s\n", net.JoinHostPort(opts.host, opts.port))
+	ln, err := server.Listen(opts.host, opts.port)
+	if err != nil {
+		slog.Error("listen error", "error", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Listening on http://%s\n", ln.Addr().String())
 
-	if err := server.ServeHTTP(ctx, opts.host, opts.port); err != nil {
+	if err := server.Serve(ctx, ln); err != nil {
 		slog.Error("server error", "error", err)
 		os.Exit(1)
 	}
