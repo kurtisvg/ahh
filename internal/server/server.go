@@ -2,13 +2,17 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	webassets "github.com/kurtisvg/ahh/internal/web"
 )
+
+const stylesheetLink = `<link rel="stylesheet" href="./static/styles.css" />`
 
 func NewHandler() http.Handler {
 	mux := http.NewServeMux()
@@ -55,5 +59,19 @@ func index(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	http.ServeFileFS(w, r, webassets.Files, "index.html")
+
+	indexHTML, err := webassets.Files.ReadFile("index.html")
+	if err != nil {
+		http.Error(w, "failed to read index", http.StatusInternalServerError)
+		return
+	}
+	styles, err := webassets.Files.ReadFile("styles.css")
+	if err != nil {
+		http.Error(w, "failed to read styles", http.StatusInternalServerError)
+		return
+	}
+
+	body := strings.Replace(string(indexHTML), stylesheetLink, fmt.Sprintf("<style>\n%s\n</style>", styles), 1)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write([]byte(body))
 }
