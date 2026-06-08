@@ -33,15 +33,41 @@ body {
 }
 
 .sidebar-header {
-  min-height: 42px;
+  min-height: 44px;
   margin-bottom: 12px;
 }
 
-.brand {
-  color: #141a24;
+.brand-lockup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 42px;
+  height: 28px;
+  padding: 0 9px;
+  border: 1px solid #cfd9e8;
+  border-radius: 7px;
+  background: #eef4fb;
+  color: #123052;
   font-size: 15px;
-  font-weight: 750;
-  line-height: 1.1;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.brand-copy {
+  min-width: 0;
+  overflow: hidden;
+  color: #4d5a6d;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .status-line {
@@ -92,9 +118,9 @@ input::placeholder {
 }
 
 .list-header {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  display: flex;
   align-items: center;
+  justify-content: center;
   padding: 10px 4px 9px;
 }
 
@@ -104,23 +130,16 @@ input::placeholder {
   font-size: 12px;
 }
 
-.count {
-  justify-self: end;
-  min-width: 22px;
-  padding: 2px 7px;
-  border-radius: 999px;
-  background: #edf1f7;
-  color: #5f6b7c;
-  font-size: 12px;
-  text-align: center;
-}
-
 .section-title {
   display: inline-flex;
-  grid-column: 2;
   align-items: center;
   gap: 7px;
   margin: 0;
+  min-height: 30px;
+  padding: 0 11px;
+  border: 1px solid #dbe1ea;
+  border-radius: 7px;
+  background: #f8fafc;
   color: #18202f;
   font-size: 13px;
   font-weight: 700;
@@ -149,18 +168,20 @@ input::placeholder {
 
 .conversation-row {
   display: block;
-  min-height: 64px;
+  min-height: 58px;
   margin-bottom: 4px;
-  padding: 11px 12px;
+  padding: 10px 13px;
   border: 1px solid transparent;
-  border-radius: 7px;
+  border-radius: 0;
   color: #18202f;
   text-decoration: none;
 }
 
 .conversation-row.active {
-  border-color: #cfd9e8;
-  background: #eef4fb;
+  border-color: #dbe1ea;
+  border-right-color: transparent;
+  border-left-color: transparent;
+  background: #f8fafc;
 }
 
 .conversation-row:hover {
@@ -177,18 +198,23 @@ input::placeholder {
 
 .conversation-title {
   color: #18202f;
-  font-size: 14px;
-  font-weight: 650;
+  font-size: 16px;
+  font-weight: 750;
+  line-height: 1.2;
 }
 
 .conversation-meta {
-  margin-top: 6px;
-  color: #6a7484;
-  font-size: 12px;
+  margin-top: 4px;
+  color: #5f6b7c;
+  font-size: 13px;
+  line-height: 1.25;
 }
 
 .conversation {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
+  min-height: 100vh;
   padding: 24px 28px;
   background: #f5f7fa;
 }
@@ -212,9 +238,14 @@ h1 {
 
 .transcript {
   display: grid;
+  flex: 1;
+  align-content: start;
   gap: 14px;
+  width: 100%;
   max-width: 760px;
   margin: 26px auto 0;
+  padding-bottom: 24px;
+  overflow-y: auto;
 }
 
 .message {
@@ -258,8 +289,9 @@ h1 {
   display: flex;
   align-items: center;
   min-height: 48px;
+  width: 100%;
   max-width: 760px;
-  margin: 22px auto 0;
+  margin: auto auto 0;
   padding: 0 14px;
   border: 1px solid #dbe1ea;
   border-radius: 8px;
