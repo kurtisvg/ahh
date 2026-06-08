@@ -10,6 +10,7 @@ import (
 	webassets "github.com/kurtisvg/ahh/internal/web"
 )
 
+// NewHandler builds the HTTP routes for the local Ahh server.
 func NewHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", index)
@@ -18,11 +19,13 @@ func NewHandler() http.Handler {
 	return mux
 }
 
+// Listen opens a TCP listener for the configured HTTP host and port.
 func Listen(host, port string) (net.Listener, error) {
 	addr := net.JoinHostPort(host, port)
 	return net.Listen("tcp", addr)
 }
 
+// Serve runs the HTTP server until the context is canceled or serving fails.
 func Serve(ctx context.Context, ln net.Listener) error {
 	srv := &http.Server{
 		Handler:           NewHandler(),
@@ -52,6 +55,7 @@ func healthz(w http.ResponseWriter, _ *http.Request) {
 
 func noStore(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Static assets change often during early UI work, and proxied views may cache aggressively.
 		w.Header().Set("Cache-Control", "no-store")
 		next.ServeHTTP(w, r)
 	})

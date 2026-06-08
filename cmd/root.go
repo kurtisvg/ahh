@@ -30,6 +30,7 @@ func parseFlags(args []string) (options, error) {
 	return opts, err
 }
 
+// Execute parses CLI flags and starts the Ahh server.
 func Execute() {
 	opts, err := parseFlags(os.Args[1:])
 	if err != nil {
