@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -37,10 +36,6 @@ func ServeHTTP(ctx context.Context, host, port string) error {
 		return err
 	}
 	return nil
-}
-
-func URL(host, port string) string {
-	return fmt.Sprintf("http://%s", net.JoinHostPort(host, port))
 }
 
 func healthz(w http.ResponseWriter, _ *http.Request) {
