@@ -54,22 +54,6 @@ body {
   white-space: nowrap;
 }
 
-.status-line {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  color: #4a5567;
-  font-size: 12px;
-  white-space: nowrap;
-}
-
-.status-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: #178f5b;
-}
-
 .project-picker {
   display: flex;
   align-items: center;
@@ -134,9 +118,10 @@ input::placeholder {
 }
 
 .eyebrow {
-  margin: 0;
+  margin: 3px 0 0;
   color: #6a7484;
-  font-size: 12px;
+  font-size: 13px;
+  line-height: 1.25;
 }
 
 .section-title {
