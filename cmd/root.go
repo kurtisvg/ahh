@@ -14,6 +14,11 @@ import (
 	flag "github.com/spf13/pflag"
 )
 
+const (
+	defaultHost = "127.0.0.1"
+	defaultPort = "8080"
+)
+
 type options struct {
 	host    string
 	port    string
@@ -23,8 +28,8 @@ type options struct {
 func parseFlags(args []string) (options, error) {
 	var opts options
 	fs := flag.NewFlagSet("ahh", flag.ContinueOnError)
-	fs.StringVar(&opts.host, "host", server.DefaultHost, "HTTP listen host")
-	fs.StringVar(&opts.port, "port", server.DefaultPort, "HTTP listen port")
+	fs.StringVar(&opts.host, "host", defaultHost, "HTTP listen host")
+	fs.StringVar(&opts.port, "port", defaultPort, "HTTP listen port")
 	fs.BoolVar(&opts.version, "version", false, "Print version and exit")
 	err := fs.Parse(args)
 	return opts, err

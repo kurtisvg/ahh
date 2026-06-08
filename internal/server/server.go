@@ -9,11 +9,6 @@ import (
 	"time"
 )
 
-const (
-	DefaultHost = "127.0.0.1"
-	DefaultPort = "8080"
-)
-
 func NewHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", healthz)
