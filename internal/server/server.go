@@ -14,7 +14,7 @@ func NewHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", index)
 	mux.HandleFunc("GET /healthz", healthz)
-	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(webassets.Files))))
+	mux.Handle("GET /static/", noStore(http.StripPrefix("/static/", http.FileServer(http.FS(webassets.Files)))))
 	return mux
 }
 
@@ -48,6 +48,13 @@ func healthz(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("ok\n"))
+}
+
+func noStore(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		next.ServeHTTP(w, r)
+	})
 }
 
 func index(w http.ResponseWriter, r *http.Request) {

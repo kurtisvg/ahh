@@ -46,7 +46,7 @@ func TestIndex(t *testing.T) {
 		t.Fatalf("body contains inline styles: %q", got)
 	}
 
-	if got := rec.Body.String(); !strings.Contains(got, `href="./static/styles.css"`) {
+	if got := rec.Body.String(); !strings.Contains(got, `href="./static/styles.css?v=2"`) {
 		t.Fatalf("body does not contain relative stylesheet link: %q", got)
 	}
 
@@ -65,6 +65,10 @@ func TestStaticStyles(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	if got, want := rec.Header().Get("Cache-Control"), "no-store"; got != want {
+		t.Fatalf("Cache-Control = %q, want %q", got, want)
 	}
 
 	if got := rec.Body.String(); !strings.Contains(got, ".app-shell") {
