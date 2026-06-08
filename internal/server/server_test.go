@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -45,18 +44,14 @@ func TestServeShutsDownOnContextCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := Listen("127.0.0.1", "0")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	errc := make(chan error, 1)
 	go func() {
-		srv := &http.Server{
-			Handler:           NewHandler(),
-			ReadHeaderTimeout: 30 * time.Second,
-		}
-		errc <- serve(ctx, srv, ln)
+		errc <- Serve(ctx, ln)
 	}()
 
 	client := &http.Client{Timeout: time.Second}

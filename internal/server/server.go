@@ -14,22 +14,16 @@ func NewHandler() http.Handler {
 	return mux
 }
 
-func ServeHTTP(ctx context.Context, host, port string) error {
+func Listen(host, port string) (net.Listener, error) {
 	addr := net.JoinHostPort(host, port)
-	ln, err := net.Listen("tcp", addr)
-	if err != nil {
-		return err
-	}
+	return net.Listen("tcp", addr)
+}
 
+func Serve(ctx context.Context, ln net.Listener) error {
 	srv := &http.Server{
 		Handler:           NewHandler(),
 		ReadHeaderTimeout: 30 * time.Second,
 	}
-
-	return serve(ctx, srv, ln)
-}
-
-func serve(ctx context.Context, srv *http.Server, ln net.Listener) error {
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
