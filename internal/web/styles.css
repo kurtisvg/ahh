@@ -33,40 +33,24 @@ body {
 }
 
 .sidebar-header {
-  min-height: 44px;
   margin-bottom: 12px;
 }
 
-.brand-lockup {
+.brand-mark {
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.brand-mark {
-  display: inline-flex;
-  align-items: center;
   justify-content: center;
-  min-width: 42px;
-  height: 28px;
-  padding: 0 9px;
+  width: 100%;
+  min-height: 42px;
+  padding: 0 13px;
   border: 1px solid #cfd9e8;
   border-radius: 7px;
   background: #eef4fb;
   color: #123052;
   font-size: 15px;
   font-weight: 800;
-  line-height: 1;
-}
-
-.brand-copy {
-  min-width: 0;
-  overflow: hidden;
-  color: #4d5a6d;
-  font-size: 13px;
-  font-weight: 600;
-  text-overflow: ellipsis;
+  line-height: 1.2;
+  text-align: center;
   white-space: nowrap;
 }
 
@@ -87,11 +71,36 @@ body {
 }
 
 .project-picker {
-  display: grid;
-  gap: 6px;
-  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 38px;
+  margin-bottom: 12px;
+  padding: 0 10px;
+  border: 1px solid #dbe1ea;
+  border-radius: 7px;
+  background: #f8fafc;
   color: #6a7484;
   font-size: 12px;
+  font-weight: 700;
+  text-transform: lowercase;
+  white-space: nowrap;
+}
+
+.project-picker .divider {
+  width: 1px;
+  align-self: stretch;
+  background: #dbe1ea;
+}
+
+.project-picker select {
+  flex: 1;
+  min-width: 0;
+  min-height: 28px;
+  border: 0;
+  background: transparent;
+  color: #18202f;
+  font-weight: 600;
 }
 
 select,
@@ -131,11 +140,13 @@ input::placeholder {
 }
 
 .section-title {
-  display: inline-flex;
+  display: flex;
   align-items: center;
+  justify-content: center;
   gap: 7px;
   margin: 0;
-  min-height: 30px;
+  width: 100%;
+  min-height: 38px;
   padding: 0 11px;
   border: 1px solid #dbe1ea;
   border-radius: 7px;

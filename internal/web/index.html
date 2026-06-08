@@ -10,18 +10,17 @@
     <main class="app-shell">
       <aside class="conversation-list" aria-label="Open conversations">
         <header class="sidebar-header">
-          <div class="brand-lockup">
-            <span class="brand-mark">Ahh</span>
-            <span class="brand-copy">the agent harness harness</span>
-          </div>
+          <div class="brand-mark">Ahh -- the agent harness harness</div>
         </header>
 
-        <label class="project-picker">
-          <span>Project</span>
+        <div class="project-picker">
+          <span>Projects</span>
+          <span class="divider" aria-hidden="true"></span>
           <select aria-label="Project">
             <option>project1</option>
           </select>
-        </label>
+          <span class="divider" aria-hidden="true"></span>
+        </div>
 
         <div class="list-header">
           <p class="section-title">
@@ -56,9 +55,13 @@
             <div class="message-author">Agent</div>
             <p>Added a localhost HTTP server with a health endpoint and graceful shutdown coverage.</p>
           </article>
-          <article class="message agent-message muted">
-            <div class="message-author">Next</div>
-            <p>Conversation streaming will appear here once the wrapper path is connected.</p>
+          <article class="message user-message">
+            <div class="message-author">You</div>
+            <p>Now shape the first browser view around a conversation list and a simple chat preview.</p>
+          </article>
+          <article class="message agent-message">
+            <div class="message-author">Agent</div>
+            <p>Updated the shell with project selection, conversation navigation, and a fixed composer area.</p>
           </article>
         </div>
 
