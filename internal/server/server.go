@@ -47,12 +47,14 @@ func Serve(ctx context.Context, ln net.Listener) error {
 	return nil
 }
 
+// healthz reports whether the local server can answer requests.
 func healthz(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("ok\n"))
 }
 
+// noStore prevents development static assets from being cached by browsers or proxies.
 func noStore(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Static assets change often during early UI work, and proxied views may cache aggressively.
@@ -61,6 +63,7 @@ func noStore(next http.Handler) http.Handler {
 	})
 }
 
+// index serves the browser shell at the root route.
 func index(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
