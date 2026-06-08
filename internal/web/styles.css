@@ -66,43 +66,71 @@ body {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-columns: 280px minmax(0, 1fr);
   min-height: calc(100vh - 64px);
 }
 
-.rail {
+.conversation-list {
   padding: 16px 12px;
   border-right: 1px solid #d9dde3;
   background: #ffffff;
 }
 
-.rail-link {
+.list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px 10px;
+}
+
+.count {
+  min-width: 24px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: #eef2f6;
+  color: #566071;
+  font-size: 12px;
+  text-align: center;
+}
+
+.conversation-row {
   display: block;
-  min-height: 36px;
-  padding: 9px 10px;
+  min-height: 70px;
+  padding: 12px;
   border-radius: 6px;
-  color: #495260;
-  font-size: 14px;
-  line-height: 18px;
+  border: 1px solid transparent;
+  color: #171a1f;
   text-decoration: none;
 }
 
-.rail-link.active {
+.conversation-row.active {
   background: #e9f1ef;
+  border-color: #c8dad5;
+}
+
+.conversation-title,
+.conversation-meta {
+  display: block;
+}
+
+.conversation-title {
   color: #123b32;
+  font-size: 14px;
   font-weight: 650;
 }
 
-.rail-link.disabled {
-  color: #9aa3af;
+.conversation-meta {
+  margin-top: 5px;
+  color: #69707d;
+  font-size: 13px;
 }
 
-.workspace {
+.conversation {
   min-width: 0;
   padding: 28px;
 }
 
-.workspace-header {
+.conversation-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -124,16 +152,62 @@ h1 {
   line-height: 1.2;
 }
 
-.empty-state {
+.transcript {
+  display: grid;
+  gap: 14px;
   margin-top: 24px;
   max-width: 680px;
+}
+
+.message {
+  padding: 14px 16px;
+  border: 1px solid #d9dde3;
+  border-radius: 8px;
+  background: #ffffff;
   color: #566071;
   font-size: 15px;
   line-height: 1.6;
 }
 
-.empty-state p {
+.message p {
   margin: 0;
+}
+
+.message-author {
+  margin-bottom: 5px;
+  color: #171a1f;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.user-message {
+  margin-left: auto;
+  max-width: 560px;
+  background: #eef6f3;
+  border-color: #c8dad5;
+}
+
+.agent-message {
+  max-width: 600px;
+}
+
+.message.muted {
+  border-style: dashed;
+  background: #f9fafb;
+}
+
+.composer {
+  display: flex;
+  align-items: center;
+  min-height: 48px;
+  max-width: 680px;
+  margin-top: 22px;
+  padding: 0 14px;
+  border: 1px solid #d9dde3;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #8a94a3;
+  font-size: 14px;
 }
 
 @media (max-width: 720px) {
@@ -145,24 +219,21 @@ h1 {
     grid-template-columns: 1fr;
   }
 
-  .rail {
-    display: flex;
-    gap: 4px;
-    overflow-x: auto;
-    padding: 10px 12px;
+  .conversation-list {
+    padding: 12px;
     border-right: 0;
     border-bottom: 1px solid #d9dde3;
   }
 
-  .rail-link {
-    flex: 0 0 auto;
-  }
-
-  .workspace {
+  .conversation {
     padding: 22px 16px;
   }
 
-  .workspace-header {
+  .conversation-header {
     display: grid;
+  }
+
+  .user-message {
+    margin-left: 0;
   }
 }

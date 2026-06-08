@@ -38,7 +38,7 @@ func TestIndex(t *testing.T) {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
 
-	if got := rec.Body.String(); !strings.Contains(got, "No conversation running") {
+	if got := rec.Body.String(); !strings.Contains(got, "Local server setup") {
 		t.Fatalf("body does not contain shell marker: %q", got)
 	}
 

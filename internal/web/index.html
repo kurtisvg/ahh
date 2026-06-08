@@ -19,18 +19,22 @@
     </header>
 
     <main class="app-shell">
-      <nav class="rail" aria-label="Primary">
-        <a class="rail-link active" href=".">Conversations</a>
-        <span class="rail-link disabled">Agents</span>
-        <span class="rail-link disabled">Projects</span>
-        <span class="rail-link disabled">Wrappers</span>
-      </nav>
+      <aside class="conversation-list" aria-label="Open conversations">
+        <div class="list-header">
+          <p class="eyebrow">Open conversations</p>
+          <span class="count">1</span>
+        </div>
+        <a class="conversation-row active" href=".">
+          <span class="conversation-title">Local server setup</span>
+          <span class="conversation-meta">Mock conversation</span>
+        </a>
+      </aside>
 
-      <section class="workspace" aria-labelledby="workspace-title">
-        <div class="workspace-header">
+      <section class="conversation" aria-labelledby="conversation-title">
+        <div class="conversation-header">
           <div>
-            <p class="eyebrow">Local workspace</p>
-            <h1 id="workspace-title">No conversation running</h1>
+            <p class="eyebrow">Claude Code wrapper</p>
+            <h1 id="conversation-title">Local server setup</h1>
           </div>
           <div class="status-line">
             <span class="status-dot" aria-hidden="true"></span>
@@ -38,8 +42,23 @@
           </div>
         </div>
 
-        <div class="empty-state">
-          <p>Conversation controls will appear here once the wrapper and harness path are connected.</p>
+        <div class="transcript" aria-label="Conversation preview">
+          <article class="message user-message">
+            <div class="message-author">You</div>
+            <p>Set up the local Ahh server and keep it easy to supervise from the browser.</p>
+          </article>
+          <article class="message agent-message">
+            <div class="message-author">Agent</div>
+            <p>Added a localhost HTTP server with a health endpoint and graceful shutdown coverage.</p>
+          </article>
+          <article class="message agent-message muted">
+            <div class="message-author">Next</div>
+            <p>Conversation streaming will appear here once the wrapper path is connected.</p>
+          </article>
+        </div>
+
+        <div class="composer" aria-label="Message composer preview">
+          <span>Message input will be enabled when Conversations are implemented.</span>
         </div>
       </section>
     </main>
