@@ -1,0 +1,25 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", ":semanticCommits"],
+  "dependencyDashboard": true,
+  "minimumReleaseAge": "14 days",
+  "rebaseWhen": "behind-base-branch",
+  "postUpdateOptions": ["gomodTidy"],
+  "packageRules": [
+    {
+      "matchDepNames": ["go", "golang"],
+      "groupName": "go version",
+      "rangeStrategy": "bump"
+    },
+    {
+      "matchManagers": ["gomod"],
+      "matchDepNames": ["!go"],
+      "groupName": "go dependencies"
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "matchDepNames": ["!go"],
+      "groupName": "ci/cd"
+    }
+  ]
+}
