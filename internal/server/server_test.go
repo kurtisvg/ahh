@@ -41,6 +41,10 @@ func TestIndex(t *testing.T) {
 	if got := rec.Body.String(); !strings.Contains(got, "No conversation running") {
 		t.Fatalf("body does not contain shell marker: %q", got)
 	}
+
+	if got := rec.Body.String(); strings.Contains(got, `href="/`) || strings.Contains(got, `src="/`) {
+		t.Fatalf("body contains root-relative asset URL: %q", got)
+	}
 }
 
 func TestStaticStyles(t *testing.T) {
