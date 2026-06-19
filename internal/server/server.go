@@ -2,19 +2,41 @@ package server
 
 import (
 	"context"
-	"log/slog"
+	"encoding/json"
 	"net"
 	"net/http"
 	"time"
 
+	"github.com/kurtisvg/ahh/internal/logging"
 	webassets "github.com/kurtisvg/ahh/internal/web"
+	"github.com/kurtisvg/ahh/internal/wrapperproc"
 )
+
+// WrapperSupervisor is the server-owned wrapper lifecycle boundary.
+type WrapperSupervisor interface {
+	Start(context.Context) error
+	Stop(context.Context) error
+	Status() wrapperproc.Status
+}
+
+// Options configures the Ahh HTTP server.
+type Options struct {
+	WrapperSupervisor WrapperSupervisor
+}
 
 // NewHandler builds the HTTP routes for the local Ahh server.
 func NewHandler() http.Handler {
+	return NewHandlerWithOptions(Options{})
+}
+
+// NewHandlerWithOptions builds the HTTP routes for the local Ahh server.
+func NewHandlerWithOptions(opts Options) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", index)
 	mux.HandleFunc("GET /healthz", healthz)
+	if opts.WrapperSupervisor != nil {
+		mux.HandleFunc("GET /api/wrapper/status", wrapperStatus(opts.WrapperSupervisor))
+	}
 	mux.Handle("GET /static/", noStore(http.StripPrefix("/static/", http.FileServer(http.FS(webassets.Files)))))
 	return mux
 }
@@ -27,8 +49,28 @@ func Listen(host, port string) (net.Listener, error) {
 
 // Serve runs the HTTP server until the context is canceled or serving fails.
 func Serve(ctx context.Context, ln net.Listener) error {
+	return ServeWithOptions(ctx, ln, Options{})
+}
+
+// ServeWithOptions runs the HTTP server and configured wrapper supervision.
+func ServeWithOptions(ctx context.Context, ln net.Listener, opts Options) error {
+	logger := logging.FromContext(ctx)
+	if opts.WrapperSupervisor != nil {
+		if err := opts.WrapperSupervisor.Start(ctx); err != nil {
+			return err
+		}
+		defer func() {
+			stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := opts.WrapperSupervisor.Stop(stopCtx); err != nil {
+				logger.Warn("wrapper shutdown error", "error", err)
+			}
+		}()
+		logger.Info("wrapper ready", "status", opts.WrapperSupervisor.Status())
+	}
+
 	srv := &http.Server{
-		Handler:           NewHandler(),
+		Handler:           NewHandlerWithOptions(opts),
 		ReadHeaderTimeout: 30 * time.Second,
 	}
 	go func() {
@@ -36,11 +78,11 @@ func Serve(ctx context.Context, ln net.Listener) error {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		if err := srv.Shutdown(shutdownCtx); err != nil {
-			slog.Warn("http server shutdown error", "error", err)
+			logger.Warn("http server shutdown error", "error", err)
 		}
 	}()
 
-	slog.Info("listening", "addr", ln.Addr().String())
+	logger.Info("listening", "addr", ln.Addr().String())
 	if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
 		return err
 	}
@@ -52,6 +94,15 @@ func healthz(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("ok\n"))
+}
+
+func wrapperStatus(supervisor WrapperSupervisor) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(supervisor.Status()); err != nil {
+			logging.FromContext(r.Context()).Warn("encode wrapper status error", "error", err)
+		}
+	}
 }
 
 // noStore prevents development static assets from being cached by browsers or proxies.
