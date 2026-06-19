@@ -23,7 +23,7 @@ type serverOptions struct {
 func newServerCommand(ctx context.Context, stdout io.Writer, run func(context.Context, io.Writer, serverOptions) error) *cobra.Command {
 	opts := serverOptions{host: "127.0.0.1", port: "8080"}
 	cmd := &cobra.Command{
-		Use:   "server",
+		Use:   "serve",
 		Short: "Run the local Ahh server.",
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return run(ctx, stdout, opts)

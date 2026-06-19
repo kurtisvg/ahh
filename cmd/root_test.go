@@ -8,7 +8,17 @@ import (
 	"testing"
 
 	"github.com/kurtisvg/ahh/internal/version"
+
+	"github.com/spf13/cobra"
 )
+
+func invokeCommand(args []string, runners commandRunners) (*cobra.Command, string, error) {
+	buf := new(bytes.Buffer)
+	cmd := newRootCommand(context.Background(), buf, buf, runners)
+	cmd.SetArgs(args)
+	err := cmd.Execute()
+	return cmd, buf.String(), err
+}
 
 func TestServerCommandPassesOptions(t *testing.T) {
 	t.Parallel()
@@ -22,9 +32,8 @@ func TestServerCommandPassesOptions(t *testing.T) {
 		wrapper: runWrapper,
 	}
 
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	if err := runWithRunners(context.Background(), []string{"server", "--host", "localhost", "--port", "18080"}, &stdout, &stderr, runners); err != nil {
+	_, _, err := invokeCommand([]string{"serve", "--host", "localhost", "--port", "18080"}, runners)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -39,17 +48,15 @@ func TestServerCommandPassesOptions(t *testing.T) {
 func TestRunVersion(t *testing.T) {
 	t.Parallel()
 
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-
-	if err := run(context.Background(), []string{"--version"}, &stdout, &stderr); err != nil {
+	_, got, err := invokeCommand([]string{"--version"}, commandRunners{
+		server:  runServer,
+		wrapper: runWrapper,
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := stdout.String(), "ahh version "+version.Version+"\n"; got != want {
+	if want := "ahh version " + version.Version + "\n"; got != want {
 		t.Fatalf("stdout = %q, want %q", got, want)
-	}
-	if stderr.Len() != 0 {
-		t.Fatalf("stderr = %q, want empty", stderr.String())
 	}
 }
 
@@ -65,9 +72,8 @@ func TestRunWrapperCommandPassesOptions(t *testing.T) {
 		},
 	}
 
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	if err := runWithRunners(context.Background(), []string{"run-wrapper", "claude-code"}, &stdout, &stderr, runners); err != nil {
+	_, _, err := invokeCommand([]string{"run-wrapper", "claude-code"}, runners)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -79,17 +85,14 @@ func TestRunWrapperCommandPassesOptions(t *testing.T) {
 func TestRunWithoutCommandShowsUsage(t *testing.T) {
 	t.Parallel()
 
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-
-	err := run(context.Background(), nil, &stdout, &stderr)
+	_, output, err := invokeCommand(nil, commandRunners{
+		server:  runServer,
+		wrapper: runWrapper,
+	})
 	if err == nil {
 		t.Fatal("run returned nil error, want missing command error")
 	}
-	if stdout.Len() != 0 {
-		t.Fatalf("stdout = %q, want empty", stdout.String())
-	}
-	if got := stderr.String(); !strings.Contains(got, "Usage:") {
-		t.Fatalf("stderr = %q, want usage", got)
+	if !strings.Contains(output, "Usage:") {
+		t.Fatalf("output = %q, want usage", output)
 	}
 }

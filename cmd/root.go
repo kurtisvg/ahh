@@ -26,14 +26,10 @@ func Execute() {
 }
 
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
-	return runWithRunners(ctx, args, stdout, stderr, commandRunners{
+	cmd := newRootCommand(ctx, stdout, stderr, commandRunners{
 		server:  runServer,
 		wrapper: runWrapper,
 	})
-}
-
-func runWithRunners(ctx context.Context, args []string, stdout, stderr io.Writer, runners commandRunners) error {
-	cmd := newRootCommand(ctx, stdout, stderr, runners)
 	cmd.SetArgs(args)
 	if len(args) == 0 {
 		cmd.SetOut(stderr)
