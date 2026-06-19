@@ -13,7 +13,10 @@ import (
 
 func invokeCommand(args []string) (*cobra.Command, string, error) {
 	buf := new(bytes.Buffer)
-	cmd := newRootCommand(context.Background(), buf, buf)
+	cmd := newRootCommand()
+	cmd.SetContext(context.Background())
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
 	cmd.SetArgs(args)
 	executed, err := cmd.ExecuteC()
 	return executed, buf.String(), err
@@ -21,7 +24,10 @@ func invokeCommand(args []string) (*cobra.Command, string, error) {
 
 func invokeCommandWithoutRun(args []string) (*cobra.Command, string, error) {
 	buf := new(bytes.Buffer)
-	cmd := newRootCommand(context.Background(), buf, buf)
+	cmd := newRootCommand()
+	cmd.SetContext(context.Background())
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
 	if target, _, err := cmd.Find(args); err == nil {
 		target.Run = nil
 		target.RunE = func(*cobra.Command, []string) error {

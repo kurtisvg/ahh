@@ -21,7 +21,10 @@ func Execute() {
 }
 
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
-	cmd := newRootCommand(ctx, stdout, stderr)
+	cmd := newRootCommand()
+	cmd.SetContext(ctx)
+	cmd.SetOut(stdout)
+	cmd.SetErr(stderr)
 	cmd.SetArgs(args)
 	if len(args) == 0 {
 		cmd.SetOut(stderr)
@@ -29,7 +32,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	return cmd.Execute()
 }
 
-func newRootCommand(ctx context.Context, stdout, stderr io.Writer) *cobra.Command {
+func newRootCommand() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "ahh",
 		Short:         "Ahh is the agent harness harness.",
@@ -41,12 +44,8 @@ func newRootCommand(ctx context.Context, stdout, stderr io.Writer) *cobra.Comman
 			return errors.New("missing command")
 		},
 	}
-	root.SetOut(stdout)
-	root.SetErr(stderr)
 
-	root.AddCommand(
-		newServeCmd(ctx, stdout),
-		newRunWrapperCmd(ctx, stdout),
-	)
+	root.AddCommand(newServeCmd())
+	root.AddCommand(newRunWrapperCmd())
 	return root
 }
