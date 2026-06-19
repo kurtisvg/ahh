@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// Execute parses CLI flags and starts the Ahh server.
+// Execute parses CLI flags and starts the requested Ahh command.
 func Execute() {
 	cmd := newRootCommand()
 	cmd.SetContext(logging.WithLogger(cmd.Context(), slog.Default()))

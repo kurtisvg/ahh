@@ -1,8 +1,13 @@
 package cmd
 
 import (
-	"errors"
 	"fmt"
+	"log/slog"
+	"os"
+	"os/signal"
+	"syscall"
+
+	"github.com/kurtisvg/ahh/internal/wrapper"
 
 	"github.com/spf13/cobra"
 )
@@ -13,6 +18,8 @@ const harnessClaudeCode harnessType = "claude-code"
 
 type runOpts struct {
 	harness harnessType
+	host    string
+	port    string
 }
 
 // parseRunOpts validates the shared harness argument for ahh run.
@@ -29,6 +36,11 @@ func parseRunOpts(opts *runOpts, args []string) error {
 	return nil
 }
 
+func parseRunFlags(cmd *cobra.Command, opts *runOpts) {
+	cmd.Flags().StringVar(&opts.host, "host", "127.0.0.1", "HTTP listen host")
+	cmd.Flags().StringVar(&opts.port, "port", "18081", "HTTP listen port")
+}
+
 func newRunCmd() *cobra.Command {
 	opts := runOpts{}
 	cmd := &cobra.Command{
@@ -41,9 +53,24 @@ func newRunCmd() *cobra.Command {
 			return runHarnessWrapper(cmd, opts)
 		},
 	}
+	parseRunFlags(cmd, &opts)
 	return cmd
 }
 
-func runHarnessWrapper(*cobra.Command, runOpts) error {
-	return errors.New("run is not implemented yet")
+func runHarnessWrapper(cmd *cobra.Command, opts runOpts) error {
+	ctx := cmd.Context()
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	ln, err := wrapper.Listen(opts.host, opts.port)
+	if err != nil {
+		return fmt.Errorf("listen wrapper: %w", err)
+	}
+	cmd.Printf("Running %s wrapper on http://%s\n", opts.harness, ln.Addr().String())
+
+	if err := wrapper.Serve(ctx, ln, string(opts.harness)); err != nil {
+		slog.Error("wrapper server error", "error", err)
+		return err
+	}
+	return nil
 }
