@@ -55,7 +55,6 @@ func newRootCommand(ctx context.Context, stdout, stderr io.Writer, runners comma
 	}
 	root.SetOut(stdout)
 	root.SetErr(stderr)
-	root.SetVersionTemplate("{{.Version}}\n")
 
 	root.AddCommand(
 		newServerCommand(ctx, stdout, runners.server),

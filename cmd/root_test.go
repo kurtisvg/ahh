@@ -45,7 +45,7 @@ func TestRunVersion(t *testing.T) {
 	if err := run(context.Background(), []string{"--version"}, &stdout, &stderr); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := stdout.String(), version.Version+"\n"; got != want {
+	if got, want := stdout.String(), "ahh version "+version.Version+"\n"; got != want {
 		t.Fatalf("stdout = %q, want %q", got, want)
 	}
 	if stderr.Len() != 0 {
