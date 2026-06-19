@@ -1,10 +1,8 @@
 package cmd
 
 import (
-	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 
 	"github.com/kurtisvg/ahh/internal/version"
@@ -14,22 +12,14 @@ import (
 
 // Execute parses CLI flags and starts the Ahh server.
 func Execute() {
-	if err := run(context.Background(), os.Args[1:], os.Stdout, os.Stderr); err != nil {
+	cmd := newRootCommand()
+	if len(os.Args) == 1 {
+		cmd.SetOut(os.Stderr)
+	}
+	if err := cmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-}
-
-func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
-	cmd := newRootCommand()
-	cmd.SetContext(ctx)
-	cmd.SetOut(stdout)
-	cmd.SetErr(stderr)
-	cmd.SetArgs(args)
-	if len(args) == 0 {
-		cmd.SetOut(stderr)
-	}
-	return cmd.Execute()
 }
 
 func newRootCommand() *cobra.Command {
