@@ -13,9 +13,6 @@ import (
 // Execute parses CLI flags and starts the Ahh server.
 func Execute() {
 	cmd := newRootCommand()
-	if len(os.Args) == 1 {
-		cmd.SetOut(os.Stderr)
-	}
 	if err := cmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -25,7 +22,7 @@ func Execute() {
 func newRootCommand() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "ahh",
-		Short:         "Ahh is the agent harness harness.",
+		Short:         "ahh - the agent harness harness.",
 		Version:       version.Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
