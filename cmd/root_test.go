@@ -3,52 +3,76 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"io"
 	"strings"
 	"testing"
+
+	"github.com/kurtisvg/ahh/internal/version"
 )
 
-func TestParseCommandServer(t *testing.T) {
+func TestServerCommandPassesOptions(t *testing.T) {
 	t.Parallel()
 
-	cmd, err := parseCommand([]string{"server", "--host", "localhost", "--port", "18080"})
-	if err != nil {
+	var got serverOptions
+	runners := commandRunners{
+		server: func(_ context.Context, _ io.Writer, opts serverOptions) error {
+			got = opts
+			return nil
+		},
+		wrapper: runWrapper,
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if err := runWithRunners(context.Background(), []string{"server", "--host", "localhost", "--port", "18080"}, &stdout, &stderr, runners); err != nil {
 		t.Fatal(err)
 	}
 
-	if cmd.name != "server" {
-		t.Fatalf("name = %q, want %q", cmd.name, "server")
+	if got.host != "localhost" {
+		t.Fatalf("host = %q, want %q", got.host, "localhost")
 	}
-	if cmd.serverOptions.host != "localhost" {
-		t.Fatalf("host = %q, want %q", cmd.serverOptions.host, "localhost")
-	}
-	if cmd.serverOptions.port != "18080" {
-		t.Fatalf("port = %q, want %q", cmd.serverOptions.port, "18080")
+	if got.port != "18080" {
+		t.Fatalf("port = %q, want %q", got.port, "18080")
 	}
 }
 
-func TestParseCommandVersion(t *testing.T) {
+func TestRunVersion(t *testing.T) {
 	t.Parallel()
 
-	cmd, err := parseCommand([]string{"--version"})
-	if err != nil {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	if err := run(context.Background(), []string{"--version"}, &stdout, &stderr); err != nil {
 		t.Fatal(err)
 	}
-
-	if cmd.name != "version" {
-		t.Fatalf("name = %q, want %q", cmd.name, "version")
+	if got, want := stdout.String(), version.Version+"\n"; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
 	}
 }
 
-func TestParseCommandRunWrapper(t *testing.T) {
+func TestRunWrapperCommandPassesOptions(t *testing.T) {
 	t.Parallel()
 
-	cmd, err := parseCommand([]string{"run-wrapper", "claude-code"})
-	if err != nil {
+	var got wrapperOptions
+	runners := commandRunners{
+		server: runServer,
+		wrapper: func(_ context.Context, _ io.Writer, opts wrapperOptions) error {
+			got = opts
+			return nil
+		},
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if err := runWithRunners(context.Background(), []string{"run-wrapper", "claude-code"}, &stdout, &stderr, runners); err != nil {
 		t.Fatal(err)
 	}
 
-	if cmd.name != "run-wrapper" {
-		t.Fatalf("name = %q, want %q", cmd.name, "run-wrapper")
+	if got.harness != "claude-code" {
+		t.Fatalf("harness = %q, want %q", got.harness, "claude-code")
 	}
 }
 

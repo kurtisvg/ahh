@@ -13,57 +13,21 @@ import (
 	"github.com/kurtisvg/ahh/internal/server"
 	"github.com/kurtisvg/ahh/internal/version"
 
-	flag "github.com/spf13/pflag"
+	"github.com/spf13/cobra"
 )
-
-type command struct {
-	name          string
-	serverOptions serverOptions
-}
 
 type serverOptions struct {
 	host string
 	port string
 }
 
-func parseCommand(args []string) (command, error) {
-	var version bool
-	root := flag.NewFlagSet("ahh", flag.ContinueOnError)
-	root.SetInterspersed(false)
-	root.BoolVar(&version, "version", false, "Print version and exit")
-	if err := root.Parse(args); err != nil {
-		return command{}, err
-	}
-	if version {
-		return command{name: "version"}, nil
-	}
-
-	remaining := root.Args()
-	if len(remaining) == 0 {
-		return command{}, errors.New("missing command")
-	}
-
-	switch remaining[0] {
-	case "server":
-		opts, err := parseServerOptions(remaining[1:])
-		if err != nil {
-			return command{}, err
-		}
-		return command{name: "server", serverOptions: opts}, nil
-	case "run-wrapper":
-		return command{name: "run-wrapper"}, nil
-	default:
-		return command{}, fmt.Errorf("unknown command %q", remaining[0])
-	}
+type wrapperOptions struct {
+	harness string
 }
 
-func parseServerOptions(args []string) (serverOptions, error) {
-	var opts serverOptions
-	fs := flag.NewFlagSet("ahh", flag.ContinueOnError)
-	fs.StringVar(&opts.host, "host", "127.0.0.1", "HTTP listen host")
-	fs.StringVar(&opts.port, "port", "8080", "HTTP listen port")
-	err := fs.Parse(args)
-	return opts, err
+type commandRunners struct {
+	server  func(context.Context, io.Writer, serverOptions) error
+	wrapper func(context.Context, io.Writer, wrapperOptions) error
 }
 
 // Execute parses CLI flags and starts the Ahh server.
@@ -75,24 +39,63 @@ func Execute() {
 }
 
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
-	cmd, err := parseCommand(args)
-	if err != nil {
-		printUsage(stderr)
-		return err
-	}
+	return runWithRunners(ctx, args, stdout, stderr, commandRunners{
+		server:  runServer,
+		wrapper: runWrapper,
+	})
+}
 
-	switch cmd.name {
-	case "version":
-		fmt.Fprintln(stdout, version.Version)
-		return nil
-	case "server":
-		return runServer(ctx, stdout, cmd.serverOptions)
-	case "run-wrapper":
-		return errors.New("run-wrapper is not implemented yet")
-	default:
-		printUsage(stderr)
-		return fmt.Errorf("unknown command %q", cmd.name)
+func runWithRunners(ctx context.Context, args []string, stdout, stderr io.Writer, runners commandRunners) error {
+	cmd := newRootCommand(ctx, stdout, stderr, runners)
+	cmd.SetArgs(args)
+	if len(args) == 0 {
+		cmd.SetOut(stderr)
 	}
+	return cmd.Execute()
+}
+
+func newRootCommand(ctx context.Context, stdout, stderr io.Writer, runners commandRunners) *cobra.Command {
+	root := &cobra.Command{
+		Use:           "ahh",
+		Short:         "Ahh is the agent harness harness.",
+		Version:       version.Version,
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			_ = cmd.Usage()
+			return errors.New("missing command")
+		},
+	}
+	root.SetOut(stdout)
+	root.SetErr(stderr)
+	root.SetVersionTemplate("{{.Version}}\n")
+
+	serverOpts := serverOptions{host: "127.0.0.1", port: "8080"}
+	serverCmd := &cobra.Command{
+		Use:   "server",
+		Short: "Run the local Ahh server.",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return runners.server(ctx, stdout, serverOpts)
+		},
+	}
+	serverCmd.Flags().StringVar(&serverOpts.host, "host", serverOpts.host, "HTTP listen host")
+	serverCmd.Flags().StringVar(&serverOpts.port, "port", serverOpts.port, "HTTP listen port")
+
+	runWrapperCmd := &cobra.Command{
+		Use:   "run-wrapper",
+		Short: "Run a harness wrapper process.",
+	}
+	claudeCodeOpts := wrapperOptions{harness: "claude-code"}
+	claudeCodeCmd := &cobra.Command{
+		Use:   "claude-code",
+		Short: "Run the Claude Code wrapper process.",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return runners.wrapper(ctx, stdout, claudeCodeOpts)
+		},
+	}
+	runWrapperCmd.AddCommand(claudeCodeCmd)
+	root.AddCommand(serverCmd, runWrapperCmd)
+	return root
 }
 
 func runServer(ctx context.Context, stdout io.Writer, opts serverOptions) error {
@@ -113,9 +116,6 @@ func runServer(ctx context.Context, stdout io.Writer, opts serverOptions) error 
 	return nil
 }
 
-func printUsage(w io.Writer) {
-	fmt.Fprintln(w, `Usage:
-  ahh --version
-  ahh server [--host 127.0.0.1] [--port 8080]
-  ahh run-wrapper claude-code`)
+func runWrapper(context.Context, io.Writer, wrapperOptions) error {
+	return errors.New("run-wrapper is not implemented yet")
 }
