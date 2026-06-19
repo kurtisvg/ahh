@@ -12,11 +12,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type commandRunners struct {
-	server  func(context.Context, io.Writer, serverOptions) error
-	wrapper func(context.Context, io.Writer, wrapperOptions) error
-}
-
 // Execute parses CLI flags and starts the Ahh server.
 func Execute() {
 	if err := run(context.Background(), os.Args[1:], os.Stdout, os.Stderr); err != nil {
@@ -26,10 +21,7 @@ func Execute() {
 }
 
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
-	cmd := newRootCommand(ctx, stdout, stderr, commandRunners{
-		server:  runServer,
-		wrapper: runWrapper,
-	})
+	cmd := newRootCommand(ctx, stdout, stderr)
 	cmd.SetArgs(args)
 	if len(args) == 0 {
 		cmd.SetOut(stderr)
@@ -37,7 +29,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	return cmd.Execute()
 }
 
-func newRootCommand(ctx context.Context, stdout, stderr io.Writer, runners commandRunners) *cobra.Command {
+func newRootCommand(ctx context.Context, stdout, stderr io.Writer) *cobra.Command {
 	root := &cobra.Command{
 		Use:           "ahh",
 		Short:         "Ahh is the agent harness harness.",
@@ -53,8 +45,8 @@ func newRootCommand(ctx context.Context, stdout, stderr io.Writer, runners comma
 	root.SetErr(stderr)
 
 	root.AddCommand(
-		newServerCommand(ctx, stdout, runners.server),
-		newRunWrapperCommand(ctx, stdout, runners.wrapper),
+		newServeCmd(ctx, stdout),
+		newRunWrapperCmd(ctx, stdout),
 	)
 	return root
 }

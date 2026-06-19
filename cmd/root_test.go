@@ -3,7 +3,6 @@ package cmd
 import (
 	"bytes"
 	"context"
-	"io"
 	"strings"
 	"testing"
 
@@ -12,46 +11,56 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func invokeCommand(args []string, runners commandRunners) (*cobra.Command, string, error) {
+func invokeCommand(args []string) (*cobra.Command, string, error) {
 	buf := new(bytes.Buffer)
-	cmd := newRootCommand(context.Background(), buf, buf, runners)
+	cmd := newRootCommand(context.Background(), buf, buf)
 	cmd.SetArgs(args)
-	err := cmd.Execute()
-	return cmd, buf.String(), err
+	executed, err := cmd.ExecuteC()
+	return executed, buf.String(), err
+}
+
+func invokeCommandWithoutRun(args []string) (*cobra.Command, string, error) {
+	buf := new(bytes.Buffer)
+	cmd := newRootCommand(context.Background(), buf, buf)
+	if target, _, err := cmd.Find(args); err == nil {
+		target.Run = nil
+		target.RunE = func(*cobra.Command, []string) error {
+			return nil
+		}
+	}
+	cmd.SetArgs(args)
+	executed, err := cmd.ExecuteC()
+	return executed, buf.String(), err
 }
 
 func TestServerCommandPassesOptions(t *testing.T) {
 	t.Parallel()
 
-	var got serverOptions
-	runners := commandRunners{
-		server: func(_ context.Context, _ io.Writer, opts serverOptions) error {
-			got = opts
-			return nil
-		},
-		wrapper: runWrapper,
-	}
-
-	_, _, err := invokeCommand([]string{"serve", "--host", "localhost", "--port", "18080"}, runners)
+	cmd, _, err := invokeCommandWithoutRun([]string{"serve", "--host", "localhost", "--port", "18080"})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if got.host != "localhost" {
-		t.Fatalf("host = %q, want %q", got.host, "localhost")
+	host, err := cmd.Flags().GetString("host")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got.port != "18080" {
-		t.Fatalf("port = %q, want %q", got.port, "18080")
+	if host != "localhost" {
+		t.Fatalf("host = %q, want %q", host, "localhost")
+	}
+	port, err := cmd.Flags().GetString("port")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if port != "18080" {
+		t.Fatalf("port = %q, want %q", port, "18080")
 	}
 }
 
 func TestRunVersion(t *testing.T) {
 	t.Parallel()
 
-	_, got, err := invokeCommand([]string{"--version"}, commandRunners{
-		server:  runServer,
-		wrapper: runWrapper,
-	})
+	_, got, err := invokeCommand([]string{"--version"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,32 +72,20 @@ func TestRunVersion(t *testing.T) {
 func TestRunWrapperCommandPassesOptions(t *testing.T) {
 	t.Parallel()
 
-	var got wrapperOptions
-	runners := commandRunners{
-		server: runServer,
-		wrapper: func(_ context.Context, _ io.Writer, opts wrapperOptions) error {
-			got = opts
-			return nil
-		},
-	}
-
-	_, _, err := invokeCommand([]string{"run-wrapper", "claude-code"}, runners)
+	cmd, _, err := invokeCommandWithoutRun([]string{"run-wrapper", "claude-code"})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if got.harness != "claude-code" {
-		t.Fatalf("harness = %q, want %q", got.harness, "claude-code")
+	if got, want := cmd.CommandPath(), "ahh run-wrapper claude-code"; got != want {
+		t.Fatalf("command path = %q, want %q", got, want)
 	}
 }
 
 func TestRunWithoutCommandShowsUsage(t *testing.T) {
 	t.Parallel()
 
-	_, output, err := invokeCommand(nil, commandRunners{
-		server:  runServer,
-		wrapper: runWrapper,
-	})
+	_, output, err := invokeCommand(nil)
 	if err == nil {
 		t.Fatal("run returned nil error, want missing command error")
 	}
