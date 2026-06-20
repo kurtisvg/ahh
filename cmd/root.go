@@ -2,8 +2,10 @@ package cmd
 
 import (
 	"errors"
+	"log/slog"
 	"os"
 
+	"github.com/kurtisvg/ahh/internal/logging"
 	"github.com/kurtisvg/ahh/internal/version"
 
 	"github.com/spf13/cobra"
@@ -12,6 +14,7 @@ import (
 // Execute parses CLI flags and starts the Ahh server.
 func Execute() {
 	cmd := newRootCommand()
+	cmd.SetContext(logging.WithLogger(cmd.Context(), slog.Default()))
 	if err := cmd.Execute(); err != nil {
 		cmd.PrintErrln(err)
 		os.Exit(1)

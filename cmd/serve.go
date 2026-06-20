@@ -2,11 +2,11 @@ package cmd
 
 import (
 	"fmt"
-	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 
+	"github.com/kurtisvg/ahh/internal/logging"
 	"github.com/kurtisvg/ahh/internal/server"
 	"github.com/kurtisvg/ahh/internal/version"
 
@@ -49,7 +49,7 @@ func runServe(cmd *cobra.Command, opts serveOpts) error {
 	cmd.Printf("Listening on http://%s\n", ln.Addr().String())
 
 	if err := server.Serve(ctx, ln); err != nil {
-		slog.Error("server error", "error", err)
+		logging.FromContext(ctx).Error("server error", "error", err)
 		return err
 	}
 	return nil
