@@ -15,6 +15,20 @@ type runOpts struct {
 	harness harnessType
 }
 
+// parseRunOpts validates the shared harness argument for ahh run.
+func parseRunOpts(opts *runOpts, args []string) error {
+	if len(args) != 1 {
+		return fmt.Errorf("expected one harness argument")
+	}
+	switch harness := harnessType(args[0]); harness {
+	case harnessClaudeCode:
+		opts.harness = harness
+	default:
+		return fmt.Errorf("unsupported harness %q", args[0])
+	}
+	return nil
+}
+
 func newRunCmd() *cobra.Command {
 	opts := runOpts{}
 	cmd := &cobra.Command{
@@ -28,19 +42,6 @@ func newRunCmd() *cobra.Command {
 		},
 	}
 	return cmd
-}
-
-func parseRunOpts(opts *runOpts, args []string) error {
-	if len(args) != 1 {
-		return fmt.Errorf("expected one harness argument")
-	}
-	switch harness := harnessType(args[0]); harness {
-	case harnessClaudeCode:
-		opts.harness = harness
-	default:
-		return fmt.Errorf("unsupported harness %q", args[0])
-	}
-	return nil
 }
 
 func runHarnessWrapper(*cobra.Command, runOpts) error {
