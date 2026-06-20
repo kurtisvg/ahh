@@ -75,15 +75,15 @@ func TestRunVersion(t *testing.T) {
 	}
 }
 
-func TestRunWrapperCommandPassesOptions(t *testing.T) {
+func TestRunCommandPassesOptions(t *testing.T) {
 	t.Parallel()
 
-	cmd, _, err := invokeCommandWithoutRun([]string{"run-wrapper", "claude-code"})
+	cmd, _, err := invokeCommandWithoutRun([]string{"run", "claude-code"})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if got, want := cmd.CommandPath(), "ahh run-wrapper claude-code"; got != want {
+	if got, want := cmd.CommandPath(), "ahh run claude-code"; got != want {
 		t.Fatalf("command path = %q, want %q", got, want)
 	}
 }
