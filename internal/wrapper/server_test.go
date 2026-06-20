@@ -2,12 +2,20 @@ package wrapper
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kurtisvg/ahh/internal/logging"
 )
+
+func testLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
 
 func TestHealthz(t *testing.T) {
 	t.Parallel()
@@ -70,7 +78,7 @@ func TestServeShutsDownOnContextCancel(t *testing.T) {
 
 	errc := make(chan error, 1)
 	go func() {
-		errc <- Serve(ctx, ln, "claude-code")
+		errc <- Serve(logging.WithLogger(ctx, testLogger()), ln, "claude-code")
 	}()
 
 	client := &http.Client{Timeout: time.Second}

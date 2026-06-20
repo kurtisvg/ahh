@@ -2,11 +2,11 @@ package cmd
 
 import (
 	"fmt"
-	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 
+	"github.com/kurtisvg/ahh/internal/logging"
 	"github.com/kurtisvg/ahh/internal/wrapper"
 
 	"github.com/spf13/cobra"
@@ -69,7 +69,7 @@ func runHarnessWrapper(cmd *cobra.Command, opts runOpts) error {
 	cmd.Printf("Running %s wrapper on http://%s\n", opts.harness, ln.Addr().String())
 
 	if err := wrapper.Serve(ctx, ln, string(opts.harness)); err != nil {
-		slog.Error("wrapper server error", "error", err)
+		logging.FromContext(ctx).Error("wrapper server error", "error", err)
 		return err
 	}
 	return nil
