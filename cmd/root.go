@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"errors"
-	"fmt"
 	"os"
 
 	"github.com/kurtisvg/ahh/internal/version"
@@ -14,7 +13,7 @@ import (
 func Execute() {
 	cmd := newRootCommand()
 	if err := cmd.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		cmd.PrintErrln(err)
 		os.Exit(1)
 	}
 }
