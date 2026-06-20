@@ -37,12 +37,16 @@ func runServer(cmd *cobra.Command, opts serverOptions) error {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	fmt.Fprintf(cmd.OutOrStdout(), "Ahh %s -- the agent harness harness\n", version.Version)
+	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Ahh %s -- the agent harness harness\n", version.Version); err != nil {
+		return fmt.Errorf("write startup message: %w", err)
+	}
 	ln, err := server.Listen(opts.host, opts.port)
 	if err != nil {
 		return fmt.Errorf("listen: %w", err)
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "Listening on http://%s\n", ln.Addr().String())
+	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Listening on http://%s\n", ln.Addr().String()); err != nil {
+		return fmt.Errorf("write listen message: %w", err)
+	}
 
 	if err := server.Serve(ctx, ln); err != nil {
 		slog.Error("server error", "error", err)
