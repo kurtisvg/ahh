@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/spf13/cobra"
 )
@@ -15,25 +16,31 @@ type runOpts struct {
 }
 
 func newRunCmd() *cobra.Command {
+	opts := runOpts{}
 	cmd := &cobra.Command{
-		Use:   "run",
+		Use:   "run <harness>",
 		Short: "Run a harness wrapper process.",
-	}
-	claudeCodeOpts := runOpts{}
-	claudeCodeCmd := &cobra.Command{
-		Use:   "claude-code",
-		Short: "Run the Claude Code wrapper process.",
+		Args: func(_ *cobra.Command, args []string) error {
+			return parseRunOpts(&opts, args)
+		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runHarnessWrapper(cmd, claudeCodeOpts)
+			return runHarnessWrapper(cmd, opts)
 		},
 	}
-	parseRunOpts(claudeCodeCmd, &claudeCodeOpts, harnessClaudeCode)
-	cmd.AddCommand(claudeCodeCmd)
 	return cmd
 }
 
-func parseRunOpts(_ *cobra.Command, opts *runOpts, harness harnessType) {
-	opts.harness = harness
+func parseRunOpts(opts *runOpts, args []string) error {
+	if len(args) != 1 {
+		return fmt.Errorf("expected one harness argument")
+	}
+	switch harness := harnessType(args[0]); harness {
+	case harnessClaudeCode:
+		opts.harness = harness
+	default:
+		return fmt.Errorf("unsupported harness %q", args[0])
+	}
+	return nil
 }
 
 func runHarnessWrapper(*cobra.Command, runOpts) error {
