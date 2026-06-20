@@ -11,7 +11,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func invokeCommand(args []string) (*cobra.Command, string, error) {
+func invokeCommand(t *testing.T, args []string) (*cobra.Command, string, error) {
+	t.Helper()
+
 	buf := new(bytes.Buffer)
 	cmd := newRootCommand()
 	cmd.SetContext(context.Background())
@@ -22,7 +24,9 @@ func invokeCommand(args []string) (*cobra.Command, string, error) {
 	return executed, buf.String(), err
 }
 
-func invokeCommandWithoutRun(args []string) (*cobra.Command, string, error) {
+func invokeCommandWithoutRun(t *testing.T, args []string) (*cobra.Command, string, error) {
+	t.Helper()
+
 	buf := new(bytes.Buffer)
 	cmd := newRootCommand()
 	cmd.SetContext(context.Background())
@@ -39,32 +43,57 @@ func invokeCommandWithoutRun(args []string) (*cobra.Command, string, error) {
 	return executed, buf.String(), err
 }
 
+func flagString(t *testing.T, cmd *cobra.Command, name string) string {
+	t.Helper()
+
+	value, err := cmd.Flags().GetString(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return value
+}
+
 func TestRootCommand(t *testing.T) {
 	t.Parallel()
 
-	t.Run("version", func(t *testing.T) {
-		t.Parallel()
+	tests := []struct {
+		name           string
+		args           []string
+		wantOutput     string
+		wantOutputPart string
+		wantErr        bool
+	}{
+		{
+			name:       "version",
+			args:       []string{"--version"},
+			wantOutput: "ahh version " + version.Version + "\n",
+		},
+		{
+			name:           "missing command",
+			wantOutputPart: "Usage:",
+			wantErr:        true,
+		},
+	}
 
-		_, got, err := invokeCommand([]string{"--version"})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if want := "ahh version " + version.Version + "\n"; got != want {
-			t.Fatalf("stdout = %q, want %q", got, want)
-		}
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	t.Run("missing command", func(t *testing.T) {
-		t.Parallel()
-
-		_, output, err := invokeCommand(nil)
-		if err == nil {
-			t.Fatal("run returned nil error, want missing command error")
-		}
-		if !strings.Contains(output, "Usage:") {
-			t.Fatalf("output = %q, want usage", output)
-		}
-	})
+			_, output, err := invokeCommand(t, tt.args)
+			if tt.wantErr && err == nil {
+				t.Fatal("error = nil, want error")
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatal(err)
+			}
+			if tt.wantOutput != "" && output != tt.wantOutput {
+				t.Fatalf("output = %q, want %q", output, tt.wantOutput)
+			}
+			if tt.wantOutputPart != "" && !strings.Contains(output, tt.wantOutputPart) {
+				t.Fatalf("output = %q, want substring %q", output, tt.wantOutputPart)
+			}
+		})
+	}
 }
 
 func TestServeCommand(t *testing.T) {
@@ -97,7 +126,7 @@ func TestServeCommand(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			cmd, _, err := invokeCommandWithoutRun(tt.args)
+			cmd, _, err := invokeCommandWithoutRun(t, tt.args)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -106,20 +135,11 @@ func TestServeCommand(t *testing.T) {
 				t.Fatalf("command path = %q, want %q", got, tt.wantPath)
 			}
 
-			host, err := cmd.Flags().GetString("host")
-			if err != nil {
-				t.Fatal(err)
+			if got := flagString(t, cmd, "host"); got != tt.wantHost {
+				t.Fatalf("host = %q, want %q", got, tt.wantHost)
 			}
-			if host != tt.wantHost {
-				t.Fatalf("host = %q, want %q", host, tt.wantHost)
-			}
-
-			port, err := cmd.Flags().GetString("port")
-			if err != nil {
-				t.Fatal(err)
-			}
-			if port != tt.wantPort {
-				t.Fatalf("port = %q, want %q", port, tt.wantPort)
+			if got := flagString(t, cmd, "port"); got != tt.wantPort {
+				t.Fatalf("port = %q, want %q", got, tt.wantPort)
 			}
 		})
 	}
@@ -128,12 +148,29 @@ func TestServeCommand(t *testing.T) {
 func TestRunCommand(t *testing.T) {
 	t.Parallel()
 
-	cmd, _, err := invokeCommandWithoutRun([]string{"run", "claude-code"})
-	if err != nil {
-		t.Fatal(err)
+	tests := []struct {
+		name     string
+		args     []string
+		wantPath string
+	}{
+		{
+			name:     "claude code",
+			args:     []string{"run", "claude-code"},
+			wantPath: "ahh run claude-code",
+		},
 	}
 
-	if got, want := cmd.CommandPath(), "ahh run claude-code"; got != want {
-		t.Fatalf("command path = %q, want %q", got, want)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cmd, _, err := invokeCommandWithoutRun(t, tt.args)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := cmd.CommandPath(); got != tt.wantPath {
+				t.Fatalf("command path = %q, want %q", got, tt.wantPath)
+			}
+		})
 	}
 }

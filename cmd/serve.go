@@ -18,19 +18,6 @@ type serveOpts struct {
 	port string
 }
 
-func newServeCmd() *cobra.Command {
-	opts := serveOpts{}
-	cmd := &cobra.Command{
-		Use:   "serve",
-		Short: "Run the local Ahh server.",
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runServer(cmd, opts)
-		},
-	}
-	parseServeOpts(cmd, &opts)
-	return cmd
-}
-
 func parseServeOpts(cmd *cobra.Command, opts *serveOpts) {
 	opts.host = "127.0.0.1"
 	opts.port = "8080"
@@ -38,7 +25,20 @@ func parseServeOpts(cmd *cobra.Command, opts *serveOpts) {
 	cmd.Flags().StringVar(&opts.port, "port", opts.port, "HTTP listen port")
 }
 
-func runServer(cmd *cobra.Command, opts serveOpts) error {
+func newServeCmd() *cobra.Command {
+	opts := serveOpts{}
+	cmd := &cobra.Command{
+		Use:   "serve",
+		Short: "Run the local Ahh server.",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runServe(cmd, opts)
+		},
+	}
+	parseServeOpts(cmd, &opts)
+	return cmd
+}
+
+func runServe(cmd *cobra.Command, opts serveOpts) error {
 	ctx := cmd.Context()
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
