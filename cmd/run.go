@@ -10,7 +10,7 @@ type harnessType string
 
 const harnessClaudeCode harnessType = "claude-code"
 
-type runOptions struct {
+type runOpts struct {
 	harness harnessType
 }
 
@@ -19,7 +19,7 @@ func newRunCmd() *cobra.Command {
 		Use:   "run",
 		Short: "Run a harness wrapper process.",
 	}
-	claudeCodeOpts := runOptions{harness: harnessClaudeCode}
+	claudeCodeOpts := runOpts{}
 	claudeCodeCmd := &cobra.Command{
 		Use:   "claude-code",
 		Short: "Run the Claude Code wrapper process.",
@@ -27,10 +27,15 @@ func newRunCmd() *cobra.Command {
 			return runHarnessWrapper(cmd, claudeCodeOpts)
 		},
 	}
+	parseRunOpts(claudeCodeCmd, &claudeCodeOpts, harnessClaudeCode)
 	cmd.AddCommand(claudeCodeCmd)
 	return cmd
 }
 
-func runHarnessWrapper(*cobra.Command, runOptions) error {
+func parseRunOpts(_ *cobra.Command, opts *runOpts, harness harnessType) {
+	opts.harness = harness
+}
+
+func runHarnessWrapper(*cobra.Command, runOpts) error {
 	return errors.New("run is not implemented yet")
 }

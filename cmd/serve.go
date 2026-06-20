@@ -13,13 +13,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type serverOptions struct {
+type serveOpts struct {
 	host string
 	port string
 }
 
 func newServeCmd() *cobra.Command {
-	opts := serverOptions{host: "127.0.0.1", port: "8080"}
+	opts := serveOpts{}
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Run the local Ahh server.",
@@ -27,12 +27,18 @@ func newServeCmd() *cobra.Command {
 			return runServer(cmd, opts)
 		},
 	}
-	cmd.Flags().StringVar(&opts.host, "host", opts.host, "HTTP listen host")
-	cmd.Flags().StringVar(&opts.port, "port", opts.port, "HTTP listen port")
+	parseServeOpts(cmd, &opts)
 	return cmd
 }
 
-func runServer(cmd *cobra.Command, opts serverOptions) error {
+func parseServeOpts(cmd *cobra.Command, opts *serveOpts) {
+	opts.host = "127.0.0.1"
+	opts.port = "8080"
+	cmd.Flags().StringVar(&opts.host, "host", opts.host, "HTTP listen host")
+	cmd.Flags().StringVar(&opts.port, "port", opts.port, "HTTP listen port")
+}
+
+func runServer(cmd *cobra.Command, opts serveOpts) error {
 	ctx := cmd.Context()
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
