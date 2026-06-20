@@ -6,8 +6,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type wrapperOptions struct {
-	harness string
+type harnessType string
+
+const harnessClaudeCode harnessType = "claude-code"
+
+type runOptions struct {
+	harness harnessType
 }
 
 func newRunCmd() *cobra.Command {
@@ -15,7 +19,7 @@ func newRunCmd() *cobra.Command {
 		Use:   "run",
 		Short: "Run a harness wrapper process.",
 	}
-	claudeCodeOpts := wrapperOptions{harness: "claude-code"}
+	claudeCodeOpts := runOptions{harness: harnessClaudeCode}
 	claudeCodeCmd := &cobra.Command{
 		Use:   "claude-code",
 		Short: "Run the Claude Code wrapper process.",
@@ -27,6 +31,6 @@ func newRunCmd() *cobra.Command {
 	return cmd
 }
 
-func runHarnessWrapper(*cobra.Command, wrapperOptions) error {
+func runHarnessWrapper(*cobra.Command, runOptions) error {
 	return errors.New("run is not implemented yet")
 }
