@@ -23,6 +23,7 @@ func TestRootCommand(t *testing.T) {
 			wantOutContains: []string{
 				"ahh - the agent harness harness",
 				"Usage:\n  ahh [flags]",
+				"wrap",
 			},
 		},
 		{
@@ -31,6 +32,7 @@ func TestRootCommand(t *testing.T) {
 			wantOutContains: []string{
 				"ahh - the agent harness harness",
 				"Usage:\n  ahh [flags]",
+				"wrap",
 			},
 		},
 		{
