@@ -1,4 +1,4 @@
-package wrapperproc
+package harness
 
 import (
 	"context"
@@ -20,7 +20,7 @@ const (
 	StateFailed   = "failed"
 )
 
-// Status describes the Ahh server's current view of a supervised wrapper.
+// Status describes the Ahh server's current view of a supervised harness.
 type Status struct {
 	Harness   string `json:"harness"`
 	State     string `json:"state"`
@@ -28,7 +28,7 @@ type Status struct {
 	LastError string `json:"last_error,omitempty"`
 }
 
-// Supervisor starts and stops a local wrapper process.
+// Supervisor starts and stops a local harness wrapper process.
 type Supervisor struct {
 	commandPath string
 	extraArgs   []string
@@ -43,7 +43,7 @@ type Supervisor struct {
 	status Status
 }
 
-// Options configures a local wrapper supervisor.
+// Options configures a local harness supervisor.
 type Options struct {
 	CommandPath string
 	ExtraArgs   []string
@@ -53,7 +53,7 @@ type Options struct {
 	HTTPClient  *http.Client
 }
 
-// NewSupervisor creates a local wrapper supervisor.
+// NewSupervisor creates a local harness supervisor.
 func NewSupervisor(opts Options) *Supervisor {
 	commandPath := opts.CommandPath
 	if commandPath == "" {
@@ -81,7 +81,7 @@ func NewSupervisor(opts Options) *Supervisor {
 	}
 }
 
-// Start launches the wrapper and waits for its readiness endpoint.
+// Start launches the harness wrapper and waits for its readiness endpoint.
 func (s *Supervisor) Start(ctx context.Context) error {
 	port, err := reservePort(s.host)
 	if err != nil {
@@ -102,7 +102,7 @@ func (s *Supervisor) Start(ctx context.Context) error {
 	s.mu.Lock()
 	if s.cmd != nil {
 		s.mu.Unlock()
-		return errors.New("wrapper process already started")
+		return errors.New("harness process already started")
 	}
 	s.cmd = cmd
 	s.status = Status{Harness: s.harness, State: StateStarting, Address: address}
@@ -140,7 +140,7 @@ func (s *Supervisor) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop terminates the supervised wrapper process.
+// Stop terminates the supervised harness wrapper process.
 func (s *Supervisor) Stop(ctx context.Context) error {
 	s.mu.Lock()
 	cmd := s.cmd
@@ -165,7 +165,7 @@ func (s *Supervisor) Stop(ctx context.Context) error {
 	}
 }
 
-// Status returns the latest wrapper status snapshot.
+// Status returns the latest harness status snapshot.
 func (s *Supervisor) Status() Status {
 	s.mu.Lock()
 	defer s.mu.Unlock()

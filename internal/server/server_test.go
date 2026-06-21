@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kurtisvg/ahh/internal/wrapperproc"
+	"github.com/kurtisvg/ahh/internal/harness"
 )
 
 func TestHealthz(t *testing.T) {
@@ -93,34 +93,34 @@ func TestNotFound(t *testing.T) {
 	}
 }
 
-func TestWrapperStatus(t *testing.T) {
+func TestHarnessStatus(t *testing.T) {
 	t.Parallel()
 
-	supervisor := &fakeWrapperSupervisor{
-		status: wrapperproc.Status{
+	supervisor := &fakeHarnessSupervisor{
+		status: harness.Status{
 			Harness: "claude-code",
-			State:   wrapperproc.StateReady,
+			State:   harness.StateReady,
 			Address: "127.0.0.1:18081",
 		},
 	}
-	req := httptest.NewRequest(http.MethodGet, "/api/wrapper/status", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/harness/status", nil)
 	rec := httptest.NewRecorder()
 
-	NewHandlerWithOptions(Options{WrapperSupervisor: supervisor}).ServeHTTP(rec, req)
+	NewHandlerWithOptions(Options{HarnessSupervisor: supervisor}).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
 
-	var status wrapperproc.Status
+	var status harness.Status
 	if err := json.NewDecoder(rec.Body).Decode(&status); err != nil {
 		t.Fatal(err)
 	}
 	if status.Harness != "claude-code" {
 		t.Fatalf("harness = %q, want %q", status.Harness, "claude-code")
 	}
-	if status.State != wrapperproc.StateReady {
-		t.Fatalf("state = %q, want %q", status.State, wrapperproc.StateReady)
+	if status.State != harness.StateReady {
+		t.Fatalf("state = %q, want %q", status.State, harness.StateReady)
 	}
 	if status.Address != "127.0.0.1:18081" {
 		t.Fatalf("address = %q, want %q", status.Address, "127.0.0.1:18081")
@@ -159,7 +159,7 @@ func TestServeShutsDownOnContextCancel(t *testing.T) {
 	}
 }
 
-func TestServeStartsAndStopsWrapperSupervisor(t *testing.T) {
+func TestServeStartsAndStopsHarnessSupervisor(t *testing.T) {
 	t.Parallel()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -169,21 +169,21 @@ func TestServeStartsAndStopsWrapperSupervisor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	supervisor := &fakeWrapperSupervisor{
-		status: wrapperproc.Status{
+	supervisor := &fakeHarnessSupervisor{
+		status: harness.Status{
 			Harness: "claude-code",
-			State:   wrapperproc.StateReady,
+			State:   harness.StateReady,
 			Address: "127.0.0.1:18081",
 		},
 	}
 
 	errc := make(chan error, 1)
 	go func() {
-		errc <- ServeWithOptions(ctx, ln, Options{WrapperSupervisor: supervisor})
+		errc <- ServeWithOptions(ctx, ln, Options{HarnessSupervisor: supervisor})
 	}()
 
 	client := &http.Client{Timeout: time.Second}
-	url := "http://" + ln.Addr().String() + "/api/wrapper/status"
+	url := "http://" + ln.Addr().String() + "/api/harness/status"
 	waitForHealthz(t, client, url, errc)
 
 	cancel()
@@ -231,42 +231,42 @@ func waitForHealthz(t *testing.T, client *http.Client, url string, errc <-chan e
 	}
 }
 
-type fakeWrapperSupervisor struct {
+type fakeHarnessSupervisor struct {
 	mu       sync.Mutex
 	starts   int
 	stops    int
-	status   wrapperproc.Status
+	status   harness.Status
 	startErr error
 	stopErr  error
 }
 
-func (f *fakeWrapperSupervisor) Start(context.Context) error {
+func (f *fakeHarnessSupervisor) Start(context.Context) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.starts++
 	return f.startErr
 }
 
-func (f *fakeWrapperSupervisor) Stop(context.Context) error {
+func (f *fakeHarnessSupervisor) Stop(context.Context) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.stops++
 	return f.stopErr
 }
 
-func (f *fakeWrapperSupervisor) Status() wrapperproc.Status {
+func (f *fakeHarnessSupervisor) Status() harness.Status {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.status
 }
 
-func (f *fakeWrapperSupervisor) startCount() int {
+func (f *fakeHarnessSupervisor) startCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.starts
 }
 
-func (f *fakeWrapperSupervisor) stopCount() int {
+func (f *fakeHarnessSupervisor) stopCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.stops

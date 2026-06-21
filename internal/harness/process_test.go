@@ -1,4 +1,4 @@
-package wrapperproc
+package harness
 
 import (
 	"context"

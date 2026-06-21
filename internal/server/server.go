@@ -7,21 +7,21 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/kurtisvg/ahh/internal/harness"
 	"github.com/kurtisvg/ahh/internal/logging"
 	webassets "github.com/kurtisvg/ahh/internal/web"
-	"github.com/kurtisvg/ahh/internal/wrapperproc"
 )
 
-// WrapperSupervisor is the server-owned wrapper lifecycle boundary.
-type WrapperSupervisor interface {
+// HarnessSupervisor is the server-owned harness lifecycle boundary.
+type HarnessSupervisor interface {
 	Start(context.Context) error
 	Stop(context.Context) error
-	Status() wrapperproc.Status
+	Status() harness.Status
 }
 
 // Options configures the Ahh HTTP server.
 type Options struct {
-	WrapperSupervisor WrapperSupervisor
+	HarnessSupervisor HarnessSupervisor
 }
 
 // NewHandler builds the HTTP routes for the local Ahh server.
@@ -34,8 +34,8 @@ func NewHandlerWithOptions(opts Options) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", index)
 	mux.HandleFunc("GET /healthz", healthz)
-	if opts.WrapperSupervisor != nil {
-		mux.HandleFunc("GET /api/wrapper/status", wrapperStatus(opts.WrapperSupervisor))
+	if opts.HarnessSupervisor != nil {
+		mux.HandleFunc("GET /api/harness/status", harnessStatus(opts.HarnessSupervisor))
 	}
 	mux.Handle("GET /static/", noStore(http.StripPrefix("/static/", http.FileServer(http.FS(webassets.Files)))))
 	return mux
@@ -52,21 +52,21 @@ func Serve(ctx context.Context, ln net.Listener) error {
 	return ServeWithOptions(ctx, ln, Options{})
 }
 
-// ServeWithOptions runs the HTTP server and configured wrapper supervision.
+// ServeWithOptions runs the HTTP server and configured harness supervision.
 func ServeWithOptions(ctx context.Context, ln net.Listener, opts Options) error {
 	logger := logging.FromContext(ctx)
-	if opts.WrapperSupervisor != nil {
-		if err := opts.WrapperSupervisor.Start(ctx); err != nil {
+	if opts.HarnessSupervisor != nil {
+		if err := opts.HarnessSupervisor.Start(ctx); err != nil {
 			return err
 		}
 		defer func() {
 			stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			if err := opts.WrapperSupervisor.Stop(stopCtx); err != nil {
-				logger.Warn("wrapper shutdown error", "error", err)
+			if err := opts.HarnessSupervisor.Stop(stopCtx); err != nil {
+				logger.Warn("harness shutdown error", "error", err)
 			}
 		}()
-		logger.Info("wrapper ready", "status", opts.WrapperSupervisor.Status())
+		logger.Info("harness ready", "status", opts.HarnessSupervisor.Status())
 	}
 
 	srv := &http.Server{
@@ -96,11 +96,11 @@ func healthz(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write([]byte("ok\n"))
 }
 
-func wrapperStatus(supervisor WrapperSupervisor) http.HandlerFunc {
+func harnessStatus(supervisor HarnessSupervisor) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(supervisor.Status()); err != nil {
-			logging.FromContext(r.Context()).Warn("encode wrapper status error", "error", err)
+			logging.FromContext(r.Context()).Warn("encode harness status error", "error", err)
 		}
 	}
 }
