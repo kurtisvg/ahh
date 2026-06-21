@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kurtisvg/ahh/internal/wrapper"
+	harnessserver "github.com/kurtisvg/ahh/internal/harness/server"
 )
 
 func TestSupervisorStartsAndStopsWrapper(t *testing.T) {
@@ -95,7 +95,7 @@ func TestHelperProcess(t *testing.T) {
 	if err != nil {
 		os.Exit(2)
 	}
-	if err := wrapper.Serve(ctx, ln, "claude-code"); err != nil {
+	if err := harnessserver.Serve(ctx, ln, "claude-code"); err != nil {
 		os.Exit(2)
 	}
 	os.Exit(0)

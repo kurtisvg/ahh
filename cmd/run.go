@@ -6,8 +6,8 @@ import (
 	"os/signal"
 	"syscall"
 
+	harnessserver "github.com/kurtisvg/ahh/internal/harness/server"
 	"github.com/kurtisvg/ahh/internal/logging"
-	"github.com/kurtisvg/ahh/internal/wrapper"
 
 	"github.com/spf13/cobra"
 )
@@ -62,13 +62,13 @@ func runHarnessWrapper(cmd *cobra.Command, opts runOpts) error {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	ln, err := wrapper.Listen(opts.host, opts.port)
+	ln, err := harnessserver.Listen(opts.host, opts.port)
 	if err != nil {
 		return fmt.Errorf("listen wrapper: %w", err)
 	}
 	cmd.Printf("Running %s wrapper on http://%s\n", opts.harness, ln.Addr().String())
 
-	if err := wrapper.Serve(ctx, ln, string(opts.harness)); err != nil {
+	if err := harnessserver.Serve(ctx, ln, string(opts.harness)); err != nil {
 		logging.FromContext(ctx).Error("wrapper server error", "error", err)
 		return err
 	}
