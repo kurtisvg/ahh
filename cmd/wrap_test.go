@@ -15,18 +15,29 @@ func TestWrapCommand(t *testing.T) {
 		wantErrContains string
 	}{
 		{
-			name: "shows namespace help with no args",
-			args: []string{"wrap"},
+			name: "shows wrap help",
+			args: []string{"wrap", "--help"},
 			wantOutContains: []string{
-				"Run harness wrapper processes",
+				"Run a harness wrapper process",
 				"Usage:",
-				"ahh wrap",
+				"ahh wrap <harness>",
+				"ahh wrap claude-code",
 			},
 		},
 		{
-			name:            "rejects unknown wrapper command",
+			name:            "requires a harness argument",
+			args:            []string{"wrap"},
+			wantErrContains: "accepts 1 arg(s), received 0",
+		},
+		{
+			name:            "rejects unknown harness",
 			args:            []string{"wrap", "nope"},
-			wantErrContains: `unknown command "nope" for "ahh wrap"`,
+			wantErrContains: `invalid argument "nope" for "ahh wrap"`,
+		},
+		{
+			name:            "reports Claude Code entrypoint as not implemented",
+			args:            []string{"wrap", "claude-code"},
+			wantErrContains: "claude-code wrapper entrypoint is not implemented yet",
 		},
 	}
 
