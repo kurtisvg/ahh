@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"strings"
 	"testing"
 
@@ -51,7 +52,7 @@ func TestRootCommand(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			stdout, stderr, err := executeRootCommand(tt.args...)
+			stdout, stderr, err := executeRootCommand(t.Context(), tt.args...)
 
 			if tt.wantErrContains == "" && err != nil {
 				t.Fatalf("Execute() error = %v", err)
@@ -93,10 +94,11 @@ func TestRootCommandConfiguresCobraErrorHandling(t *testing.T) {
 	}
 }
 
-func executeRootCommand(args ...string) (string, string, error) {
+func executeRootCommand(ctx context.Context, args ...string) (string, string, error) {
 	cmd := NewCommand()
 	stdout := new(bytes.Buffer)
 	stderr := new(bytes.Buffer)
+	cmd.SetContext(ctx)
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
 	cmd.SetArgs(args)

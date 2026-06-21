@@ -1,16 +1,27 @@
 package cmd
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
-func TestWrapCommand(t *testing.T) {
-	t.Parallel()
+const (
+	fakeClaudeAgentACPSuccessScript = `#!/bin/sh
+exit 0
+`
 
+	fakeClaudeAgentACPFailureScript = `#!/bin/sh
+exit 7
+`
+)
+
+func TestWrapCommand(t *testing.T) {
 	tests := []struct {
 		name            string
 		args            []string
+		setup           func(*testing.T)
 		wantOutContains []string
 		wantErrContains string
 	}{
@@ -35,17 +46,37 @@ func TestWrapCommand(t *testing.T) {
 			wantErrContains: `invalid argument "nope" for "ahh wrap"`,
 		},
 		{
-			name:            "reports Claude Code entrypoint as not implemented",
-			args:            []string{"wrap", "claude-code"},
-			wantErrContains: "claude-code wrapper entrypoint is not implemented yet",
+			name: "starts Claude Code harness",
+			args: []string{"wrap", "claude-code"},
+			setup: func(t *testing.T) {
+				installFakeClaudeAgentACP(t, fakeClaudeAgentACPSuccessScript)
+			},
+		},
+		{
+			name: "reports missing Claude Code harness command",
+			args: []string{"wrap", "claude-code"},
+			setup: func(t *testing.T) {
+				t.Setenv("PATH", t.TempDir())
+			},
+			wantErrContains: "executable file not found",
+		},
+		{
+			name: "reports Claude Code harness runtime failures",
+			args: []string{"wrap", "claude-code"},
+			setup: func(t *testing.T) {
+				installFakeClaudeAgentACP(t, fakeClaudeAgentACPFailureScript)
+			},
+			wantErrContains: "exit status 7",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+			if tt.setup != nil {
+				tt.setup(t)
+			}
 
-			stdout, stderr, err := executeRootCommand(tt.args...)
+			stdout, stderr, err := executeRootCommand(t.Context(), tt.args...)
 
 			if tt.wantErrContains == "" && err != nil {
 				t.Fatalf("Execute() error = %v", err)
@@ -69,4 +100,16 @@ func TestWrapCommand(t *testing.T) {
 			}
 		})
 	}
+}
+
+func installFakeClaudeAgentACP(t *testing.T, script string) {
+	t.Helper()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "claude-agent-acp")
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake claude-agent-acp: %v", err)
+	}
+
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
