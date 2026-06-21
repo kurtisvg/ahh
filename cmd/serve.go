@@ -6,7 +6,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/kurtisvg/ahh/internal/harness"
+	harnesssupervisor "github.com/kurtisvg/ahh/internal/harness/supervisor"
 	"github.com/kurtisvg/ahh/internal/logging"
 	"github.com/kurtisvg/ahh/internal/server"
 	"github.com/kurtisvg/ahh/internal/version"
@@ -49,7 +49,7 @@ func runServe(cmd *cobra.Command, opts serveOpts) error {
 	}
 	cmd.Printf("Listening on http://%s\n", ln.Addr().String())
 
-	supervisor := harness.NewSupervisor(harness.Options{Harness: string(harnessClaudeCode)})
+	supervisor := harnesssupervisor.New(harnesssupervisor.Options{Harness: string(harnessClaudeCode)})
 	if err := server.ServeWithOptions(ctx, ln, server.Options{HarnessSupervisor: supervisor}); err != nil {
 		logging.FromContext(ctx).Error("server error", "error", err)
 		return err

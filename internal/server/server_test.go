@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kurtisvg/ahh/internal/harness"
+	harnesssupervisor "github.com/kurtisvg/ahh/internal/harness/supervisor"
 )
 
 func TestHealthz(t *testing.T) {
@@ -97,9 +97,9 @@ func TestHarnessStatus(t *testing.T) {
 	t.Parallel()
 
 	supervisor := &fakeHarnessSupervisor{
-		status: harness.Status{
+		status: harnesssupervisor.Status{
 			Harness: "claude-code",
-			State:   harness.StateReady,
+			State:   harnesssupervisor.StateReady,
 			Address: "127.0.0.1:18081",
 		},
 	}
@@ -112,15 +112,15 @@ func TestHarnessStatus(t *testing.T) {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
 
-	var status harness.Status
+	var status harnesssupervisor.Status
 	if err := json.NewDecoder(rec.Body).Decode(&status); err != nil {
 		t.Fatal(err)
 	}
 	if status.Harness != "claude-code" {
 		t.Fatalf("harness = %q, want %q", status.Harness, "claude-code")
 	}
-	if status.State != harness.StateReady {
-		t.Fatalf("state = %q, want %q", status.State, harness.StateReady)
+	if status.State != harnesssupervisor.StateReady {
+		t.Fatalf("state = %q, want %q", status.State, harnesssupervisor.StateReady)
 	}
 	if status.Address != "127.0.0.1:18081" {
 		t.Fatalf("address = %q, want %q", status.Address, "127.0.0.1:18081")
@@ -170,9 +170,9 @@ func TestServeStartsAndStopsHarnessSupervisor(t *testing.T) {
 		t.Fatal(err)
 	}
 	supervisor := &fakeHarnessSupervisor{
-		status: harness.Status{
+		status: harnesssupervisor.Status{
 			Harness: "claude-code",
-			State:   harness.StateReady,
+			State:   harnesssupervisor.StateReady,
 			Address: "127.0.0.1:18081",
 		},
 	}
@@ -235,7 +235,7 @@ type fakeHarnessSupervisor struct {
 	mu       sync.Mutex
 	starts   int
 	stops    int
-	status   harness.Status
+	status   harnesssupervisor.Status
 	startErr error
 	stopErr  error
 }
@@ -254,7 +254,7 @@ func (f *fakeHarnessSupervisor) Stop(context.Context) error {
 	return f.stopErr
 }
 
-func (f *fakeHarnessSupervisor) Status() harness.Status {
+func (f *fakeHarnessSupervisor) Status() harnesssupervisor.Status {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.status

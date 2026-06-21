@@ -1,4 +1,4 @@
-package harness
+package supervisor
 
 import (
 	"context"
@@ -53,8 +53,8 @@ type Options struct {
 	HTTPClient  *http.Client
 }
 
-// NewSupervisor creates a local harness supervisor.
-func NewSupervisor(opts Options) *Supervisor {
+// New creates a local harness supervisor.
+func New(opts Options) *Supervisor {
 	commandPath := opts.CommandPath
 	if commandPath == "" {
 		commandPath = os.Args[0]

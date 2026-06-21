@@ -1,4 +1,4 @@
-package harness
+package supervisor
 
 import (
 	"context"
@@ -15,7 +15,7 @@ import (
 func TestSupervisorStartsAndStopsWrapper(t *testing.T) {
 	t.Parallel()
 
-	supervisor := NewSupervisor(Options{
+	supervisor := New(Options{
 		CommandPath: os.Args[0],
 		ExtraArgs:   []string{"-test.run=TestHelperProcess", "--"},
 		Env:         []string{"GO_WANT_HELPER_PROCESS=1"},

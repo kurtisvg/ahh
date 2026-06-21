@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/kurtisvg/ahh/internal/harness"
+	harnesssupervisor "github.com/kurtisvg/ahh/internal/harness/supervisor"
 	"github.com/kurtisvg/ahh/internal/logging"
 	webassets "github.com/kurtisvg/ahh/internal/web"
 )
@@ -16,7 +16,7 @@ import (
 type HarnessSupervisor interface {
 	Start(context.Context) error
 	Stop(context.Context) error
-	Status() harness.Status
+	Status() harnesssupervisor.Status
 }
 
 // Options configures the Ahh HTTP server.
