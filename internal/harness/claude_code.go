@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/creack/pty"
 )
@@ -30,6 +31,7 @@ type ClaudeCodeHarness struct {
 func Start(ctx context.Context) (Harness, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	cmd := exec.CommandContext(ctx, claudeCommand)
+	cmd.Env = claudeEnvironment(os.Environ())
 
 	ptyFile, err := pty.StartWithSize(cmd, &pty.Winsize{
 		Rows: defaultRows,
@@ -84,7 +86,57 @@ func (h *ClaudeCodeHarness) Done() bool {
 	}
 }
 
+func (h *ClaudeCodeHarness) Read(p []byte) (int, error) {
+	return h.pty.Read(p)
+}
+
+func (h *ClaudeCodeHarness) Write(p []byte) (int, error) {
+	return h.pty.Write(p)
+}
+
+func (h *ClaudeCodeHarness) Resize(rows, cols uint16) error {
+	if rows == 0 || cols == 0 {
+		return fmt.Errorf("resize pty: rows and cols must be positive")
+	}
+
+	return pty.Setsize(h.pty, &pty.Winsize{
+		Rows: rows,
+		Cols: cols,
+	})
+}
+
 func (h *ClaudeCodeHarness) Close() {
 	h.cancel()
 	_ = h.pty.Close()
+}
+
+func claudeEnvironment(env []string) []string {
+	skip := map[string]struct{}{
+		"CLICOLOR":    {},
+		"COLORTERM":   {},
+		"FORCE_COLOR": {},
+		"NO_COLOR":    {},
+		"TERM":        {},
+	}
+
+	next := make([]string, 0, len(env)+4)
+	for _, value := range env {
+		key, _, ok := strings.Cut(value, "=")
+		if !ok {
+			next = append(next, value)
+			continue
+		}
+		if _, ok := skip[key]; ok {
+			continue
+		}
+		next = append(next, value)
+	}
+
+	return append(
+		next,
+		"TERM=xterm-256color",
+		"COLORTERM=truecolor",
+		"CLICOLOR=1",
+		"FORCE_COLOR=1",
+	)
 }
