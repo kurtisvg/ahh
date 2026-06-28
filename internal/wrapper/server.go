@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
 	"net"
 	"net/http"
 	"time"
@@ -14,7 +13,7 @@ import (
 
 const shutdownTimeout = 5 * time.Second
 
-// Server exposes a browser-testable wrapper surface for a running harness.
+// Server exposes the wrapper API for a running harness.
 type Server struct {
 	addr       string
 	httpServer *http.Server
@@ -41,8 +40,6 @@ func Start(h harness.Harness, addr string) (*Server, error) {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", serveTerminal)
-	mux.Handle("/assets/", serveAssets())
 	mux.HandleFunc("/ready", serveReady(h))
 	mux.Handle("/pty", servePTY(server.terminal))
 
@@ -86,27 +83,9 @@ func (s *Server) Close(ctx context.Context) error {
 	return nil
 }
 
-func serveTerminal(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
-	if r.URL.Path != "/" {
-		http.NotFound(w, r)
-		return
-	}
-
-	page, err := fs.ReadFile(assetsFS, "assets/index.html")
-	if err != nil {
-		http.Error(w, "terminal page unavailable", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write(page)
-}
-
+// serveReady reports whether this wrapper still has a running harness process.
+// It is a lifecycle check for the wrapper transport, not a deeper terminal
+// responsiveness check.
 func serveReady(h harness.Harness) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {

@@ -1,7 +1,7 @@
 # Browser Terminal Assets
 
-The following files are vendored for the browser PTY wrapper so the wrapper can
-serve a terminal UI without depending on a CDN or frontend build pipeline:
+The following files are vendored for the browser PTY terminal so the Ahh server
+can serve the UI without depending on a CDN or frontend build pipeline:
 
 - `xterm.css` from `@xterm/xterm` version `5.5.0`
 - `xterm.js` from `@xterm/xterm` version `5.5.0`

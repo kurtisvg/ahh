@@ -36,10 +36,9 @@ func TestServerHTTP(t *testing.T) {
 		wantBodyContains string
 	}{
 		{
-			name:             "serves terminal page",
-			path:             "/",
-			wantStatus:       http.StatusOK,
-			wantBodyContains: "Claude Code PTY",
+			name:       "does not serve terminal page",
+			path:       "/",
+			wantStatus: http.StatusNotFound,
 		},
 		{
 			name:             "reports readiness",
@@ -48,10 +47,9 @@ func TestServerHTTP(t *testing.T) {
 			wantBodyContains: "ready",
 		},
 		{
-			name:             "serves terminal assets",
-			path:             "/assets/xterm.css",
-			wantStatus:       http.StatusOK,
-			wantBodyContains: ".xterm",
+			name:       "does not serve terminal assets",
+			path:       "/assets/xterm.css",
+			wantStatus: http.StatusNotFound,
 		},
 		{
 			name:       "reports missing page",
@@ -91,27 +89,6 @@ func TestServerHTTP(t *testing.T) {
 				t.Fatalf("GET %s body = %q, want containing %q", tt.path, body, tt.wantBodyContains)
 			}
 		})
-	}
-}
-
-func TestTerminalPageUsesProxySafePaths(t *testing.T) {
-	page := string(readAsset(t, "assets/index.html"))
-	wants := []string{
-		`href="assets/xterm.css"`,
-		`src="assets/xterm.js"`,
-		`src="assets/addon-fit.js"`,
-		`new URL('pty', window.location.origin + basePath)`,
-	}
-	for _, want := range wants {
-		if !strings.Contains(page, want) {
-			t.Fatalf("terminal page does not contain %q", want)
-		}
-	}
-
-	for _, bad := range []string{`href="/assets/`, `src="/assets/`, `host + '/pty'`} {
-		if strings.Contains(page, bad) {
-			t.Fatalf("terminal page contains proxy-unsafe path %q", bad)
-		}
 	}
 }
 
@@ -303,17 +280,6 @@ func closeTestServer(t *testing.T, server *Server) {
 
 func websocketURL(serverURL, path string) string {
 	return "ws://" + strings.TrimPrefix(serverURL, "http://") + path
-}
-
-func readAsset(t *testing.T, name string) []byte {
-	t.Helper()
-
-	data, err := assetsFS.ReadFile(name)
-	if err != nil {
-		t.Fatalf("read embedded asset %q: %v", name, err)
-	}
-
-	return data
 }
 
 func waitForTerminalHistory(t *testing.T, server *Server, want string) {
