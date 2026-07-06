@@ -30,6 +30,18 @@ const assets = [
       join(webDir, 'node_modules', '@xterm', 'addon-fit', 'lib', 'addon-fit.js')
     ],
     target: 'addon-fit.js'
+  },
+  {
+    candidates: [
+      join(webDir, 'src', 'app.css')
+    ],
+    target: 'app.css'
+  },
+  {
+    candidates: [
+      join(webDir, 'src', 'app.js')
+    ],
+    target: 'app.js'
   }
 ];
 
