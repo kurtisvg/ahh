@@ -8,6 +8,8 @@ import (
 // assetsFS keeps browser-terminal assets local so the wrapper can be tested
 // through localhost proxies without CDN access.
 //
+//go:generate npm --prefix web install
+//go:generate npm --prefix web run build:assets
 //go:embed assets/*
 var assetsFS embed.FS
 

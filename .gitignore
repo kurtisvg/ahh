@@ -1,1 +1,8 @@
 .project/
+internal/server/web/node_modules/
+internal/server/assets/addon-fit.js
+internal/server/assets/app.css
+internal/server/assets/app.js
+internal/server/assets/index.html
+internal/server/assets/xterm.css
+internal/server/assets/xterm.js
