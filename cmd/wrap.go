@@ -1,9 +1,9 @@
 package cmd
 
 import (
-	"errors"
 	"fmt"
 
+	"github.com/kurtisvg/ahh/internal/harness"
 	"github.com/spf13/cobra"
 )
 
@@ -16,15 +16,32 @@ func newWrapCommand() *cobra.Command {
 		SilenceErrors: true,
 		Args:          cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
 		ValidArgs:     []string{"claude-code"},
-		RunE: func(cmd *cobra.Command, args []string) error {
-			switch harness := args[0]; harness {
-			case "claude-code":
-				return errors.New("claude-code wrapper entrypoint is not implemented yet")
-			default:
-				return fmt.Errorf("unsupported harness %q", harness)
-			}
-		},
+		RunE:          runWrapCommand,
 	}
 
 	return cmd
+}
+
+func runWrapCommand(cmd *cobra.Command, args []string) error {
+	ctx := cmd.Context()
+	harnessName := args[0]
+	var h harness.Harness
+	var err error
+
+	switch harnessName {
+	case "claude-code":
+		h, err = harness.Start(ctx)
+	default:
+		return fmt.Errorf("unsupported harness %q", harnessName)
+	}
+	if err != nil {
+		return fmt.Errorf("start %s harness: %w", harnessName, err)
+	}
+	defer h.Close()
+
+	if err := h.Wait(ctx); err != nil {
+		return fmt.Errorf("run %s harness: %w", harnessName, err)
+	}
+
+	return nil
 }
