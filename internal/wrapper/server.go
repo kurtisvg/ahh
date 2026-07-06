@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
 	"net"
 	"net/http"
 	"time"
@@ -12,19 +11,65 @@ import (
 	"github.com/kurtisvg/ahh/internal/harness"
 )
 
-const shutdownTimeout = 5 * time.Second
+const (
+	ClaudeCodeHarness = "claude-code"
 
-// Server exposes a browser-testable wrapper surface for a running harness.
-type Server struct {
-	addr       string
-	httpServer *http.Server
-	terminal   *terminalSession
-	done       chan struct{}
-	runErr     error
+	shutdownTimeout = 5 * time.Second
+)
+
+// Wrapper manages a running harness wrapper.
+type Wrapper interface {
+	Address() string
+	Wait() error
+	Shutdown(context.Context) error
 }
 
-// Start starts the wrapper HTTP server.
-func Start(h harness.Harness, addr string) (*Server, error) {
+// Server exposes the wrapper API for a running harness.
+type Server struct {
+	Addr       string
+	httpServer *http.Server
+	harness    harness.Harness
+	terminal   *terminalSession
+
+	// done is closed after err is set, so Wait can safely read err after
+	// receiving from done.
+	done chan struct{}
+	err  error
+}
+
+var _ Wrapper = (*Server)(nil)
+
+// Start starts the wrapper HTTP server for the requested harness.
+func Start(ctx context.Context, harnessName string, addr string) (*Server, error) {
+	h, err := startHarness(ctx, harnessName)
+	if err != nil {
+		return nil, err
+	}
+
+	server, err := start(ctx, h, addr)
+	if err != nil {
+		h.Close()
+		return nil, err
+	}
+
+	return server, nil
+}
+
+func startHarness(ctx context.Context, harnessName string) (harness.Harness, error) {
+	switch harnessName {
+	case ClaudeCodeHarness:
+		h, err := harness.Start(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("start %s harness: %w", harnessName, err)
+		}
+
+		return h, nil
+	default:
+		return nil, fmt.Errorf("unsupported harness %q", harnessName)
+	}
+}
+
+func start(ctx context.Context, h harness.Harness, addr string) (*Server, error) {
 	if addr == "" {
 		return nil, fmt.Errorf("wrapper address is required")
 	}
@@ -35,14 +80,13 @@ func Start(h harness.Harness, addr string) (*Server, error) {
 	}
 
 	server := &Server{
-		addr:     listener.Addr().String(),
+		Addr:     listener.Addr().String(),
+		harness:  h,
 		terminal: newTerminalSession(h),
 		done:     make(chan struct{}),
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", serveTerminal)
-	mux.Handle("/assets/", serveAssets())
 	mux.HandleFunc("/ready", serveReady(h))
 	mux.Handle("/pty", servePTY(server.terminal))
 
@@ -54,27 +98,59 @@ func Start(h harness.Harness, addr string) (*Server, error) {
 	go func() {
 		defer close(server.done)
 
-		err := server.httpServer.Serve(listener)
-		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			server.runErr = err
+		serveErr := make(chan error, 1)
+		go func() {
+			err := server.httpServer.Serve(listener)
+			if err != nil && !errors.Is(err, http.ErrServerClosed) {
+				serveErr <- err
+				return
+			}
+			serveErr <- nil
+		}()
+
+		harnessErr := make(chan error, 1)
+		go func() {
+			harnessErr <- server.harness.Wait(ctx)
+		}()
+
+		select {
+		case err := <-serveErr:
+			if err != nil {
+				server.err = fmt.Errorf("serve wrapper http: %w", err)
+			}
+		case err := <-harnessErr:
+			if err != nil {
+				select {
+				case <-ctx.Done():
+					server.err = ctx.Err()
+					return
+				default:
+				}
+			}
+			if err != nil && !errors.Is(err, context.Canceled) {
+				server.err = fmt.Errorf("run harness: %w", err)
+			}
+		case <-ctx.Done():
+			server.err = ctx.Err()
 		}
 	}()
 
 	return server, nil
 }
 
-func (s *Server) URL() string {
-	return "http://" + s.addr
+// Address returns the bound TCP address.
+func (s *Server) Address() string {
+	return s.Addr
 }
 
 func (s *Server) Wait() error {
 	<-s.done
 
-	return s.runErr
+	return s.err
 }
 
-func (s *Server) Close(ctx context.Context) error {
-	s.terminal.Close()
+func (s *Server) Shutdown(ctx context.Context) error {
+	s.terminal.Shutdown()
 
 	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 	defer cancel()
@@ -86,27 +162,9 @@ func (s *Server) Close(ctx context.Context) error {
 	return nil
 }
 
-func serveTerminal(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
-	if r.URL.Path != "/" {
-		http.NotFound(w, r)
-		return
-	}
-
-	page, err := fs.ReadFile(assetsFS, "assets/index.html")
-	if err != nil {
-		http.Error(w, "terminal page unavailable", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write(page)
-}
-
+// serveReady reports whether this wrapper still has a running harness process.
+// It is a lifecycle check for the wrapper transport, not a deeper terminal
+// responsiveness check.
 func serveReady(h harness.Harness) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {

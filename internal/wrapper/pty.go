@@ -20,8 +20,12 @@ type browserMessage struct {
 	Cols uint16 `json:"cols,omitempty"`
 }
 
-// servePTY bridges one browser websocket connection to the shared terminal
-// session. Multiple browsers may observe the same PTY, but each receives its own
+// servePTY upgrades one client websocket to the shared harness PTY. PTY output
+// is sent as binary frames; terminal input and resize controls are accepted as
+// JSON text frames.
+//
+// This is a prototype terminal transport endpoint, not the final Conversation
+// API. Multiple clients may observe the same PTY, but each receives its own
 // replay buffer and output channel.
 func servePTY(terminal *terminalSession) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

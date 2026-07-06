@@ -29,7 +29,7 @@ func NewCommand() *cobra.Command {
 			return cmd.Help()
 		},
 	}
-	cmd.AddCommand(newWrapCommand())
+	cmd.AddCommand(newServeCommand(), newWrapCommand())
 
 	return cmd
 }
