@@ -100,6 +100,69 @@ func TestServerHTTP(t *testing.T) {
 	}
 }
 
+func TestServerReadyProxiesWrapperStatus(t *testing.T) {
+	tests := []struct {
+		name             string
+		wrapperStatus    int
+		wrapperBody      string
+		wantStatus       int
+		wantBodyContains string
+	}{
+		{
+			name:             "ready",
+			wrapperStatus:    http.StatusOK,
+			wrapperBody:      "ready\n",
+			wantStatus:       http.StatusOK,
+			wantBodyContains: "ready",
+		},
+		{
+			name:             "harness stopped",
+			wrapperStatus:    http.StatusServiceUnavailable,
+			wrapperBody:      "harness stopped\n",
+			wantStatus:       http.StatusServiceUnavailable,
+			wantBodyContains: "harness stopped",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			wrapperHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/ready" {
+					http.NotFound(w, r)
+					return
+				}
+
+				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+				w.WriteHeader(tt.wrapperStatus)
+				_, _ = w.Write([]byte(tt.wrapperBody))
+			})
+			server := startTestServer(t, newFakeWrapperServer(wrapperHandler))
+			defer shutdownTestServer(t, server)
+
+			client := &http.Client{
+				Timeout: 2 * time.Second,
+			}
+			resp, err := client.Get("http://" + server.Addr + "/ready")
+			if err != nil {
+				t.Fatalf("GET /ready: %v", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != tt.wantStatus {
+				t.Fatalf("GET /ready status = %d, want %d", resp.StatusCode, tt.wantStatus)
+			}
+
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				t.Fatalf("read response body: %v", err)
+			}
+			if !strings.Contains(string(body), tt.wantBodyContains) {
+				t.Fatalf("GET /ready body = %q, want containing %q", body, tt.wantBodyContains)
+			}
+		})
+	}
+}
+
 func TestTerminalPageUsesProxySafePaths(t *testing.T) {
 	page := string(readAsset(t, "assets/index.html"))
 	app := string(readAsset(t, "assets/app.js"))
@@ -138,6 +201,7 @@ func TestAppScriptIncludesConnectionLifecycleStates(t *testing.T) {
 	wants := []string{
 		"scheduleReconnect",
 		"readReadyState",
+		"startReadinessPolling",
 		"harness-exited",
 	}
 	for _, want := range wants {
