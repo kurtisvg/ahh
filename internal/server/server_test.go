@@ -6,14 +6,16 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/kurtisvg/ahh/internal/wrapper"
 )
 
 func TestServerHTTP(t *testing.T) {
-	wrapper := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	wrapperHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/ready" {
 			http.NotFound(w, r)
 			return
@@ -21,8 +23,7 @@ func TestServerHTTP(t *testing.T) {
 
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		_, _ = w.Write([]byte("ready from wrapper\n"))
-	}))
-	defer wrapper.Close()
+	})
 
 	tests := []struct {
 		name             string
@@ -57,13 +58,13 @@ func TestServerHTTP(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			server := startTestServer(t, wrapper.URL)
-			defer closeTestServer(t, server)
+			server := startTestServer(t, newFakeWrapperServer(wrapperHandler))
+			defer shutdownTestServer(t, server)
 
 			client := &http.Client{
 				Timeout: 2 * time.Second,
 			}
-			resp, err := client.Get(server.URL() + tt.path)
+			resp, err := client.Get("http://" + server.Addr + tt.path)
 			if err != nil {
 				t.Fatalf("GET %s: %v", tt.path, err)
 			}
@@ -113,7 +114,7 @@ func TestServerPTYWebSocketProxy(t *testing.T) {
 	defer cancel()
 
 	input := make(chan string, 1)
-	wrapper := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	wrapper := newFakeWrapperServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/pty" {
 			http.NotFound(w, r)
 			return
@@ -137,12 +138,11 @@ func TestServerPTYWebSocketProxy(t *testing.T) {
 			input <- string(data)
 		}
 	}))
-	defer wrapper.Close()
 
-	server := startTestServer(t, wrapper.URL)
-	defer closeTestServer(t, server)
+	server := startTestServer(t, wrapper)
+	defer shutdownTestServer(t, server)
 
-	conn, _, err := websocket.Dial(ctx, websocketURL(server.URL(), "/pty"), nil)
+	conn, _, err := websocket.Dial(ctx, "ws://"+server.Addr+"/pty", nil)
 	if err != nil {
 		t.Fatalf("dial server websocket: %v", err)
 	}
@@ -173,10 +173,42 @@ func TestServerPTYWebSocketProxy(t *testing.T) {
 	}
 }
 
-func startTestServer(t *testing.T, wrapperServer string) *Server {
+type fakeWrapperServer struct {
+	server    *httptest.Server
+	done      chan struct{}
+	closeOnce sync.Once
+}
+
+func newFakeWrapperServer(handler http.Handler) *fakeWrapperServer {
+	return &fakeWrapperServer{
+		server: httptest.NewServer(handler),
+		done:   make(chan struct{}),
+	}
+}
+
+func (s *fakeWrapperServer) Address() string {
+	return strings.TrimPrefix(s.server.URL, "http://")
+}
+
+func (s *fakeWrapperServer) Wait() error {
+	<-s.done
+
+	return nil
+}
+
+func (s *fakeWrapperServer) Shutdown(context.Context) error {
+	s.closeOnce.Do(func() {
+		s.server.Close()
+		close(s.done)
+	})
+
+	return nil
+}
+
+func startTestServer(t *testing.T, w wrapper.Wrapper) *Server {
 	t.Helper()
 
-	server, err := startWithWrapperServer(t.Context(), wrapperServer, "127.0.0.1:0")
+	server, err := startWithWrapper(t.Context(), w, "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
@@ -184,19 +216,15 @@ func startTestServer(t *testing.T, wrapperServer string) *Server {
 	return server
 }
 
-func closeTestServer(t *testing.T, server *Server) {
+func shutdownTestServer(t *testing.T, server *Server) {
 	t.Helper()
 
-	if err := server.Close(t.Context()); err != nil {
-		t.Fatalf("Close() error = %v", err)
+	if err := server.Shutdown(t.Context()); err != nil {
+		t.Fatalf("Shutdown() error = %v", err)
 	}
 	if err := server.Wait(); err != nil {
 		t.Fatalf("Wait() error = %v", err)
 	}
-}
-
-func websocketURL(serverURL, path string) string {
-	return "ws://" + strings.TrimPrefix(serverURL, "http://") + path
 }
 
 func readAsset(t *testing.T, name string) []byte {

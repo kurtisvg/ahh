@@ -2,6 +2,7 @@ package wrapper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -26,6 +27,7 @@ type fakeHarness struct {
 	resize    chan terminalSize
 	done      chan struct{}
 	closeOnce sync.Once
+	runErr    error
 }
 
 func TestServerHTTP(t *testing.T) {
@@ -68,7 +70,7 @@ func TestServerHTTP(t *testing.T) {
 			client := &http.Client{
 				Timeout: 2 * time.Second,
 			}
-			resp, err := client.Get(server.URL() + tt.path)
+			resp, err := client.Get("http://" + server.Addr + tt.path)
 			if err != nil {
 				t.Fatalf("GET %s: %v", tt.path, err)
 			}
@@ -101,7 +103,7 @@ func TestServerPTYWebSocketBridge(t *testing.T) {
 	defer h.Close()
 	defer closeTestServer(t, server)
 
-	conn, _, err := websocket.Dial(ctx, websocketURL(server.URL(), "/pty"), nil)
+	conn, _, err := websocket.Dial(ctx, "ws://"+server.Addr+"/pty", nil)
 	if err != nil {
 		t.Fatalf("dial terminal websocket: %v", err)
 	}
@@ -160,7 +162,7 @@ func TestServerPTYWebSocketReplaysOutput(t *testing.T) {
 	}
 	waitForTerminalHistory(t, server, "ready before browser\r\n")
 
-	conn, _, err := websocket.Dial(ctx, websocketURL(server.URL(), "/pty"), nil)
+	conn, _, err := websocket.Dial(ctx, "ws://"+server.Addr+"/pty", nil)
 	if err != nil {
 		t.Fatalf("dial terminal websocket: %v", err)
 	}
@@ -175,6 +177,38 @@ func TestServerPTYWebSocketReplaysOutput(t *testing.T) {
 	}
 	if string(data) != "ready before browser\r\n" {
 		t.Fatalf("websocket data = %q, want %q", data, "ready before browser\r\n")
+	}
+}
+
+func TestServerWaitReturnsHarnessError(t *testing.T) {
+	h := newFakeHarness()
+	server := startTestServer(t, h)
+	defer func() {
+		if err := server.Shutdown(t.Context()); err != nil {
+			t.Fatalf("Shutdown() error = %v", err)
+		}
+	}()
+
+	wantErr := fmt.Errorf("harness failed")
+	h.fail(wantErr)
+
+	if err := server.Wait(); !errors.Is(err, wantErr) {
+		t.Fatalf("Wait() error = %v, want %v", err, wantErr)
+	}
+}
+
+func TestServerShutdownIsIdempotent(t *testing.T) {
+	h := newFakeHarness()
+	server := startTestServer(t, h)
+
+	if err := server.Shutdown(t.Context()); err != nil {
+		t.Fatalf("first Shutdown() error = %v", err)
+	}
+	if err := server.Shutdown(t.Context()); err != nil {
+		t.Fatalf("second Shutdown() error = %v", err)
+	}
+	if err := server.Wait(); err != nil {
+		t.Fatalf("Wait() error = %v", err)
 	}
 }
 
@@ -227,7 +261,7 @@ func (h *fakeHarness) Wait(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-h.done:
-		return nil
+		return h.runErr
 	}
 }
 
@@ -247,6 +281,14 @@ func (h *fakeHarness) Close() {
 	})
 }
 
+func (h *fakeHarness) fail(err error) {
+	h.closeOnce.Do(func() {
+		h.runErr = err
+		close(h.done)
+		close(h.output)
+	})
+}
+
 func (h *fakeHarness) sendOutput(ctx context.Context, data string) error {
 	select {
 	case <-ctx.Done():
@@ -259,7 +301,7 @@ func (h *fakeHarness) sendOutput(ctx context.Context, data string) error {
 func startTestServer(t *testing.T, h *fakeHarness) *Server {
 	t.Helper()
 
-	server, err := Start(h, "127.0.0.1:0")
+	server, err := start(t.Context(), h, "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
@@ -270,16 +312,12 @@ func startTestServer(t *testing.T, h *fakeHarness) *Server {
 func closeTestServer(t *testing.T, server *Server) {
 	t.Helper()
 
-	if err := server.Close(t.Context()); err != nil {
-		t.Fatalf("Close() error = %v", err)
+	if err := server.Shutdown(t.Context()); err != nil {
+		t.Fatalf("Shutdown() error = %v", err)
 	}
 	if err := server.Wait(); err != nil {
 		t.Fatalf("Wait() error = %v", err)
 	}
-}
-
-func websocketURL(serverURL, path string) string {
-	return "ws://" + strings.TrimPrefix(serverURL, "http://") + path
 }
 
 func waitForTerminalHistory(t *testing.T, server *Server, want string) {

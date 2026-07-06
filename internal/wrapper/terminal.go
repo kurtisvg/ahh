@@ -25,8 +25,8 @@ type terminalSession struct {
 
 	// done is closed after the PTY reader exits and all browser output channels
 	// are closed.
-	done      chan struct{}
-	closeOnce sync.Once
+	done         chan struct{}
+	shutdownOnce sync.Once
 }
 
 func newTerminalSession(h harness.Harness) *terminalSession {
@@ -88,8 +88,8 @@ func (s *terminalSession) Resize(rows, cols uint16) error {
 	return nil
 }
 
-func (s *terminalSession) Close() {
-	s.closeOnce.Do(func() {
+func (s *terminalSession) Shutdown() {
+	s.shutdownOnce.Do(func() {
 		s.harness.Close()
 		<-s.done
 	})

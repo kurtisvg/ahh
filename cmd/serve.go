@@ -31,10 +31,10 @@ func runServeCommand(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("start server: %w", err)
 	}
 	defer func() {
-		_ = server.Close(context.Background())
+		_ = server.Shutdown(context.Background())
 	}()
 
-	fmt.Fprintf(cmd.ErrOrStderr(), "server listening at %s\n", server.URL())
+	fmt.Fprintf(cmd.ErrOrStderr(), "server listening at http://%s\n", server.Addr)
 
 	if err := server.Wait(); err != nil {
 		return fmt.Errorf("serve server: %w", err)
