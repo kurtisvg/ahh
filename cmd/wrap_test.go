@@ -28,6 +28,7 @@ func TestWrapCommand(t *testing.T) {
 		timeout         time.Duration
 		wantErr         error
 		wantOutContains []string
+		wantErrOut      []string
 		wantErrContains string
 	}{
 		{
@@ -56,6 +57,9 @@ func TestWrapCommand(t *testing.T) {
 			setup: func(t *testing.T) {
 				installFakeClaude(t, fakeClaudeSuccessScript)
 			},
+			wantErrOut: []string{
+				"wrapper listening at http://127.0.0.1:",
+			},
 		},
 		{
 			name: "reports missing Claude Code command",
@@ -73,6 +77,9 @@ func TestWrapCommand(t *testing.T) {
 			},
 			timeout: 100 * time.Millisecond,
 			wantErr: context.DeadlineExceeded,
+			wantErrOut: []string{
+				"wrapper listening at http://127.0.0.1:",
+			},
 		},
 	}
 
@@ -111,7 +118,12 @@ func TestWrapCommand(t *testing.T) {
 					t.Errorf("stdout = %q, want containing %q", stdout, want)
 				}
 			}
-			if stderr != "" {
+			for _, want := range tt.wantErrOut {
+				if !strings.Contains(stderr, want) {
+					t.Errorf("stderr = %q, want containing %q", stderr, want)
+				}
+			}
+			if len(tt.wantErrOut) == 0 && stderr != "" {
 				t.Errorf("stderr = %q, want empty", stderr)
 			}
 		})

@@ -124,6 +124,38 @@ func TestHarnessDone(t *testing.T) {
 	}
 }
 
+func TestClaudeEnvironmentEnablesColor(t *testing.T) {
+	env := claudeEnvironment([]string{
+		"PATH=/bin",
+		"NO_COLOR=1",
+		"TERM=dumb",
+		"COLORTERM=",
+		"CLICOLOR=0",
+		"FORCE_COLOR=0",
+		"VSCODE_IPC_HOOK_CLI=/tmp/vscode.sock",
+	})
+	got := envMap(env)
+
+	if got["NO_COLOR"] != "" {
+		t.Fatalf("NO_COLOR = %q, want unset", got["NO_COLOR"])
+	}
+	if got["TERM"] != "xterm-256color" {
+		t.Fatalf("TERM = %q, want xterm-256color", got["TERM"])
+	}
+	if got["COLORTERM"] != "truecolor" {
+		t.Fatalf("COLORTERM = %q, want truecolor", got["COLORTERM"])
+	}
+	if got["CLICOLOR"] != "1" {
+		t.Fatalf("CLICOLOR = %q, want 1", got["CLICOLOR"])
+	}
+	if got["FORCE_COLOR"] != "1" {
+		t.Fatalf("FORCE_COLOR = %q, want 1", got["FORCE_COLOR"])
+	}
+	if got["VSCODE_IPC_HOOK_CLI"] != "/tmp/vscode.sock" {
+		t.Fatalf("VSCODE_IPC_HOOK_CLI = %q, want preserved", got["VSCODE_IPC_HOOK_CLI"])
+	}
+}
+
 // fakeHarness points Start at a temporary executable so tests exercise
 // the real PTY subprocess lifecycle without requiring Claude Code to be installed.
 func fakeHarness(t *testing.T, ctx context.Context, mode string) (Harness, error) {
@@ -154,4 +186,19 @@ func fakeHarnessCommand(t *testing.T) string {
 	}
 
 	return command
+}
+
+// envMap converts exec-style KEY=value entries into a map so environment tests
+// can assert individual variables without repeated slice scans.
+func envMap(env []string) map[string]string {
+	values := map[string]string{}
+	for _, value := range env {
+		key, val, ok := strings.Cut(value, "=")
+		if !ok {
+			continue
+		}
+		values[key] = val
+	}
+
+	return values
 }

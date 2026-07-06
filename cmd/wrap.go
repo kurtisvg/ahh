@@ -1,11 +1,15 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/kurtisvg/ahh/internal/harness"
+	"github.com/kurtisvg/ahh/internal/wrapper"
 	"github.com/spf13/cobra"
 )
+
+const defaultWrapperAddr = "127.0.0.1:0"
 
 func newWrapCommand() *cobra.Command {
 	cmd := &cobra.Command{
@@ -39,8 +43,37 @@ func runWrapCommand(cmd *cobra.Command, args []string) error {
 	}
 	defer h.Close()
 
-	if err := h.Wait(ctx); err != nil {
-		return fmt.Errorf("run %s harness: %w", harnessName, err)
+	server, err := wrapper.Start(h, defaultWrapperAddr)
+	if err != nil {
+		return fmt.Errorf("start wrapper server: %w", err)
+	}
+	defer func() {
+		_ = server.Close(context.Background())
+	}()
+
+	fmt.Fprintf(cmd.ErrOrStderr(), "wrapper listening at %s\n", server.URL())
+
+	harnessErr := make(chan error, 1)
+	go func() {
+		harnessErr <- h.Wait(ctx)
+	}()
+
+	serverErr := make(chan error, 1)
+	go func() {
+		serverErr <- server.Wait()
+	}()
+
+	select {
+	case err := <-harnessErr:
+		if err != nil {
+			return fmt.Errorf("run %s harness: %w", harnessName, err)
+		}
+	case err := <-serverErr:
+		if err != nil {
+			return fmt.Errorf("serve wrapper: %w", err)
+		}
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 
 	return nil
