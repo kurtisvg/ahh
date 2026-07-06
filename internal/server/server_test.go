@@ -116,7 +116,7 @@ func TestTerminalPageUsesProxySafePaths(t *testing.T) {
 		}
 	}
 
-	if want := `new URL('pty', window.location.origin + basePath)`; !strings.Contains(app, want) {
+	if want := `return new URL(path, window.location.origin + basePath)`; !strings.Contains(app, want) {
 		t.Fatalf("app script does not contain %q", want)
 	}
 
@@ -129,6 +129,20 @@ func TestTerminalPageUsesProxySafePaths(t *testing.T) {
 	for _, bad := range []string{`<style>`, `<script>`} {
 		if strings.Contains(page, bad) {
 			t.Fatalf("terminal page still contains inline asset tag %q", bad)
+		}
+	}
+}
+
+func TestAppScriptIncludesConnectionLifecycleStates(t *testing.T) {
+	app := string(readAsset(t, "assets/app.js"))
+	wants := []string{
+		"scheduleReconnect",
+		"readReadyState",
+		"harness-exited",
+	}
+	for _, want := range wants {
+		if !strings.Contains(app, want) {
+			t.Fatalf("app script does not contain %q", want)
 		}
 	}
 }
