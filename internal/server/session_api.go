@@ -5,43 +5,28 @@ import (
 	"errors"
 	"net"
 	"net/http"
-	"strings"
 
 	"github.com/coder/websocket"
 	"github.com/kurtisvg/ahh/internal/server/sessions"
 )
 
-// serveSessionAPI handles routes under /api/sessions.
-func (s *Server) serveSessionAPI(w http.ResponseWriter, r *http.Request) {
-	id, action, ok := splitSessionAPIPath(r.URL.Path)
-	if !ok || action != "tty" {
-		http.NotFound(w, r)
-		return
-	}
-
-	s.serveTTY(w, r, id)
-}
-
 // serveTTY proxies browser websocket traffic to the session wrapper's PTY
 // endpoint. The public Ahh API uses tty terminology; the wrapper still owns the
 // current PTY transport internally.
-func (s *Server) serveTTY(w http.ResponseWriter, r *http.Request, id string) {
-	if r.Method != http.MethodGet {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
+func (s *Server) serveTTY(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
 
-	sessionWrapper, sessionStatus, ok := s.sessions.LookupWrapper(id)
+	session, ok := s.sessions.Get(id)
 	if !ok {
 		http.NotFound(w, r)
 		return
 	}
+
+	sessionWrapper, sessionStatus := session.Wrapper()
 	if sessionStatus == sessions.StatusExited || sessionWrapper == nil {
 		http.Error(w, "session exited", http.StatusGone)
 		return
 	}
-
-	s.sessions.Touch(id)
 
 	browserConn, err := websocket.Accept(w, r, nil)
 	if err != nil {
@@ -56,6 +41,11 @@ func (s *Server) serveTTY(w http.ResponseWriter, r *http.Request, id string) {
 		_ = browserConn.Close(websocket.StatusTryAgainLater, "wrapper unavailable")
 		return
 	}
+
+	// A session is touched when a browser successfully connects to its TTY
+	// stream. Individual terminal frames do not update activity; this keeps
+	// "most recent" tied to session selection rather than terminal noise.
+	session.Touch()
 
 	errCh := make(chan error, 2)
 	go func() {
@@ -78,21 +68,6 @@ func (s *Server) serveTTY(w http.ResponseWriter, r *http.Request, id string) {
 	_ = browserConn.Close(closeStatus, reason)
 	_ = wrapperConn.Close(closeStatus, reason)
 	<-errCh
-}
-
-// splitSessionAPIPath extracts the session id and action from /sessions/{id}/{action}.
-func splitSessionAPIPath(path string) (string, string, bool) {
-	rest := strings.TrimPrefix(path, "/sessions/")
-	if rest == path || rest == "" {
-		return "", "", false
-	}
-
-	id, action, ok := strings.Cut(rest, "/")
-	if !ok || id == "" || action == "" || strings.Contains(action, "/") {
-		return "", "", false
-	}
-
-	return id, action, true
 }
 
 // copyWebSocketMessages forwards websocket frames until one side closes.

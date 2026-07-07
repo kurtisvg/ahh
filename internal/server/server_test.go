@@ -19,6 +19,7 @@ import (
 func TestServerHTTP(t *testing.T) {
 	tests := []struct {
 		name             string
+		method           string
 		path             string
 		wantStatus       int
 		wantBodyContains string
@@ -63,6 +64,12 @@ func TestServerHTTP(t *testing.T) {
 			path:       "/api/missing",
 			wantStatus: http.StatusNotFound,
 		},
+		{
+			name:       "rejects wrong session tty method",
+			method:     http.MethodPost,
+			path:       "/api/sessions/not-a-session/tty",
+			wantStatus: http.StatusMethodNotAllowed,
+		},
 	}
 
 	for _, tt := range tests {
@@ -73,14 +80,29 @@ func TestServerHTTP(t *testing.T) {
 			client := &http.Client{
 				Timeout: 2 * time.Second,
 			}
-			resp, err := client.Get("http://" + server.Addr + tt.path)
+			method := tt.method
+			if method == "" {
+				method = http.MethodGet
+			}
+
+			req, err := http.NewRequestWithContext(
+				t.Context(),
+				method,
+				"http://"+server.Addr+tt.path,
+				nil,
+			)
 			if err != nil {
-				t.Fatalf("GET %s: %v", tt.path, err)
+				t.Fatalf("build %s %s request: %v", method, tt.path, err)
+			}
+
+			resp, err := client.Do(req)
+			if err != nil {
+				t.Fatalf("%s %s: %v", method, tt.path, err)
 			}
 			defer resp.Body.Close()
 
 			if resp.StatusCode != tt.wantStatus {
-				t.Fatalf("GET %s status = %d, want %d", tt.path, resp.StatusCode, tt.wantStatus)
+				t.Fatalf("%s %s status = %d, want %d", method, tt.path, resp.StatusCode, tt.wantStatus)
 			}
 			if tt.wantBodyContains == "" {
 				return
@@ -91,7 +113,7 @@ func TestServerHTTP(t *testing.T) {
 				t.Fatalf("read response body: %v", err)
 			}
 			if !strings.Contains(string(body), tt.wantBodyContains) {
-				t.Fatalf("GET %s body = %q, want containing %q", tt.path, body, tt.wantBodyContains)
+				t.Fatalf("%s %s body = %q, want containing %q", method, tt.path, body, tt.wantBodyContains)
 			}
 		})
 	}
@@ -188,18 +210,18 @@ func TestServerTTYWebSocketProxy(t *testing.T) {
 		}
 	}))
 
-	sessions := newTestSessionManager(t, func(context.Context) (wrapper.Wrapper, error) {
+	manager := newTestSessionManager(t, func(context.Context) (wrapper.Wrapper, error) {
 		return fake, nil
 	})
-	session, err := sessions.Create(ctx, "terminal")
+	session, err := manager.Create(ctx, "terminal")
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
 
-	server := startTestServer(t, sessions)
+	server := startTestServer(t, manager)
 	defer shutdownTestServer(t, server)
 
-	conn, _, err := websocket.Dial(ctx, "ws://"+server.Addr+"/api/sessions/"+session.ID+"/tty", nil)
+	conn, _, err := websocket.Dial(ctx, "ws://"+server.Addr+"/api/sessions/"+session.ID()+"/tty", nil)
 	if err != nil {
 		t.Fatalf("dial server websocket: %v", err)
 	}

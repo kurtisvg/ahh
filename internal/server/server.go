@@ -66,7 +66,7 @@ func Start(ctx context.Context, addr string, opts ...Option) (*Server, error) {
 	mux.HandleFunc("/", server.serveTerminal)
 	mux.Handle("/assets/", serveAssets())
 	mux.HandleFunc("/ready", server.serveReady)
-	mux.Handle("/api/", http.StripPrefix("/api", server.apiHandler()))
+	mux.Handle("/api/", http.StripPrefix("/api", server.serveAPI()))
 
 	server.httpServer = &http.Server{
 		Handler:           mux,
@@ -97,6 +97,14 @@ func Start(ctx context.Context, addr string, opts ...Option) (*Server, error) {
 	}()
 
 	return server, nil
+}
+
+// serveAPI owns routes under /api after the server strips that prefix.
+func (s *Server) serveAPI() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /sessions/{id}/tty", s.serveTTY)
+
+	return mux
 }
 
 // Wait blocks until the server background loop exits.

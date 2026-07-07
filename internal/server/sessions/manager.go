@@ -27,8 +27,8 @@ const (
 	StatusExited   Status = "exited"
 )
 
-// Session is the user-facing metadata for one harness terminal session.
-type Session struct {
+// Snapshot is the user-facing metadata for one harness terminal session.
+type Snapshot struct {
 	ID           string    `json:"id"`
 	Name         string    `json:"name"`
 	Status       Status    `json:"status"`
@@ -36,15 +36,18 @@ type Session struct {
 	LastActiveAt time.Time `json:"last_active_at"`
 }
 
-type managedSession struct {
-	Session
-	wrapper wrapper.Wrapper
+// Session manages the mutable runtime state for one terminal session.
+type Session struct {
+	mu       sync.Mutex
+	snapshot Snapshot
+	wrapper  wrapper.Wrapper
+	now      func() time.Time
 }
 
-// Manager owns live session wrappers and their user-facing metadata.
+// Manager owns the session registry. Each Session owns its own mutable state.
 type Manager struct {
 	mu           sync.Mutex
-	sessions     map[string]*managedSession
+	sessions     map[string]*Session
 	startWrapper func(context.Context) (wrapper.Wrapper, error)
 	newID        func() (string, error)
 	now          func() time.Time
@@ -73,7 +76,7 @@ func New(opts ...Option) (*Manager, error) {
 	}
 
 	return &Manager{
-		sessions:     map[string]*managedSession{},
+		sessions:     map[string]*Session{},
 		startWrapper: cfg.startWrapper,
 		newID:        cfg.newID,
 		now:          cfg.now,
@@ -116,28 +119,19 @@ func WithClock(now func() time.Time) Option {
 	}
 }
 
-// Create starts a wrapper for a named session and stores its metadata.
-func (m *Manager) Create(ctx context.Context, name string) (Session, error) {
+// Create starts a wrapper for a named session and stores it in the registry.
+func (m *Manager) Create(ctx context.Context, name string) (*Session, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return Session{}, fmt.Errorf("session name is required")
+		return nil, fmt.Errorf("session name is required")
 	}
 
 	id, err := m.newID()
 	if err != nil {
-		return Session{}, fmt.Errorf("generate session id: %w", err)
+		return nil, fmt.Errorf("generate session id: %w", err)
 	}
 
-	now := m.now()
-	session := &managedSession{
-		Session: Session{
-			ID:           id,
-			Name:         name,
-			Status:       StatusStarting,
-			CreatedAt:    now,
-			LastActiveAt: now,
-		},
-	}
+	session := newSession(id, name, m.now)
 
 	m.mu.Lock()
 	m.sessions[id] = session
@@ -145,75 +139,47 @@ func (m *Manager) Create(ctx context.Context, name string) (Session, error) {
 
 	w, err := m.startWrapper(ctx)
 	if err != nil {
-		m.mu.Lock()
-		delete(m.sessions, id)
-		m.mu.Unlock()
+		m.remove(id, session)
 
-		return Session{}, err
+		return nil, err
 	}
 
-	m.mu.Lock()
-	session.wrapper = w
-	session.Status = StatusRunning
-	created := session.Session
-	m.mu.Unlock()
+	session.setWrapper(w)
+	go session.watchWrapper(w)
 
-	go m.watchWrapper(id, w)
-
-	return created, nil
+	return session, nil
 }
 
-// List returns sessions with the most recently active session first.
-func (m *Manager) List() []Session {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	sessions := make([]Session, 0, len(m.sessions))
-	for _, session := range m.sessions {
-		sessions = append(sessions, session.Session)
+// List returns session snapshots with the most recently active session first.
+func (m *Manager) List() []Snapshot {
+	sessions := m.all()
+	snapshots := make([]Snapshot, 0, len(sessions))
+	for _, session := range sessions {
+		snapshots = append(snapshots, session.Snapshot())
 	}
-	sortByActivity(sessions)
+	sortByActivity(snapshots)
 
-	return sessions
+	return snapshots
 }
 
-// Touch records user activity for a session.
-func (m *Manager) Touch(id string) bool {
+// Get returns the session with id.
+func (m *Manager) Get(id string) (*Session, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	session, ok := m.sessions[id]
-	if !ok {
-		return false
-	}
-
-	session.LastActiveAt = m.now()
-	return true
-}
-
-// LookupWrapper returns the live wrapper for a session, if one exists.
-func (m *Manager) LookupWrapper(id string) (wrapper.Wrapper, Status, bool) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	session, ok := m.sessions[id]
-	if !ok {
-		return nil, "", false
-	}
-
-	return session.wrapper, session.Status, true
+	return session, ok
 }
 
 // Shutdown stops every live session wrapper managed by m.
 func (m *Manager) Shutdown(ctx context.Context) error {
-	m.mu.Lock()
-	wrappers := make([]wrapper.Wrapper, 0, len(m.sessions))
-	for _, session := range m.sessions {
-		if session.wrapper != nil {
-			wrappers = append(wrappers, session.wrapper)
+	sessions := m.all()
+	wrappers := make([]wrapper.Wrapper, 0, len(sessions))
+	for _, session := range sessions {
+		if sessionWrapper, _ := session.Wrapper(); sessionWrapper != nil {
+			wrappers = append(wrappers, sessionWrapper)
 		}
 	}
-	m.mu.Unlock()
 
 	var errs []error
 	for _, w := range wrappers {
@@ -225,20 +191,92 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-// watchWrapper updates session state after its wrapper exits.
-func (m *Manager) watchWrapper(id string, w wrapper.Wrapper) {
-	_ = w.Wait()
-
+func (m *Manager) all() []*Session {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	session, ok := m.sessions[id]
-	if !ok || session.wrapper != w {
+	sessions := make([]*Session, 0, len(m.sessions))
+	for _, session := range m.sessions {
+		sessions = append(sessions, session)
+	}
+
+	return sessions
+}
+
+func (m *Manager) remove(id string, session *Session) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if current := m.sessions[id]; current == session {
+		delete(m.sessions, id)
+	}
+}
+
+func newSession(id string, name string, now func() time.Time) *Session {
+	createdAt := now()
+	return &Session{
+		snapshot: Snapshot{
+			ID:           id,
+			Name:         name,
+			Status:       StatusStarting,
+			CreatedAt:    createdAt,
+			LastActiveAt: createdAt,
+		},
+		now: now,
+	}
+}
+
+// ID returns the stable session id.
+func (s *Session) ID() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.snapshot.ID
+}
+
+// Snapshot returns a copy of the session metadata suitable for JSON responses.
+func (s *Session) Snapshot() Snapshot {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.snapshot
+}
+
+// Touch records user-visible activity for this session.
+func (s *Session) Touch() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.snapshot.LastActiveAt = s.now()
+}
+
+// Wrapper returns the current wrapper and lifecycle status for this session.
+func (s *Session) Wrapper() (wrapper.Wrapper, Status) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.wrapper, s.snapshot.Status
+}
+
+func (s *Session) setWrapper(w wrapper.Wrapper) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.wrapper = w
+	s.snapshot.Status = StatusRunning
+}
+
+func (s *Session) watchWrapper(w wrapper.Wrapper) {
+	_ = w.Wait()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.wrapper != w {
 		return
 	}
 
-	session.Status = StatusExited
-	session.wrapper = nil
+	s.snapshot.Status = StatusExited
+	s.wrapper = nil
 }
 
 // startWrapperSession starts the default wrapper backing a new session.
@@ -252,10 +290,10 @@ func startWrapperSession(ctx context.Context) (wrapper.Wrapper, error) {
 }
 
 // sortByActivity orders sessions for the list API.
-func sortByActivity(sessions []Session) {
-	sort.Slice(sessions, func(i, j int) bool {
-		left := sessions[i]
-		right := sessions[j]
+func sortByActivity(snapshots []Snapshot) {
+	sort.Slice(snapshots, func(i, j int) bool {
+		left := snapshots[i]
+		right := snapshots[j]
 		if !left.LastActiveAt.Equal(right.LastActiveAt) {
 			return left.LastActiveAt.After(right.LastActiveAt)
 		}

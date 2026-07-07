@@ -39,8 +39,8 @@ func TestManagerCreateTrimsName(t *testing.T) {
 	}
 	defer fake.shutdown()
 
-	if session.Name != "terminal" {
-		t.Fatalf("Create() name = %q, want terminal", session.Name)
+	if got := session.Snapshot().Name; got != "terminal" {
+		t.Fatalf("Create() name = %q, want terminal", got)
 	}
 }
 
@@ -93,16 +93,20 @@ func TestManagerListSortsMostRecentFirst(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create(second) error = %v", err)
 	}
-	if ok := manager.Touch(first.ID); !ok {
-		t.Fatalf("Touch(%q) = false, want true", first.ID)
-	}
+	first.Touch()
 
 	got := manager.List()
 	if len(got) != 2 {
 		t.Fatalf("List() length = %d, want 2", len(got))
 	}
-	if got[0].ID != first.ID || got[1].ID != second.ID {
-		t.Fatalf("List() order = [%q, %q], want [%q, %q]", got[0].ID, got[1].ID, first.ID, second.ID)
+	if got[0].ID != first.ID() || got[1].ID != second.ID() {
+		t.Fatalf(
+			"List() order = [%q, %q], want [%q, %q]",
+			got[0].ID,
+			got[1].ID,
+			first.ID(),
+			second.ID(),
+		)
 	}
 }
 
