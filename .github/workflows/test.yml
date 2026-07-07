@@ -37,6 +37,13 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: "1.26.1"
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: internal/server/web/package-lock.json
+      - name: Generate assets
+        run: go generate ./...
       - name: Build
         run: go build ./...
       - name: Test
@@ -52,6 +59,13 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: internal/server/web/package-lock.json
+      - name: Generate assets
+        run: go generate ./...
       - name: Verify go mod tidy
         run: go mod tidy && git diff --exit-code
       - name: golangci-lint
