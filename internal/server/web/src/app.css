@@ -160,8 +160,15 @@ button {
   background: var(--ok);
 }
 
+.conversation-item[data-state="connecting"] .state-pill,
+.conversation-item[data-state="reconnecting"] .state-pill {
+  background: var(--warn);
+}
+
 .conversation-item[data-state="closed"] .state-pill,
-.conversation-item[data-state="error"] .state-pill {
+.conversation-item[data-state="disconnected"] .state-pill,
+.conversation-item[data-state="error"] .state-pill,
+.conversation-item[data-state="harness-exited"] .state-pill {
   background: var(--bad);
 }
 
@@ -226,16 +233,51 @@ button {
   background: var(--ok);
 }
 
+.status[data-state="connecting"] .dot,
+.status[data-state="reconnecting"] .dot {
+  background: var(--warn);
+}
+
 .status[data-state="closed"] .dot,
-.status[data-state="error"] .dot {
+.status[data-state="disconnected"] .dot,
+.status[data-state="error"] .dot,
+.status[data-state="harness-exited"] .dot {
   background: var(--bad);
 }
 
 .terminal-region {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 8px;
   min-width: 0;
   min-height: 0;
   padding: 12px;
   background: var(--bg);
+}
+
+.connection-banner {
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 7px 10px;
+  border: 1px solid #665132;
+  border-left: 3px solid var(--warn);
+  border-radius: 8px;
+  background: #201a12;
+  color: #f6d8a8;
+  font-size: 12px;
+}
+
+.connection-banner[hidden] {
+  display: none;
+}
+
+.connection-banner[data-state="disconnected"],
+.connection-banner[data-state="harness-exited"] {
+  border-color: #6f3939;
+  border-left-color: var(--bad);
+  background: #211313;
+  color: #ffc8c8;
 }
 
 .terminal-shell {
