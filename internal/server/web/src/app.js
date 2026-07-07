@@ -365,10 +365,6 @@ function syncActiveConversation() {
   }
 
   updateViewHeading();
-  if (active.status === 'exited') {
-    markConversationExited();
-    return;
-  }
   if (!socket || socket.readyState === WebSocket.CLOSED) {
     connectSocket();
   }

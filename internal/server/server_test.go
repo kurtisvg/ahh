@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -245,8 +248,8 @@ func TestServerDeleteSessionAPI(t *testing.T) {
 		Timeout: 2 * time.Second,
 	}
 	session := createSessionViaAPI(t, client, server, "delete me")
-	if len(factory.wrappers) != 1 {
-		t.Fatalf("started wrappers = %d, want 1", len(factory.wrappers))
+	if got := factory.wrapperCount(); got != 1 {
+		t.Fatalf("started wrappers = %d, want 1", got)
 	}
 
 	req, err := http.NewRequestWithContext(
@@ -266,7 +269,7 @@ func TestServerDeleteSessionAPI(t *testing.T) {
 	assertStatus(t, resp, http.StatusNoContent)
 
 	select {
-	case <-factory.wrappers[0].done:
+	case <-factory.wrapper(0).done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("deleted session wrapper was not shut down")
 	}
@@ -291,13 +294,110 @@ func TestServerDeleteSessionAPI(t *testing.T) {
 	assertStatus(t, resp, http.StatusNotFound)
 }
 
-func TestServerTTYStatusCodes(t *testing.T) {
+func TestServerPersistsSessionMetadata(t *testing.T) {
+	configDir := t.TempDir()
+	factory := &fakeWrapperFactory{}
+	manager, err := sessions.NewManager(
+		t.Context(),
+		sessions.WithStartWrapper(factory.start),
+		sessions.WithConfigDir(configDir),
+	)
+	if err != nil {
+		t.Fatalf("sessions.NewManager() error = %v", err)
+	}
+
+	server := startTestServer(t, WithSessionManager(manager))
+	client := &http.Client{
+		Timeout: 2 * time.Second,
+	}
+	session := createSessionViaAPI(t, client, server, "persisted")
+	shutdownTestServer(t, server)
+
+	if _, err := os.Stat(filepath.Join(configDir, "sessions", session.ID+".json")); err != nil {
+		t.Fatalf("stat persisted session metadata: %v", err)
+	}
+
+	restartedFactory := &fakeWrapperFactory{
+		handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/pty" {
+				http.NotFound(w, r)
+				return
+			}
+
+			conn, err := websocket.Accept(w, r, nil)
+			if err != nil {
+				return
+			}
+			defer conn.Close(websocket.StatusNormalClosure, "")
+			_, _, _ = conn.Read(r.Context())
+		}),
+	}
+	restartedManager, err := sessions.NewManager(
+		t.Context(),
+		sessions.WithStartWrapper(restartedFactory.start),
+		sessions.WithConfigDir(configDir),
+	)
+	if err != nil {
+		t.Fatalf("reload sessions.NewManager() error = %v", err)
+	}
+	restartedServer := startTestServer(t, WithSessionManager(restartedManager))
+	defer shutdownTestServer(t, restartedServer)
+
+	resp, err := client.Get("http://" + restartedServer.Addr + "/api/sessions")
+	if err != nil {
+		t.Fatalf("GET /api/sessions after restart: %v", err)
+	}
+	defer resp.Body.Close()
+	assertStatus(t, resp, http.StatusOK)
+	var listed sessionsResponse
+	decodeJSON(t, resp, &listed)
+	if len(listed.Sessions) != 1 {
+		t.Fatalf("restarted sessions = %d, want 1", len(listed.Sessions))
+	}
+	if listed.Sessions[0].ID != session.ID || listed.Sessions[0].Name != "persisted" {
+		t.Fatalf("restarted session = %+v, want id %q name persisted", listed.Sessions[0], session.ID)
+	}
+	if listed.Sessions[0].Status != sessions.StatusExited {
+		t.Fatalf("restarted session status = %q, want %q", listed.Sessions[0].Status, sessions.StatusExited)
+	}
+	if got := restartedFactory.wrapperCount(); got != 0 {
+		t.Fatalf("wrappers started on metadata reload = %d, want 0", got)
+	}
+
+	conn, _, err := websocket.Dial(
+		t.Context(),
+		"ws://"+restartedServer.Addr+"/api/sessions/"+session.ID+"/tty",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("dial persisted session tty: %v", err)
+	}
+	if err := conn.Close(websocket.StatusNormalClosure, ""); err != nil {
+		t.Fatalf("close persisted session tty: %v", err)
+	}
+	waitForSessionStatus(t, restartedManager, session.ID, sessions.StatusRunning)
+	if got := restartedFactory.wrapperCount(); got != 1 {
+		t.Fatalf("wrappers started after persisted tty connection = %d, want 1", got)
+	}
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodDelete, "http://"+restartedServer.Addr+"/api/sessions/"+session.ID, nil)
+	if err != nil {
+		t.Fatalf("new delete request: %v", err)
+	}
+	resp, err = client.Do(req)
+	if err != nil {
+		t.Fatalf("DELETE persisted session: %v", err)
+	}
+	defer resp.Body.Close()
+	assertStatus(t, resp, http.StatusNoContent)
+	if _, err := os.Stat(filepath.Join(configDir, "sessions", session.ID+".json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("stat deleted session metadata error = %v, want not exist", err)
+	}
+}
+
+func TestServerTTYMissingSession(t *testing.T) {
 	factory := &fakeWrapperFactory{}
 	manager := newTestSessionManager(t, factory.start)
-	session, err := manager.Create(t.Context(), "terminal")
-	if err != nil {
-		t.Fatalf("Create() error = %v", err)
-	}
 
 	server := startTestServer(t, WithSessionManager(manager))
 	defer shutdownTestServer(t, server)
@@ -311,18 +411,6 @@ func TestServerTTYStatusCodes(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	assertStatus(t, resp, http.StatusNotFound)
-
-	if err := factory.wrappers[0].Shutdown(t.Context()); err != nil {
-		t.Fatalf("shutdown wrapper: %v", err)
-	}
-	waitForSessionStatus(t, manager, session.ID(), sessions.StatusExited)
-
-	resp, err = client.Get("http://" + server.Addr + "/api/sessions/" + session.ID() + "/tty")
-	if err != nil {
-		t.Fatalf("GET exited tty: %v", err)
-	}
-	defer resp.Body.Close()
-	assertStatus(t, resp, http.StatusGone)
 }
 
 func TestTerminalPageUsesProxySafePaths(t *testing.T) {
@@ -455,16 +543,35 @@ type fakeWrapperServer struct {
 type fakeWrapperFactory struct {
 	mu       sync.Mutex
 	wrappers []*fakeWrapperServer
+	handler  http.Handler
 }
 
 func (f *fakeWrapperFactory) start(context.Context) (wrapper.Wrapper, error) {
-	fake := newFakeWrapperServer(http.NotFoundHandler())
+	handler := f.handler
+	if handler == nil {
+		handler = http.NotFoundHandler()
+	}
+	fake := newFakeWrapperServer(handler)
 
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
 	f.wrappers = append(f.wrappers, fake)
 	return fake, nil
+}
+
+func (f *fakeWrapperFactory) wrapperCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return len(f.wrappers)
+}
+
+func (f *fakeWrapperFactory) wrapper(index int) *fakeWrapperServer {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.wrappers[index]
 }
 
 func newFakeWrapperServer(handler http.Handler) *fakeWrapperServer {

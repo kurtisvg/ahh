@@ -2,12 +2,32 @@ package server
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/kurtisvg/ahh/internal/server/sessions"
 )
 
 type options struct {
-	sessions *sessions.Manager
+	sessions  *sessions.Manager
+	configDir string
+}
+
+// WithConfigDir sets the directory used for persisted Ahh metadata.
+func WithConfigDir(configDir string) Option {
+	return func(opts *options) error {
+		opts.configDir = configDir
+		return nil
+	}
+}
+
+func defaultConfigDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ".ahh"
+	}
+
+	return filepath.Join(home, ".ahh")
 }
 
 // Option configures the Ahh server.

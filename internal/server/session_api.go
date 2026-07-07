@@ -91,14 +91,13 @@ func (s *Server) serveTTY(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sessionWrapper, sessionStatus := session.Wrapper()
-	if sessionStatus == sessions.StatusExited || sessionWrapper == nil {
-		http.Error(w, "session exited", http.StatusGone)
-		return
-	}
-
 	browserConn, err := websocket.Accept(w, r, nil)
 	if err != nil {
+		return
+	}
+	sessionWrapper, err := session.Start(r.Context())
+	if err != nil {
+		_ = browserConn.Close(websocket.StatusTryAgainLater, "session unavailable")
 		return
 	}
 
@@ -114,7 +113,11 @@ func (s *Server) serveTTY(w http.ResponseWriter, r *http.Request) {
 	// A session is touched when a browser successfully connects to its TTY
 	// stream. Individual terminal frames do not update activity; this keeps
 	// "most recent" tied to session selection rather than terminal noise.
-	session.Touch()
+	if err := session.Touch(); err != nil {
+		_ = browserConn.Close(websocket.StatusInternalError, "session metadata unavailable")
+		_ = wrapperConn.Close(websocket.StatusInternalError, "session metadata unavailable")
+		return
+	}
 
 	errCh := make(chan error, 2)
 	go func() {

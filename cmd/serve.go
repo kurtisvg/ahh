@@ -11,6 +11,7 @@ import (
 const defaultServerAddr = "127.0.0.1:0"
 
 func newServeCommand() *cobra.Command {
+	var configDir string
 	cmd := &cobra.Command{
 		Use:           "serve",
 		Short:         "Run the Ahh server",
@@ -18,15 +19,18 @@ func newServeCommand() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Args:          cobra.NoArgs,
-		RunE:          runServeCommand,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runServeCommand(cmd, args, configDir)
+		},
 	}
+	cmd.Flags().StringVar(&configDir, "config", "", "directory for Ahh metadata")
 
 	return cmd
 }
 
-func runServeCommand(cmd *cobra.Command, _ []string) error {
+func runServeCommand(cmd *cobra.Command, _ []string, configDir string) error {
 	ctx := cmd.Context()
-	server, err := ahhserver.Start(ctx, defaultServerAddr)
+	server, err := ahhserver.Start(ctx, defaultServerAddr, ahhserver.WithConfigDir(configDir))
 	if err != nil {
 		return fmt.Errorf("start server: %w", err)
 	}

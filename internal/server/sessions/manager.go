@@ -38,10 +38,13 @@ type Metadata struct {
 
 // Session manages the mutable runtime state for one terminal session.
 type Session struct {
-	mu       sync.Mutex
-	metadata Metadata
-	wrapper  wrapper.Wrapper
-	now      func() time.Time
+	mu           sync.Mutex
+	startMu      sync.Mutex
+	metadata     Metadata
+	wrapper      wrapper.Wrapper
+	startWrapper func() (wrapper.Wrapper, error)
+	now          func() time.Time
+	store        metadataStore
 }
 
 // Manager owns the session registry. Each Session owns its own mutable state.
@@ -53,12 +56,14 @@ type Manager struct {
 	cancel       context.CancelFunc
 	newID        func() (string, error)
 	now          func() time.Time
+	store        metadataStore
 }
 
 type options struct {
 	startWrapper func(context.Context) (wrapper.Wrapper, error)
 	newID        func() (string, error)
 	now          func() time.Time
+	store        metadataStore
 }
 
 // Option configures a Manager.
@@ -78,15 +83,45 @@ func NewManager(ctx context.Context, opts ...Option) (*Manager, error) {
 	}
 	lifetimeCtx, cancel := context.WithCancel(ctx)
 
-	return &Manager{
+	manager := &Manager{
 		sessions: map[string]*Session{},
 		startWrapper: func() (wrapper.Wrapper, error) {
+			if err := lifetimeCtx.Err(); err != nil {
+				return nil, err
+			}
 			return cfg.startWrapper(lifetimeCtx)
 		},
 		cancel: cancel,
 		newID:  cfg.newID,
 		now:    cfg.now,
-	}, nil
+		store:  cfg.store,
+	}
+	if cfg.store == nil {
+		return manager, nil
+	}
+
+	stored, err := cfg.store.Load()
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	for _, metadata := range stored {
+		manager.sessions[metadata.ID] = restoreSession(metadata, cfg.now, cfg.store, manager.startWrapper)
+	}
+
+	return manager, nil
+}
+
+// WithConfigDir persists session metadata beneath configDir.
+func WithConfigDir(configDir string) Option {
+	return func(opts *options) error {
+		if strings.TrimSpace(configDir) == "" {
+			return fmt.Errorf("session config directory is required")
+		}
+
+		opts.store = newFileMetadataStore(configDir)
+		return nil
+	}
 }
 
 // WithStartWrapper replaces the wrapper startup hook used when creating sessions.
@@ -143,7 +178,7 @@ func (m *Manager) Create(ctx context.Context, name string) (*Session, error) {
 		return nil, fmt.Errorf("generate session id: %w", err)
 	}
 
-	session := newSession(id, name, m.now)
+	session := newSession(id, name, m.now, m.store, m.startWrapper)
 
 	// Wrapper lifetime belongs to the manager, not the request creating it.
 	w, err := m.startWrapper()
@@ -174,6 +209,16 @@ func (m *Manager) Create(ctx context.Context, name string) (*Session, error) {
 		}
 
 		return nil, registrationErr
+	}
+	if m.store != nil {
+		if err := m.store.Save(session.Metadata()); err != nil {
+			m.remove(id, session)
+			if shutdownErr := session.Shutdown(ctx); shutdownErr != nil {
+				return nil, errors.Join(err, shutdownErr)
+			}
+
+			return nil, err
+		}
 	}
 	go session.watchWrapper(w)
 
@@ -215,6 +260,11 @@ func (m *Manager) Delete(ctx context.Context, id string) (bool, error) {
 
 	if err := session.Shutdown(ctx); err != nil {
 		return true, err
+	}
+	if m.store != nil {
+		if err := m.store.Delete(id); err != nil {
+			return true, err
+		}
 	}
 
 	m.remove(id, session)
@@ -275,7 +325,13 @@ func (m *Manager) remove(id string, session *Session) {
 	}
 }
 
-func newSession(id string, name string, now func() time.Time) *Session {
+func newSession(
+	id string,
+	name string,
+	now func() time.Time,
+	store metadataStore,
+	startWrapper func() (wrapper.Wrapper, error),
+) *Session {
 	createdAt := now()
 	return &Session{
 		metadata: Metadata{
@@ -285,7 +341,24 @@ func newSession(id string, name string, now func() time.Time) *Session {
 			CreatedAt:    createdAt,
 			LastActiveAt: createdAt,
 		},
-		now: now,
+		startWrapper: startWrapper,
+		now:          now,
+		store:        store,
+	}
+}
+
+func restoreSession(
+	metadata Metadata,
+	now func() time.Time,
+	store metadataStore,
+	startWrapper func() (wrapper.Wrapper, error),
+) *Session {
+	metadata.Status = StatusExited
+	return &Session{
+		metadata:     metadata,
+		startWrapper: startWrapper,
+		now:          now,
+		store:        store,
 	}
 }
 
@@ -306,11 +379,21 @@ func (s *Session) Metadata() Metadata {
 }
 
 // Touch records user-visible activity for this session.
-func (s *Session) Touch() {
+func (s *Session) Touch() error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	s.metadata.LastActiveAt = s.now()
+	metadata := s.metadata
+	store := s.store
+	s.mu.Unlock()
+
+	if store == nil {
+		return nil
+	}
+	if err := store.Save(metadata); err != nil {
+		return fmt.Errorf("persist session activity: %w", err)
+	}
+
+	return nil
 }
 
 // Wrapper returns the current wrapper and lifecycle status for this session.
@@ -321,8 +404,61 @@ func (s *Session) Wrapper() (wrapper.Wrapper, Status) {
 	return s.wrapper, s.metadata.Status
 }
 
+// Start returns the live wrapper, starting it when this session is not running.
+func (s *Session) Start(ctx context.Context) (wrapper.Wrapper, error) {
+	s.startMu.Lock()
+	defer s.startMu.Unlock()
+
+	s.mu.Lock()
+	if s.wrapper != nil {
+		w := s.wrapper
+		s.mu.Unlock()
+		return w, nil
+	}
+	s.metadata.Status = StatusStarting
+	s.mu.Unlock()
+
+	w, err := s.startWrapper()
+	if err != nil {
+		s.mu.Lock()
+		s.metadata.Status = StatusExited
+		s.mu.Unlock()
+		return nil, fmt.Errorf("start session wrapper: %w", err)
+	}
+
+	s.mu.Lock()
+	s.wrapper = w
+	s.metadata.Status = StatusRunning
+	metadata := s.metadata
+	store := s.store
+	s.mu.Unlock()
+
+	if store != nil {
+		if err := store.Save(metadata); err != nil {
+			persistErr := fmt.Errorf("persist started session: %w", err)
+			shutdownErr := w.Shutdown(ctx)
+			s.mu.Lock()
+			if s.wrapper == w {
+				s.wrapper = nil
+				s.metadata.Status = StatusExited
+			}
+			s.mu.Unlock()
+			if shutdownErr != nil {
+				return nil, errors.Join(persistErr, shutdownErr)
+			}
+			return nil, persistErr
+		}
+	}
+
+	go s.watchWrapper(w)
+	return w, nil
+}
+
 // Shutdown stops this session's live wrapper, if one exists.
 func (s *Session) Shutdown(ctx context.Context) error {
+	s.startMu.Lock()
+	defer s.startMu.Unlock()
+
 	w, _ := s.Wrapper()
 	if w == nil {
 		return nil

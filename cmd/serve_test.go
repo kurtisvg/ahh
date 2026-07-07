@@ -15,6 +15,7 @@ func TestServeCommand(t *testing.T) {
 				"Run the Ahh server",
 				"Usage:",
 				"ahh serve",
+				"--config",
 			},
 		},
 		{

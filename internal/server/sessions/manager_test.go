@@ -180,6 +180,58 @@ func TestManagerCreateDoesNotRegisterAfterShutdown(t *testing.T) {
 	}
 }
 
+func TestSessionStartDeduplicatesConcurrentCalls(t *testing.T) {
+	fake := newTestWrapper()
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var calls int
+	var callsMu sync.Mutex
+	var startedOnce sync.Once
+	session := restoreSession(
+		Metadata{ID: "persisted", Name: "persisted"},
+		time.Now,
+		nil,
+		func() (wrapper.Wrapper, error) {
+			callsMu.Lock()
+			calls++
+			callsMu.Unlock()
+			startedOnce.Do(func() {
+				close(started)
+			})
+			<-release
+			return fake, nil
+		},
+	)
+
+	results := make(chan wrapper.Wrapper, 2)
+	for range 2 {
+		go func() {
+			w, err := session.Start(t.Context())
+			if err != nil {
+				t.Errorf("Start() error = %v", err)
+			}
+			results <- w
+		}()
+	}
+
+	<-started
+	close(release)
+	first := <-results
+	second := <-results
+	if first != fake || second != fake {
+		t.Fatalf("Start() wrappers = [%p, %p], want %p", first, second, fake)
+	}
+	callsMu.Lock()
+	gotCalls := calls
+	callsMu.Unlock()
+	if gotCalls != 1 {
+		t.Fatalf("wrapper start calls = %d, want 1", gotCalls)
+	}
+	if err := session.Shutdown(t.Context()); err != nil {
+		t.Fatalf("Shutdown() error = %v", err)
+	}
+}
+
 func TestManagerListSortsMostRecentFirst(t *testing.T) {
 	var wrappers []*testWrapper
 	startWrapper := func(context.Context) (wrapper.Wrapper, error) {
@@ -230,7 +282,9 @@ func TestManagerListSortsMostRecentFirst(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create(second) error = %v", err)
 	}
-	first.Touch()
+	if err := first.Touch(); err != nil {
+		t.Fatalf("Touch() error = %v", err)
+	}
 
 	got := manager.List()
 	if len(got) != 2 {
