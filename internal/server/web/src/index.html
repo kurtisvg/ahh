@@ -12,18 +12,12 @@
     <aside id="sidebar" class="sidebar" aria-label="Conversations">
       <div class="sidebar-header">
         <div class="brand">Ahh</div>
+        <button id="new-conversation-button" class="icon-button" type="button" aria-label="New conversation">+</button>
       </div>
       <nav class="sidebar-section" aria-labelledby="conversation-heading">
         <h2 id="conversation-heading" class="section-label">Conversations</h2>
-        <div class="conversation-list">
-          <button class="conversation-item is-active" type="button" data-state="connecting" aria-current="page">
-            <span class="conversation-main">
-              <span class="conversation-name">Claude Code PTY</span>
-              <span class="conversation-meta">Local session</span>
-            </span>
-            <span class="state-pill" aria-hidden="true"></span>
-          </button>
-        </div>
+        <div id="conversation-list" class="conversation-list"></div>
+        <div id="conversation-empty" class="conversation-empty">No conversations</div>
       </nav>
       <div class="sidebar-footer">Localhost control plane</div>
     </aside>
@@ -31,22 +25,22 @@
     <div class="workspace">
       <header class="topbar">
         <div class="view-heading">
-          <div class="view-title">Ahh</div>
-          <div class="view-subtitle">Local session</div>
+          <div id="view-title" class="view-title">Ahh</div>
+          <div id="view-subtitle" class="view-subtitle">No conversation selected</div>
         </div>
         <div class="status-surface" aria-live="polite">
-          <div id="status" class="status" data-state="connecting">
+          <div id="status" class="status" data-state="idle">
             <span class="dot"></span>
-            <span id="status-text">connecting</span>
+            <span id="status-text">idle</span>
           </div>
-          <div id="status-detail" class="status-detail">checking</div>
+          <div id="status-detail" class="status-detail" hidden></div>
         </div>
       </header>
       <main class="terminal-region">
         <div id="connection-banner" class="connection-banner" data-state="connecting" hidden>
           <span id="connection-banner-text">Connecting to terminal</span>
         </div>
-        <section class="terminal-shell" aria-label="Claude Code terminal">
+        <section class="terminal-shell" aria-label="Conversation terminal">
           <div class="terminal-tabs" role="tablist" aria-label="Workspace views">
             <button
               class="terminal-tab is-active"
@@ -58,9 +52,9 @@
               <span class="tab-icon" aria-hidden="true">&gt;_</span>
             </button>
           </div>
-          <div class="terminal-stage" role="tabpanel" aria-label="Shell terminal">
-            <div id="terminal-state" class="terminal-state" data-state="connecting">
-              <span id="terminal-state-text">Connecting to terminal</span>
+          <div class="terminal-stage" role="tabpanel" aria-label="TTY terminal">
+            <div id="terminal-state" class="terminal-state" data-state="idle">
+              <span id="terminal-state-text">No conversation selected</span>
             </div>
             <div id="terminal"></div>
           </div>
@@ -68,6 +62,21 @@
       </main>
     </div>
   </div>
+
+  <dialog id="conversation-dialog" class="modal">
+    <form id="create-conversation-form" class="modal-surface" method="dialog">
+      <div class="modal-header">
+        <h2 class="modal-title">New Conversation</h2>
+        <button id="conversation-dialog-close" class="icon-button" type="button" aria-label="Close">&times;</button>
+      </div>
+      <label class="field-label" for="conversation-name-input">Name</label>
+      <input id="conversation-name-input" class="conversation-input" name="name" type="text" autocomplete="off" required>
+      <div class="modal-actions">
+        <button id="conversation-cancel-button" class="secondary-button" type="button">Cancel</button>
+        <button class="primary-button" type="submit">Create</button>
+      </div>
+    </form>
+  </dialog>
 
   <script src="assets/xterm.js"></script>
   <script src="assets/addon-fit.js"></script>
