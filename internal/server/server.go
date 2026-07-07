@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/coder/websocket"
@@ -24,8 +24,7 @@ const (
 type Server struct {
 	Addr       string
 	httpServer *http.Server
-	wrapper    wrapper.Wrapper
-	client     *http.Client
+	sessions   *SessionManager
 
 	// done is closed after err is set, so Wait can safely read err after
 	// receiving from done.
@@ -35,27 +34,19 @@ type Server struct {
 
 // Start starts the Ahh HTTP server and the local wrapper it proxies to.
 func Start(ctx context.Context, addr string) (*Server, error) {
-	w, err := wrapper.Start(ctx, defaultWrapperHarness, defaultWrapperAddr)
-	if err != nil {
-		return nil, fmt.Errorf("start wrapper server: %w", err)
-	}
-
-	server, err := start(ctx, w, addr)
-	if err != nil {
-		_ = w.Shutdown(context.Background())
-		return nil, err
-	}
-
-	return server, nil
+	return start(ctx, newWrapperSessionManager(), addr)
 }
 
-func startWithWrapper(ctx context.Context, w wrapper.Wrapper, addr string) (*Server, error) {
-	return start(ctx, w, addr)
+func startWithSessionManager(ctx context.Context, sessions *SessionManager, addr string) (*Server, error) {
+	return start(ctx, sessions, addr)
 }
 
-func start(ctx context.Context, w wrapper.Wrapper, addr string) (*Server, error) {
+func start(ctx context.Context, sessions *SessionManager, addr string) (*Server, error) {
 	if addr == "" {
 		return nil, fmt.Errorf("server listen address is required")
+	}
+	if sessions == nil {
+		return nil, fmt.Errorf("session manager is required")
 	}
 
 	listener, err := net.Listen("tcp", addr)
@@ -64,19 +55,16 @@ func start(ctx context.Context, w wrapper.Wrapper, addr string) (*Server, error)
 	}
 
 	server := &Server{
-		Addr:    listener.Addr().String(),
-		wrapper: w,
-		client: &http.Client{
-			Timeout: 5 * time.Second,
-		},
-		done: make(chan struct{}),
+		Addr:     listener.Addr().String(),
+		sessions: sessions,
+		done:     make(chan struct{}),
 	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", server.serveTerminal)
 	mux.Handle("/assets/", serveAssets())
 	mux.HandleFunc("/ready", server.serveReady)
-	mux.HandleFunc("/pty", server.servePTY)
+	mux.HandleFunc("/api/sessions/", server.serveSessionAPI)
 
 	server.httpServer = &http.Server{
 		Handler:           mux,
@@ -96,19 +84,10 @@ func start(ctx context.Context, w wrapper.Wrapper, addr string) (*Server, error)
 			serveErr <- nil
 		}()
 
-		wrapperErr := make(chan error, 1)
-		go func() {
-			wrapperErr <- server.wrapper.Wait()
-		}()
-
 		select {
 		case err := <-serveErr:
 			if err != nil {
 				server.err = fmt.Errorf("serve http: %w", err)
-			}
-		case err := <-wrapperErr:
-			if err != nil {
-				server.err = fmt.Errorf("serve wrapper: %w", err)
 			}
 		case <-ctx.Done():
 			server.err = ctx.Err()
@@ -129,8 +108,8 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 	defer cancel()
 
-	if err := s.wrapper.Shutdown(shutdownCtx); err != nil {
-		return fmt.Errorf("shutdown wrapper server: %w", err)
+	if err := s.sessions.Shutdown(shutdownCtx); err != nil {
+		return fmt.Errorf("shutdown sessions: %w", err)
 	}
 
 	if err := s.httpServer.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -161,42 +140,47 @@ func (s *Server) serveTerminal(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(page)
 }
 
-// serveReady proxies wrapper readiness so browser clients only talk to the Ahh
-// server. It reports readiness for the prototype wrapper transport, not a
-// Conversation resource.
 func (s *Server) serveReady(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
 
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, "http://"+s.wrapper.Address()+"/ready", nil)
-	if err != nil {
-		http.Error(w, "wrapper readiness request failed", http.StatusInternalServerError)
-		return
-	}
-
-	resp, err := s.client.Do(req)
-	if err != nil {
-		http.Error(w, "wrapper unavailable", http.StatusBadGateway)
-		return
-	}
-	defer resp.Body.Close()
-
 	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
-	w.WriteHeader(resp.StatusCode)
-	_, _ = io.Copy(w, resp.Body)
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = w.Write([]byte("ready\n"))
 }
 
-// servePTY proxies browser websocket traffic to the wrapper PTY endpoint. This
-// keeps the browser on the Ahh server boundary instead of exposing the wrapper
-// address directly.
-func (s *Server) servePTY(w http.ResponseWriter, r *http.Request) {
+func (s *Server) serveSessionAPI(w http.ResponseWriter, r *http.Request) {
+	id, action, ok := splitSessionAPIPath(r.URL.Path)
+	if !ok || action != "tty" {
+		http.NotFound(w, r)
+		return
+	}
+
+	s.serveTTY(w, r, id)
+}
+
+// serveTTY proxies browser websocket traffic to the session wrapper's PTY
+// endpoint. The public Ahh API uses tty terminology; the wrapper still owns the
+// current PTY transport internally.
+func (s *Server) serveTTY(w http.ResponseWriter, r *http.Request, id string) {
 	if r.Method != http.MethodGet {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
+
+	sessionWrapper, sessionStatus, ok := s.sessions.Wrapper(id)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if sessionStatus == SessionStatusExited || sessionWrapper == nil {
+		http.Error(w, "session exited", http.StatusGone)
+		return
+	}
+
+	s.sessions.Touch(id)
 
 	browserConn, err := websocket.Accept(w, r, nil)
 	if err != nil {
@@ -206,7 +190,7 @@ func (s *Server) servePTY(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 
-	wrapperConn, _, err := websocket.Dial(ctx, "ws://"+s.wrapper.Address()+"/pty", nil)
+	wrapperConn, _, err := websocket.Dial(ctx, "ws://"+sessionWrapper.Address()+"/pty", nil)
 	if err != nil {
 		_ = browserConn.Close(websocket.StatusTryAgainLater, "wrapper unavailable")
 		return
@@ -223,16 +207,30 @@ func (s *Server) servePTY(w http.ResponseWriter, r *http.Request) {
 	err = <-errCh
 	cancel()
 
-	status := websocket.StatusNormalClosure
+	closeStatus := websocket.StatusNormalClosure
 	reason := ""
 	if !normalWebSocketError(err) {
-		status = websocket.StatusInternalError
+		closeStatus = websocket.StatusInternalError
 		reason = "terminal proxy failed"
 	}
 
-	_ = browserConn.Close(status, reason)
-	_ = wrapperConn.Close(status, reason)
+	_ = browserConn.Close(closeStatus, reason)
+	_ = wrapperConn.Close(closeStatus, reason)
 	<-errCh
+}
+
+func splitSessionAPIPath(path string) (string, string, bool) {
+	rest := strings.TrimPrefix(path, "/api/sessions/")
+	if rest == path || rest == "" {
+		return "", "", false
+	}
+
+	id, action, ok := strings.Cut(rest, "/")
+	if !ok || id == "" || action == "" || strings.Contains(action, "/") {
+		return "", "", false
+	}
+
+	return id, action, true
 }
 
 func copyWebSocket(ctx context.Context, dst, src *websocket.Conn) error {

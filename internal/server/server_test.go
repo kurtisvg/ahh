@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -15,16 +16,6 @@ import (
 )
 
 func TestServerHTTP(t *testing.T) {
-	wrapperHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/ready" {
-			http.NotFound(w, r)
-			return
-		}
-
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		_, _ = w.Write([]byte("ready from wrapper\n"))
-	})
-
 	tests := []struct {
 		name             string
 		path             string
@@ -56,10 +47,10 @@ func TestServerHTTP(t *testing.T) {
 			wantBodyContains: "terminalSocketURL",
 		},
 		{
-			name:             "proxies wrapper readiness",
+			name:             "reports server readiness",
 			path:             "/ready",
 			wantStatus:       http.StatusOK,
-			wantBodyContains: "ready from wrapper",
+			wantBodyContains: "ready",
 		},
 		{
 			name:       "reports missing page",
@@ -70,7 +61,7 @@ func TestServerHTTP(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			server := startTestServer(t, newFakeWrapperServer(wrapperHandler))
+			server := startTestServer(t, nil)
 			defer shutdownTestServer(t, server)
 
 			client := &http.Client{
@@ -95,69 +86,6 @@ func TestServerHTTP(t *testing.T) {
 			}
 			if !strings.Contains(string(body), tt.wantBodyContains) {
 				t.Fatalf("GET %s body = %q, want containing %q", tt.path, body, tt.wantBodyContains)
-			}
-		})
-	}
-}
-
-func TestServerReadyProxiesWrapperStatus(t *testing.T) {
-	tests := []struct {
-		name             string
-		wrapperStatus    int
-		wrapperBody      string
-		wantStatus       int
-		wantBodyContains string
-	}{
-		{
-			name:             "ready",
-			wrapperStatus:    http.StatusOK,
-			wrapperBody:      "ready\n",
-			wantStatus:       http.StatusOK,
-			wantBodyContains: "ready",
-		},
-		{
-			name:             "harness stopped",
-			wrapperStatus:    http.StatusServiceUnavailable,
-			wrapperBody:      "harness stopped\n",
-			wantStatus:       http.StatusServiceUnavailable,
-			wantBodyContains: "harness stopped",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			wrapperHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.URL.Path != "/ready" {
-					http.NotFound(w, r)
-					return
-				}
-
-				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-				w.WriteHeader(tt.wrapperStatus)
-				_, _ = w.Write([]byte(tt.wrapperBody))
-			})
-			server := startTestServer(t, newFakeWrapperServer(wrapperHandler))
-			defer shutdownTestServer(t, server)
-
-			client := &http.Client{
-				Timeout: 2 * time.Second,
-			}
-			resp, err := client.Get("http://" + server.Addr + "/ready")
-			if err != nil {
-				t.Fatalf("GET /ready: %v", err)
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != tt.wantStatus {
-				t.Fatalf("GET /ready status = %d, want %d", resp.StatusCode, tt.wantStatus)
-			}
-
-			body, err := io.ReadAll(resp.Body)
-			if err != nil {
-				t.Fatalf("read response body: %v", err)
-			}
-			if !strings.Contains(string(body), tt.wantBodyContains) {
-				t.Fatalf("GET /ready body = %q, want containing %q", body, tt.wantBodyContains)
 			}
 		})
 	}
@@ -211,12 +139,12 @@ func TestAppScriptIncludesConnectionLifecycleStates(t *testing.T) {
 	}
 }
 
-func TestServerPTYWebSocketProxy(t *testing.T) {
+func TestServerTTYWebSocketProxy(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 
 	input := make(chan string, 1)
-	wrapper := newFakeWrapperServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	fake := newFakeWrapperServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/pty" {
 			http.NotFound(w, r)
 			return
@@ -241,10 +169,18 @@ func TestServerPTYWebSocketProxy(t *testing.T) {
 		}
 	}))
 
-	server := startTestServer(t, wrapper)
+	sessions := newSessionManager(func(context.Context) (wrapper.Wrapper, error) {
+		return fake, nil
+	})
+	session, err := sessions.Create(ctx, "terminal")
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	server := startTestServer(t, sessions)
 	defer shutdownTestServer(t, server)
 
-	conn, _, err := websocket.Dial(ctx, "ws://"+server.Addr+"/pty", nil)
+	conn, _, err := websocket.Dial(ctx, "ws://"+server.Addr+"/api/sessions/"+session.ID+"/tty", nil)
 	if err != nil {
 		t.Fatalf("dial server websocket: %v", err)
 	}
@@ -307,10 +243,16 @@ func (s *fakeWrapperServer) Shutdown(context.Context) error {
 	return nil
 }
 
-func startTestServer(t *testing.T, w wrapper.Wrapper) *Server {
+func startTestServer(t *testing.T, sessions *SessionManager) *Server {
 	t.Helper()
 
-	server, err := startWithWrapper(t.Context(), w, "127.0.0.1:0")
+	if sessions == nil {
+		sessions = newSessionManager(func(context.Context) (wrapper.Wrapper, error) {
+			return nil, fmt.Errorf("unexpected session start")
+		})
+	}
+
+	server, err := startWithSessionManager(t.Context(), sessions, "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
