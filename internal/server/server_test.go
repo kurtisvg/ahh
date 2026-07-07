@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/kurtisvg/ahh/internal/server/sessions"
 	"github.com/kurtisvg/ahh/internal/wrapper"
 )
 
@@ -187,7 +188,7 @@ func TestServerTTYWebSocketProxy(t *testing.T) {
 		}
 	}))
 
-	sessions := newSessionManager(func(context.Context) (wrapper.Wrapper, error) {
+	sessions := newTestSessionManager(t, func(context.Context) (wrapper.Wrapper, error) {
 		return fake, nil
 	})
 	session, err := sessions.Create(ctx, "terminal")
@@ -261,21 +262,35 @@ func (s *fakeWrapperServer) Shutdown(context.Context) error {
 	return nil
 }
 
-func startTestServer(t *testing.T, sessions *SessionManager) *Server {
+func startTestServer(t *testing.T, manager *sessions.Manager) *Server {
 	t.Helper()
 
-	if sessions == nil {
-		sessions = newSessionManager(func(context.Context) (wrapper.Wrapper, error) {
+	if manager == nil {
+		manager = newTestSessionManager(t, func(context.Context) (wrapper.Wrapper, error) {
 			return nil, fmt.Errorf("unexpected session start")
 		})
 	}
 
-	server, err := Start(t.Context(), "127.0.0.1:0", WithSessionManager(sessions))
+	server, err := Start(t.Context(), "127.0.0.1:0", WithSessionManager(manager))
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
 
 	return server
+}
+
+func newTestSessionManager(
+	t *testing.T,
+	startWrapper func(context.Context) (wrapper.Wrapper, error),
+) *sessions.Manager {
+	t.Helper()
+
+	manager, err := sessions.New(sessions.WithStartWrapper(startWrapper))
+	if err != nil {
+		t.Fatalf("sessions.New() error = %v", err)
+	}
+
+	return manager
 }
 
 func shutdownTestServer(t *testing.T, server *Server) {

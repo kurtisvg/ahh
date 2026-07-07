@@ -9,20 +9,18 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/kurtisvg/ahh/internal/wrapper"
+	"github.com/kurtisvg/ahh/internal/server/sessions"
 )
 
 const (
-	defaultWrapperAddr    = "127.0.0.1:0"
-	defaultWrapperHarness = wrapper.ClaudeCodeHarness
-	shutdownTimeout       = 5 * time.Second
+	shutdownTimeout = 5 * time.Second
 )
 
-// Server exposes the Ahh browser surface and proxies live terminal traffic to a wrapper.
+// Server exposes the Ahh browser surface and proxies live terminal traffic to session wrappers.
 type Server struct {
 	Addr       string
 	httpServer *http.Server
-	sessions   *SessionManager
+	sessions   *sessions.Manager
 
 	// done is closed after err is set, so Wait can safely read err after
 	// receiving from done.
@@ -32,8 +30,13 @@ type Server struct {
 
 // Start starts the Ahh HTTP server.
 func Start(ctx context.Context, addr string, opts ...Option) (*Server, error) {
+	manager, err := sessions.New()
+	if err != nil {
+		return nil, err
+	}
+
 	cfg := options{
-		sessions: newWrapperSessionManager(),
+		sessions: manager,
 	}
 	for _, opt := range opts {
 		if err := opt(&cfg); err != nil {
@@ -41,14 +44,10 @@ func Start(ctx context.Context, addr string, opts ...Option) (*Server, error) {
 		}
 	}
 
-	return start(ctx, cfg.sessions, addr)
-}
-
-func start(ctx context.Context, sessions *SessionManager, addr string) (*Server, error) {
 	if addr == "" {
 		return nil, fmt.Errorf("server listen address is required")
 	}
-	if sessions == nil {
+	if cfg.sessions == nil {
 		return nil, fmt.Errorf("session manager is required")
 	}
 
@@ -59,7 +58,7 @@ func start(ctx context.Context, sessions *SessionManager, addr string) (*Server,
 
 	server := &Server{
 		Addr:     listener.Addr().String(),
-		sessions: sessions,
+		sessions: cfg.sessions,
 		done:     make(chan struct{}),
 	}
 
@@ -100,13 +99,14 @@ func start(ctx context.Context, sessions *SessionManager, addr string) (*Server,
 	return server, nil
 }
 
+// Wait blocks until the server background loop exits.
 func (s *Server) Wait() error {
 	<-s.done
 
 	return s.err
 }
 
-// Shutdown stops the wrapper and HTTP server.
+// Shutdown stops session wrappers and the HTTP server.
 func (s *Server) Shutdown(ctx context.Context) error {
 	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 	defer cancel()
@@ -122,6 +122,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return nil
 }
 
+// serveTerminal serves the embedded browser terminal entrypoint.
 func (s *Server) serveTerminal(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -143,6 +144,7 @@ func (s *Server) serveTerminal(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(page)
 }
 
+// serveReady reports whether the server process is accepting requests.
 func (s *Server) serveReady(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		w.WriteHeader(http.StatusMethodNotAllowed)

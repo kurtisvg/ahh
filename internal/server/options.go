@@ -1,22 +1,26 @@
 package server
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/kurtisvg/ahh/internal/server/sessions"
+)
 
 type options struct {
-	sessions *SessionManager
+	sessions *sessions.Manager
 }
 
 // Option configures the Ahh server.
 type Option func(*options) error
 
 // WithSessionManager sets the session manager used by the server.
-func WithSessionManager(sessions *SessionManager) Option {
+func WithSessionManager(manager *sessions.Manager) Option {
 	return func(opts *options) error {
-		if sessions == nil {
+		if manager == nil {
 			return fmt.Errorf("session manager is required")
 		}
 
-		opts.sessions = sessions
+		opts.sessions = manager
 		return nil
 	}
 }

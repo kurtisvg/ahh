@@ -8,8 +8,10 @@ import (
 	"strings"
 
 	"github.com/coder/websocket"
+	"github.com/kurtisvg/ahh/internal/server/sessions"
 )
 
+// serveSessionAPI handles routes under /api/sessions.
 func (s *Server) serveSessionAPI(w http.ResponseWriter, r *http.Request) {
 	id, action, ok := splitSessionAPIPath(r.URL.Path)
 	if !ok || action != "tty" {
@@ -29,12 +31,12 @@ func (s *Server) serveTTY(w http.ResponseWriter, r *http.Request, id string) {
 		return
 	}
 
-	sessionWrapper, sessionStatus, ok := s.sessions.Wrapper(id)
+	sessionWrapper, sessionStatus, ok := s.sessions.LookupWrapper(id)
 	if !ok {
 		http.NotFound(w, r)
 		return
 	}
-	if sessionStatus == SessionStatusExited || sessionWrapper == nil {
+	if sessionStatus == sessions.StatusExited || sessionWrapper == nil {
 		http.Error(w, "session exited", http.StatusGone)
 		return
 	}
@@ -57,10 +59,10 @@ func (s *Server) serveTTY(w http.ResponseWriter, r *http.Request, id string) {
 
 	errCh := make(chan error, 2)
 	go func() {
-		errCh <- copyWebSocket(ctx, wrapperConn, browserConn)
+		errCh <- copyWebSocketMessages(ctx, wrapperConn, browserConn)
 	}()
 	go func() {
-		errCh <- copyWebSocket(ctx, browserConn, wrapperConn)
+		errCh <- copyWebSocketMessages(ctx, browserConn, wrapperConn)
 	}()
 
 	err = <-errCh
@@ -68,7 +70,7 @@ func (s *Server) serveTTY(w http.ResponseWriter, r *http.Request, id string) {
 
 	closeStatus := websocket.StatusNormalClosure
 	reason := ""
-	if !normalWebSocketError(err) {
+	if !isExpectedWebSocketClose(err) {
 		closeStatus = websocket.StatusInternalError
 		reason = "terminal proxy failed"
 	}
@@ -78,6 +80,7 @@ func (s *Server) serveTTY(w http.ResponseWriter, r *http.Request, id string) {
 	<-errCh
 }
 
+// splitSessionAPIPath extracts the session id and action from /sessions/{id}/{action}.
 func splitSessionAPIPath(path string) (string, string, bool) {
 	rest := strings.TrimPrefix(path, "/sessions/")
 	if rest == path || rest == "" {
@@ -92,7 +95,8 @@ func splitSessionAPIPath(path string) (string, string, bool) {
 	return id, action, true
 }
 
-func copyWebSocket(ctx context.Context, dst, src *websocket.Conn) error {
+// copyWebSocketMessages forwards websocket frames until one side closes.
+func copyWebSocketMessages(ctx context.Context, dst, src *websocket.Conn) error {
 	for {
 		messageType, data, err := src.Read(ctx)
 		if err != nil {
@@ -104,7 +108,8 @@ func copyWebSocket(ctx context.Context, dst, src *websocket.Conn) error {
 	}
 }
 
-func normalWebSocketError(err error) bool {
+// isExpectedWebSocketClose reports whether err is normal connection shutdown noise.
+func isExpectedWebSocketClose(err error) bool {
 	if err == nil {
 		return true
 	}
