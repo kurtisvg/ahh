@@ -19,7 +19,7 @@
           <button class="conversation-item is-active" type="button" data-state="connecting" aria-current="page">
             <span class="conversation-main">
               <span class="conversation-name">Claude Code PTY</span>
-              <span class="conversation-meta">Local wrapper</span>
+              <span class="conversation-meta">Local session</span>
             </span>
             <span class="state-pill" aria-hidden="true"></span>
           </button>
@@ -32,11 +32,14 @@
       <header class="topbar">
         <div class="view-heading">
           <div class="view-title">Ahh</div>
-          <div class="view-subtitle">Local wrapper</div>
+          <div class="view-subtitle">Local session</div>
         </div>
-        <div id="status" class="status" data-state="connecting">
-          <span class="dot"></span>
-          <span id="status-text">connecting</span>
+        <div class="status-surface" aria-live="polite">
+          <div id="status" class="status" data-state="connecting">
+            <span class="dot"></span>
+            <span id="status-text">connecting</span>
+          </div>
+          <div id="status-detail" class="status-detail">checking</div>
         </div>
       </header>
       <main class="terminal-region">
@@ -56,6 +59,9 @@
             </button>
           </div>
           <div class="terminal-stage" role="tabpanel" aria-label="Shell terminal">
+            <div id="terminal-state" class="terminal-state" data-state="connecting">
+              <span id="terminal-state-text">Connecting to terminal</span>
+            </div>
             <div id="terminal"></div>
           </div>
         </section>
