@@ -44,6 +44,18 @@ func TestServerHTTP(t *testing.T) {
 			wantBodyContains: ".xterm",
 		},
 		{
+			name:             "serves app styles",
+			path:             "/assets/app.css",
+			wantStatus:       http.StatusOK,
+			wantBodyContains: ".app-shell",
+		},
+		{
+			name:             "serves app script",
+			path:             "/assets/app.js",
+			wantStatus:       http.StatusOK,
+			wantBodyContains: "terminalSocketURL",
+		},
+		{
 			name:             "proxies wrapper readiness",
 			path:             "/ready",
 			wantStatus:       http.StatusOK,
@@ -90,11 +102,13 @@ func TestServerHTTP(t *testing.T) {
 
 func TestTerminalPageUsesProxySafePaths(t *testing.T) {
 	page := string(readAsset(t, "assets/index.html"))
+	app := string(readAsset(t, "assets/app.js"))
 	wants := []string{
 		`href="assets/xterm.css"`,
+		`href="assets/app.css"`,
 		`src="assets/xterm.js"`,
 		`src="assets/addon-fit.js"`,
-		`new URL('pty', window.location.origin + basePath)`,
+		`src="assets/app.js"`,
 	}
 	for _, want := range wants {
 		if !strings.Contains(page, want) {
@@ -102,9 +116,19 @@ func TestTerminalPageUsesProxySafePaths(t *testing.T) {
 		}
 	}
 
+	if want := `new URL('pty', window.location.origin + basePath)`; !strings.Contains(app, want) {
+		t.Fatalf("app script does not contain %q", want)
+	}
+
 	for _, bad := range []string{`href="/assets/`, `src="/assets/`, `host + '/pty'`} {
-		if strings.Contains(page, bad) {
+		if strings.Contains(page, bad) || strings.Contains(app, bad) {
 			t.Fatalf("terminal page contains proxy-unsafe path %q", bad)
+		}
+	}
+
+	for _, bad := range []string{`<style>`, `<script>`} {
+		if strings.Contains(page, bad) {
+			t.Fatalf("terminal page still contains inline asset tag %q", bad)
 		}
 	}
 }
