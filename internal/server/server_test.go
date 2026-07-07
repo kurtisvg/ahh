@@ -57,6 +57,11 @@ func TestServerHTTP(t *testing.T) {
 			path:       "/missing",
 			wantStatus: http.StatusNotFound,
 		},
+		{
+			name:       "reports missing api endpoint",
+			path:       "/api/missing",
+			wantStatus: http.StatusNotFound,
+		},
 	}
 
 	for _, tt := range tests {
@@ -88,6 +93,19 @@ func TestServerHTTP(t *testing.T) {
 				t.Fatalf("GET %s body = %q, want containing %q", tt.path, body, tt.wantBodyContains)
 			}
 		})
+	}
+}
+
+func TestStartRejectsNilSessionManager(t *testing.T) {
+	server, err := Start(t.Context(), "127.0.0.1:0", WithSessionManager(nil))
+	if err == nil {
+		if server != nil {
+			shutdownTestServer(t, server)
+		}
+		t.Fatal("Start() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "session manager is required") {
+		t.Fatalf("Start() error = %q, want containing session manager is required", err.Error())
 	}
 }
 
@@ -252,7 +270,7 @@ func startTestServer(t *testing.T, sessions *SessionManager) *Server {
 		})
 	}
 
-	server, err := startWithSessionManager(t.Context(), sessions, "127.0.0.1:0")
+	server, err := Start(t.Context(), "127.0.0.1:0", WithSessionManager(sessions))
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
