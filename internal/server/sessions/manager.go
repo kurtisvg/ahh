@@ -171,6 +171,24 @@ func (m *Manager) Get(id string) (*Session, bool) {
 	return session, ok
 }
 
+// Delete removes a session from the registry and shuts down its live wrapper.
+func (m *Manager) Delete(ctx context.Context, id string) (bool, error) {
+	m.mu.Lock()
+	session, ok := m.sessions[id]
+	if !ok {
+		m.mu.Unlock()
+		return false, nil
+	}
+	delete(m.sessions, id)
+	m.mu.Unlock()
+
+	if err := session.Shutdown(ctx); err != nil {
+		return true, err
+	}
+
+	return true, nil
+}
+
 // Shutdown stops every live session wrapper managed by m.
 func (m *Manager) Shutdown(ctx context.Context) error {
 	sessions := m.all()
@@ -256,6 +274,19 @@ func (s *Session) Wrapper() (wrapper.Wrapper, Status) {
 	defer s.mu.Unlock()
 
 	return s.wrapper, s.metadata.Status
+}
+
+// Shutdown stops this session's live wrapper, if one exists.
+func (s *Session) Shutdown(ctx context.Context) error {
+	w, _ := s.Wrapper()
+	if w == nil {
+		return nil
+	}
+	if err := w.Shutdown(ctx); err != nil {
+		return fmt.Errorf("shutdown session wrapper: %w", err)
+	}
+
+	return nil
 }
 
 func (s *Session) setWrapper(w wrapper.Wrapper) {

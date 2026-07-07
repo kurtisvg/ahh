@@ -1,11 +1,14 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -130,6 +133,179 @@ func TestStartRejectsNilSessionManager(t *testing.T) {
 	if !strings.Contains(err.Error(), "session manager is required") {
 		t.Fatalf("Start() error = %q, want containing session manager is required", err.Error())
 	}
+}
+
+func TestServerSessionsAPI(t *testing.T) {
+	factory := newFakeWrapperFactory()
+	base := time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC)
+	times := []time.Time{
+		base,
+		base.Add(time.Minute),
+	}
+	manager, err := sessions.NewManager(
+		sessions.WithStartWrapper(factory.start),
+		sessions.WithClock(func() time.Time {
+			if len(times) == 0 {
+				return base.Add(2 * time.Minute)
+			}
+
+			next := times[0]
+			times = times[1:]
+			return next
+		}),
+	)
+	if err != nil {
+		t.Fatalf("sessions.NewManager() error = %v", err)
+	}
+
+	server := startTestServer(t, manager)
+	defer shutdownTestServer(t, server)
+
+	client := &http.Client{
+		Timeout: 2 * time.Second,
+	}
+
+	resp, err := client.Get("http://" + server.Addr + "/api/sessions")
+	if err != nil {
+		t.Fatalf("GET /api/sessions: %v", err)
+	}
+	assertStatus(t, resp, http.StatusOK)
+	var initial sessionsResponse
+	decodeJSON(t, resp, &initial)
+	if len(initial.Sessions) != 0 {
+		t.Fatalf("initial sessions = %d, want 0", len(initial.Sessions))
+	}
+
+	resp, err = client.Post("http://"+server.Addr+"/api/sessions", "application/json", strings.NewReader(`{"name":"   "}`))
+	if err != nil {
+		t.Fatalf("POST blank session: %v", err)
+	}
+	assertStatus(t, resp, http.StatusBadRequest)
+	var apiErr errorResponse
+	decodeJSON(t, resp, &apiErr)
+	if apiErr.Error != "session name is required" {
+		t.Fatalf("blank session error = %q, want session name is required", apiErr.Error)
+	}
+
+	first := createSessionViaAPI(t, client, server, "First")
+	second := createSessionViaAPI(t, client, server, "Second")
+	uuidPattern := regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+	for _, session := range []sessions.Metadata{first, second} {
+		if !uuidPattern.MatchString(session.ID) {
+			t.Fatalf("session id %q is not a UUID v4", session.ID)
+		}
+		if session.Status != sessions.StatusRunning {
+			t.Fatalf("session %q status = %q, want %q", session.Name, session.Status, sessions.StatusRunning)
+		}
+	}
+
+	resp, err = client.Get("http://" + server.Addr + "/api/sessions")
+	if err != nil {
+		t.Fatalf("GET /api/sessions after create: %v", err)
+	}
+	assertStatus(t, resp, http.StatusOK)
+	var listed sessionsResponse
+	decodeJSON(t, resp, &listed)
+	if len(listed.Sessions) != 2 {
+		t.Fatalf("listed sessions = %d, want 2", len(listed.Sessions))
+	}
+	if listed.Sessions[0].ID != second.ID || listed.Sessions[1].ID != first.ID {
+		t.Fatalf("session order = [%q, %q], want newest-first [%q, %q]",
+			listed.Sessions[0].Name,
+			listed.Sessions[1].Name,
+			second.Name,
+			first.Name,
+		)
+	}
+}
+
+func TestServerDeleteSessionAPI(t *testing.T) {
+	factory := newFakeWrapperFactory()
+	manager := newTestSessionManager(t, factory.start)
+	server := startTestServer(t, manager)
+	defer shutdownTestServer(t, server)
+
+	client := &http.Client{
+		Timeout: 2 * time.Second,
+	}
+	session := createSessionViaAPI(t, client, server, "delete me")
+	if len(factory.wrappers) != 1 {
+		t.Fatalf("started wrappers = %d, want 1", len(factory.wrappers))
+	}
+
+	req, err := http.NewRequestWithContext(
+		t.Context(),
+		http.MethodDelete,
+		"http://"+server.Addr+"/api/sessions/"+session.ID,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("new delete request: %v", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("DELETE /api/sessions/%s: %v", session.ID, err)
+	}
+	assertStatus(t, resp, http.StatusNoContent)
+	resp.Body.Close()
+
+	select {
+	case <-factory.wrappers[0].done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("deleted session wrapper was not shut down")
+	}
+
+	resp, err = client.Get("http://" + server.Addr + "/api/sessions")
+	if err != nil {
+		t.Fatalf("GET /api/sessions after delete: %v", err)
+	}
+	assertStatus(t, resp, http.StatusOK)
+	var listed sessionsResponse
+	decodeJSON(t, resp, &listed)
+	if len(listed.Sessions) != 0 {
+		t.Fatalf("listed sessions after delete = %d, want 0", len(listed.Sessions))
+	}
+
+	resp, err = client.Do(req)
+	if err != nil {
+		t.Fatalf("second DELETE /api/sessions/%s: %v", session.ID, err)
+	}
+	assertStatus(t, resp, http.StatusNotFound)
+	resp.Body.Close()
+}
+
+func TestServerTTYStatusCodes(t *testing.T) {
+	factory := newFakeWrapperFactory()
+	manager := newTestSessionManager(t, factory.start)
+	session, err := manager.Create(t.Context(), "terminal")
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	server := startTestServer(t, manager)
+	defer shutdownTestServer(t, server)
+
+	client := &http.Client{
+		Timeout: 2 * time.Second,
+	}
+	resp, err := client.Get("http://" + server.Addr + "/api/sessions/missing/tty")
+	if err != nil {
+		t.Fatalf("GET missing tty: %v", err)
+	}
+	assertStatus(t, resp, http.StatusNotFound)
+	resp.Body.Close()
+
+	if err := factory.wrappers[0].Shutdown(t.Context()); err != nil {
+		t.Fatalf("shutdown wrapper: %v", err)
+	}
+	waitForSessionStatus(t, manager, session.ID(), sessions.StatusExited)
+
+	resp, err = client.Get("http://" + server.Addr + "/api/sessions/" + session.ID() + "/tty")
+	if err != nil {
+		t.Fatalf("GET exited tty: %v", err)
+	}
+	assertStatus(t, resp, http.StatusGone)
+	resp.Body.Close()
 }
 
 func TestTerminalPageUsesProxySafePaths(t *testing.T) {
@@ -258,6 +434,25 @@ type fakeWrapperServer struct {
 	closeOnce sync.Once
 }
 
+type fakeWrapperFactory struct {
+	mu       sync.Mutex
+	wrappers []*fakeWrapperServer
+}
+
+func newFakeWrapperFactory() *fakeWrapperFactory {
+	return &fakeWrapperFactory{}
+}
+
+func (f *fakeWrapperFactory) start(context.Context) (wrapper.Wrapper, error) {
+	fake := newFakeWrapperServer(http.NotFoundHandler())
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.wrappers = append(f.wrappers, fake)
+	return fake, nil
+}
+
 func newFakeWrapperServer(handler http.Handler) *fakeWrapperServer {
 	return &fakeWrapperServer{
 		server: httptest.NewServer(handler),
@@ -335,4 +530,57 @@ func readAsset(t *testing.T, name string) []byte {
 	}
 
 	return data
+}
+
+func createSessionViaAPI(t *testing.T, client *http.Client, server *Server, name string) sessions.Metadata {
+	t.Helper()
+
+	requestBody := bytes.NewBufferString(fmt.Sprintf(`{"name":%q}`, name))
+	resp, err := client.Post("http://"+server.Addr+"/api/sessions", "application/json", requestBody)
+	if err != nil {
+		t.Fatalf("POST /api/sessions: %v", err)
+	}
+	assertStatus(t, resp, http.StatusCreated)
+
+	var session sessions.Metadata
+	decodeJSON(t, resp, &session)
+	if session.Name != name {
+		t.Fatalf("created session name = %q, want %q", session.Name, name)
+	}
+
+	return session
+}
+
+func assertStatus(t *testing.T, resp *http.Response, want int) {
+	t.Helper()
+
+	if resp.StatusCode != want {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want %d, body = %q", resp.StatusCode, want, body)
+	}
+}
+
+func decodeJSON(t *testing.T, resp *http.Response, value any) {
+	t.Helper()
+	defer resp.Body.Close()
+
+	if err := json.NewDecoder(resp.Body).Decode(value); err != nil {
+		t.Fatalf("decode JSON response: %v", err)
+	}
+}
+
+func waitForSessionStatus(t *testing.T, manager *sessions.Manager, id string, want sessions.Status) {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, session := range manager.List() {
+			if session.ID == id && session.Status == want {
+				return
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Fatalf("session %q did not reach status %q", id, want)
 }
