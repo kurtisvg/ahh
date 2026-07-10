@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,22 +12,14 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/kurtisvg/ahh/internal/server/sessions"
 	"github.com/kurtisvg/ahh/internal/wrapper"
 )
 
 func TestServerHTTP(t *testing.T) {
-	wrapperHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/ready" {
-			http.NotFound(w, r)
-			return
-		}
-
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		_, _ = w.Write([]byte("ready from wrapper\n"))
-	})
-
 	tests := []struct {
 		name             string
+		method           string
 		path             string
 		wantStatus       int
 		wantBodyContains string
@@ -56,34 +49,60 @@ func TestServerHTTP(t *testing.T) {
 			wantBodyContains: "terminalSocketURL",
 		},
 		{
-			name:             "proxies wrapper readiness",
+			name:             "reports server readiness",
 			path:             "/ready",
 			wantStatus:       http.StatusOK,
-			wantBodyContains: "ready from wrapper",
+			wantBodyContains: "ready",
 		},
 		{
 			name:       "reports missing page",
 			path:       "/missing",
 			wantStatus: http.StatusNotFound,
 		},
+		{
+			name:       "reports missing api endpoint",
+			path:       "/api/missing",
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "rejects wrong session tty method",
+			method:     http.MethodPost,
+			path:       "/api/sessions/not-a-session/tty",
+			wantStatus: http.StatusMethodNotAllowed,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			server := startTestServer(t, newFakeWrapperServer(wrapperHandler))
+			server := startTestServer(t, nil)
 			defer shutdownTestServer(t, server)
 
 			client := &http.Client{
 				Timeout: 2 * time.Second,
 			}
-			resp, err := client.Get("http://" + server.Addr + tt.path)
+			method := tt.method
+			if method == "" {
+				method = http.MethodGet
+			}
+
+			req, err := http.NewRequestWithContext(
+				t.Context(),
+				method,
+				"http://"+server.Addr+tt.path,
+				nil,
+			)
 			if err != nil {
-				t.Fatalf("GET %s: %v", tt.path, err)
+				t.Fatalf("build %s %s request: %v", method, tt.path, err)
+			}
+
+			resp, err := client.Do(req)
+			if err != nil {
+				t.Fatalf("%s %s: %v", method, tt.path, err)
 			}
 			defer resp.Body.Close()
 
 			if resp.StatusCode != tt.wantStatus {
-				t.Fatalf("GET %s status = %d, want %d", tt.path, resp.StatusCode, tt.wantStatus)
+				t.Fatalf("%s %s status = %d, want %d", method, tt.path, resp.StatusCode, tt.wantStatus)
 			}
 			if tt.wantBodyContains == "" {
 				return
@@ -94,72 +113,22 @@ func TestServerHTTP(t *testing.T) {
 				t.Fatalf("read response body: %v", err)
 			}
 			if !strings.Contains(string(body), tt.wantBodyContains) {
-				t.Fatalf("GET %s body = %q, want containing %q", tt.path, body, tt.wantBodyContains)
+				t.Fatalf("%s %s body = %q, want containing %q", method, tt.path, body, tt.wantBodyContains)
 			}
 		})
 	}
 }
 
-func TestServerReadyProxiesWrapperStatus(t *testing.T) {
-	tests := []struct {
-		name             string
-		wrapperStatus    int
-		wrapperBody      string
-		wantStatus       int
-		wantBodyContains string
-	}{
-		{
-			name:             "ready",
-			wrapperStatus:    http.StatusOK,
-			wrapperBody:      "ready\n",
-			wantStatus:       http.StatusOK,
-			wantBodyContains: "ready",
-		},
-		{
-			name:             "harness stopped",
-			wrapperStatus:    http.StatusServiceUnavailable,
-			wrapperBody:      "harness stopped\n",
-			wantStatus:       http.StatusServiceUnavailable,
-			wantBodyContains: "harness stopped",
-		},
+func TestStartRejectsNilSessionManager(t *testing.T) {
+	server, err := Start(t.Context(), "127.0.0.1:0", WithSessionManager(nil))
+	if err == nil {
+		if server != nil {
+			shutdownTestServer(t, server)
+		}
+		t.Fatal("Start() error = nil, want error")
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			wrapperHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.URL.Path != "/ready" {
-					http.NotFound(w, r)
-					return
-				}
-
-				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-				w.WriteHeader(tt.wrapperStatus)
-				_, _ = w.Write([]byte(tt.wrapperBody))
-			})
-			server := startTestServer(t, newFakeWrapperServer(wrapperHandler))
-			defer shutdownTestServer(t, server)
-
-			client := &http.Client{
-				Timeout: 2 * time.Second,
-			}
-			resp, err := client.Get("http://" + server.Addr + "/ready")
-			if err != nil {
-				t.Fatalf("GET /ready: %v", err)
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != tt.wantStatus {
-				t.Fatalf("GET /ready status = %d, want %d", resp.StatusCode, tt.wantStatus)
-			}
-
-			body, err := io.ReadAll(resp.Body)
-			if err != nil {
-				t.Fatalf("read response body: %v", err)
-			}
-			if !strings.Contains(string(body), tt.wantBodyContains) {
-				t.Fatalf("GET /ready body = %q, want containing %q", body, tt.wantBodyContains)
-			}
-		})
+	if !strings.Contains(err.Error(), "session manager is required") {
+		t.Fatalf("Start() error = %q, want containing session manager is required", err.Error())
 	}
 }
 
@@ -211,12 +180,12 @@ func TestAppScriptIncludesConnectionLifecycleStates(t *testing.T) {
 	}
 }
 
-func TestServerPTYWebSocketProxy(t *testing.T) {
+func TestServerTTYWebSocketProxy(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 
 	input := make(chan string, 1)
-	wrapper := newFakeWrapperServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	fake := newFakeWrapperServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/pty" {
 			http.NotFound(w, r)
 			return
@@ -241,10 +210,18 @@ func TestServerPTYWebSocketProxy(t *testing.T) {
 		}
 	}))
 
-	server := startTestServer(t, wrapper)
+	manager := newTestSessionManager(t, func(context.Context) (wrapper.Wrapper, error) {
+		return fake, nil
+	})
+	session, err := manager.Create(ctx, "terminal")
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	server := startTestServer(t, manager)
 	defer shutdownTestServer(t, server)
 
-	conn, _, err := websocket.Dial(ctx, "ws://"+server.Addr+"/pty", nil)
+	conn, _, err := websocket.Dial(ctx, "ws://"+server.Addr+"/api/sessions/"+session.ID()+"/tty", nil)
 	if err != nil {
 		t.Fatalf("dial server websocket: %v", err)
 	}
@@ -307,15 +284,35 @@ func (s *fakeWrapperServer) Shutdown(context.Context) error {
 	return nil
 }
 
-func startTestServer(t *testing.T, w wrapper.Wrapper) *Server {
+func startTestServer(t *testing.T, manager *sessions.Manager) *Server {
 	t.Helper()
 
-	server, err := startWithWrapper(t.Context(), w, "127.0.0.1:0")
+	if manager == nil {
+		manager = newTestSessionManager(t, func(context.Context) (wrapper.Wrapper, error) {
+			return nil, fmt.Errorf("unexpected session start")
+		})
+	}
+
+	server, err := Start(t.Context(), "127.0.0.1:0", WithSessionManager(manager))
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
 
 	return server
+}
+
+func newTestSessionManager(
+	t *testing.T,
+	startWrapper func(context.Context) (wrapper.Wrapper, error),
+) *sessions.Manager {
+	t.Helper()
+
+	manager, err := sessions.NewManager(sessions.WithStartWrapper(startWrapper))
+	if err != nil {
+		t.Fatalf("sessions.NewManager() error = %v", err)
+	}
+
+	return manager
 }
 
 func shutdownTestServer(t *testing.T, server *Server) {

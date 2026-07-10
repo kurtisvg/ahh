@@ -23,21 +23,17 @@ func TestServeCommand(t *testing.T) {
 			wantErrContains: `unknown command "claude-code" for "ahh serve"`,
 		},
 		{
-			name: "starts server",
-			args: []string{"serve"},
-			setup: func(t *testing.T) {
-				installFakeClaude(t, fakeClaudeSuccessScript)
-			},
+			name:    "starts server",
+			args:    []string{"serve"},
+			timeout: 100 * time.Millisecond,
+			wantErr: context.DeadlineExceeded,
 			wantErrOut: []string{
 				"server listening at http://127.0.0.1:",
 			},
 		},
 		{
-			name: "returns context error when canceled",
-			args: []string{"serve"},
-			setup: func(t *testing.T) {
-				installFakeClaude(t, fakeClaudeWaitScript)
-			},
+			name:    "returns context error when canceled",
+			args:    []string{"serve"},
 			timeout: 100 * time.Millisecond,
 			wantErr: context.DeadlineExceeded,
 			wantErrOut: []string{
