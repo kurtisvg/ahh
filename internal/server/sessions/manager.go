@@ -27,8 +27,8 @@ const (
 	StatusExited   Status = "exited"
 )
 
-// Snapshot is the user-facing metadata for one harness terminal session.
-type Snapshot struct {
+// Metadata is the user-facing metadata for one harness terminal session.
+type Metadata struct {
 	ID           string    `json:"id"`
 	Name         string    `json:"name"`
 	Status       Status    `json:"status"`
@@ -38,10 +38,14 @@ type Snapshot struct {
 
 // Session manages the mutable runtime state for one terminal session.
 type Session struct {
-	mu       sync.Mutex
-	snapshot Snapshot
-	wrapper  wrapper.Wrapper
-	now      func() time.Time
+	mu           sync.Mutex
+	id           string
+	name         string
+	status       Status
+	createdAt    time.Time
+	lastActiveAt time.Time
+	wrapper      wrapper.Wrapper
+	now          func() time.Time
 }
 
 // Manager owns the session registry. Each Session owns its own mutable state.
@@ -150,16 +154,16 @@ func (m *Manager) Create(ctx context.Context, name string) (*Session, error) {
 	return session, nil
 }
 
-// List returns session snapshots with the most recently active session first.
-func (m *Manager) List() []Snapshot {
+// List returns session metadata with the most recently active session first.
+func (m *Manager) List() []Metadata {
 	sessions := m.all()
-	snapshots := make([]Snapshot, 0, len(sessions))
+	metadata := make([]Metadata, 0, len(sessions))
 	for _, session := range sessions {
-		snapshots = append(snapshots, session.Snapshot())
+		metadata = append(metadata, session.Metadata())
 	}
-	sortByActivity(snapshots)
+	sortByActivity(metadata)
 
-	return snapshots
+	return metadata
 }
 
 // Get returns the session with id.
@@ -215,14 +219,12 @@ func (m *Manager) remove(id string, session *Session) {
 func newSession(id string, name string, now func() time.Time) *Session {
 	createdAt := now()
 	return &Session{
-		snapshot: Snapshot{
-			ID:           id,
-			Name:         name,
-			Status:       StatusStarting,
-			CreatedAt:    createdAt,
-			LastActiveAt: createdAt,
-		},
-		now: now,
+		id:           id,
+		name:         name,
+		status:       StatusStarting,
+		createdAt:    createdAt,
+		lastActiveAt: createdAt,
+		now:          now,
 	}
 }
 
@@ -231,15 +233,21 @@ func (s *Session) ID() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return s.snapshot.ID
+	return s.id
 }
 
-// Snapshot returns a copy of the session metadata suitable for JSON responses.
-func (s *Session) Snapshot() Snapshot {
+// Metadata returns a copy of the session metadata suitable for JSON responses.
+func (s *Session) Metadata() Metadata {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return s.snapshot
+	return Metadata{
+		ID:           s.id,
+		Name:         s.name,
+		Status:       s.status,
+		CreatedAt:    s.createdAt,
+		LastActiveAt: s.lastActiveAt,
+	}
 }
 
 // Touch records user-visible activity for this session.
@@ -247,7 +255,7 @@ func (s *Session) Touch() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.snapshot.LastActiveAt = s.now()
+	s.lastActiveAt = s.now()
 }
 
 // Wrapper returns the current wrapper and lifecycle status for this session.
@@ -255,7 +263,7 @@ func (s *Session) Wrapper() (wrapper.Wrapper, Status) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return s.wrapper, s.snapshot.Status
+	return s.wrapper, s.status
 }
 
 func (s *Session) setWrapper(w wrapper.Wrapper) {
@@ -263,7 +271,7 @@ func (s *Session) setWrapper(w wrapper.Wrapper) {
 	defer s.mu.Unlock()
 
 	s.wrapper = w
-	s.snapshot.Status = StatusRunning
+	s.status = StatusRunning
 }
 
 func (s *Session) watchWrapper(w wrapper.Wrapper) {
@@ -275,7 +283,7 @@ func (s *Session) watchWrapper(w wrapper.Wrapper) {
 		return
 	}
 
-	s.snapshot.Status = StatusExited
+	s.status = StatusExited
 	s.wrapper = nil
 }
 
@@ -290,10 +298,10 @@ func startWrapperSession(ctx context.Context) (wrapper.Wrapper, error) {
 }
 
 // sortByActivity orders sessions for the list API.
-func sortByActivity(snapshots []Snapshot) {
-	sort.Slice(snapshots, func(i, j int) bool {
-		left := snapshots[i]
-		right := snapshots[j]
+func sortByActivity(metadata []Metadata) {
+	sort.Slice(metadata, func(i, j int) bool {
+		left := metadata[i]
+		right := metadata[j]
 		if !left.LastActiveAt.Equal(right.LastActiveAt) {
 			return left.LastActiveAt.After(right.LastActiveAt)
 		}

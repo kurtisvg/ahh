@@ -39,7 +39,7 @@ func TestManagerCreateTrimsName(t *testing.T) {
 	}
 	defer fake.shutdown()
 
-	if got := session.Snapshot().Name; got != "terminal" {
+	if got := session.Metadata().Name; got != "terminal" {
 		t.Fatalf("Create() name = %q, want terminal", got)
 	}
 }
