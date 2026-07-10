@@ -307,9 +307,9 @@ func newTestSessionManager(
 ) *sessions.Manager {
 	t.Helper()
 
-	manager, err := sessions.New(sessions.WithStartWrapper(startWrapper))
+	manager, err := sessions.NewManager(sessions.WithStartWrapper(startWrapper))
 	if err != nil {
-		t.Fatalf("sessions.New() error = %v", err)
+		t.Fatalf("sessions.NewManager() error = %v", err)
 	}
 
 	return manager

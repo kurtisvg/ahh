@@ -30,7 +30,7 @@ type Server struct {
 
 // Start starts the Ahh HTTP server.
 func Start(ctx context.Context, addr string, opts ...Option) (*Server, error) {
-	manager, err := sessions.New()
+	manager, err := sessions.NewManager()
 	if err != nil {
 		return nil, err
 	}

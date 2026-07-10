@@ -76,13 +76,13 @@ func TestManagerListSortsMostRecentFirst(t *testing.T) {
 		return fmt.Sprintf("session-%d", nextID), nil
 	}
 
-	manager, err := New(
+	manager, err := NewManager(
 		WithStartWrapper(startWrapper),
 		WithClock(now),
 		WithIDGenerator(newID),
 	)
 	if err != nil {
-		t.Fatalf("New() error = %v", err)
+		t.Fatalf("NewManager() error = %v", err)
 	}
 
 	first, err := manager.Create(t.Context(), "first")
@@ -167,9 +167,9 @@ func newTestManager(
 ) *Manager {
 	t.Helper()
 
-	manager, err := New(WithStartWrapper(startWrapper))
+	manager, err := NewManager(WithStartWrapper(startWrapper))
 	if err != nil {
-		t.Fatalf("New() error = %v", err)
+		t.Fatalf("NewManager() error = %v", err)
 	}
 
 	return manager

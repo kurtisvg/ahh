@@ -66,8 +66,8 @@ type options struct {
 // Option configures a Manager.
 type Option func(*options) error
 
-// New creates the production session manager used by the server.
-func New(opts ...Option) (*Manager, error) {
+// NewManager creates the production session manager used by the server.
+func NewManager(opts ...Option) (*Manager, error) {
 	cfg := options{
 		startWrapper: startWrapperSession,
 		newID:        newSessionID,
