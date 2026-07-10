@@ -38,14 +38,10 @@ type Metadata struct {
 
 // Session manages the mutable runtime state for one terminal session.
 type Session struct {
-	mu           sync.Mutex
-	id           string
-	name         string
-	status       Status
-	createdAt    time.Time
-	lastActiveAt time.Time
-	wrapper      wrapper.Wrapper
-	now          func() time.Time
+	mu       sync.Mutex
+	metadata Metadata
+	wrapper  wrapper.Wrapper
+	now      func() time.Time
 }
 
 // Manager owns the session registry. Each Session owns its own mutable state.
@@ -219,12 +215,14 @@ func (m *Manager) remove(id string, session *Session) {
 func newSession(id string, name string, now func() time.Time) *Session {
 	createdAt := now()
 	return &Session{
-		id:           id,
-		name:         name,
-		status:       StatusStarting,
-		createdAt:    createdAt,
-		lastActiveAt: createdAt,
-		now:          now,
+		metadata: Metadata{
+			ID:           id,
+			Name:         name,
+			Status:       StatusStarting,
+			CreatedAt:    createdAt,
+			LastActiveAt: createdAt,
+		},
+		now: now,
 	}
 }
 
@@ -233,7 +231,7 @@ func (s *Session) ID() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return s.id
+	return s.metadata.ID
 }
 
 // Metadata returns a copy of the session metadata suitable for JSON responses.
@@ -241,13 +239,7 @@ func (s *Session) Metadata() Metadata {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return Metadata{
-		ID:           s.id,
-		Name:         s.name,
-		Status:       s.status,
-		CreatedAt:    s.createdAt,
-		LastActiveAt: s.lastActiveAt,
-	}
+	return s.metadata
 }
 
 // Touch records user-visible activity for this session.
@@ -255,7 +247,7 @@ func (s *Session) Touch() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.lastActiveAt = s.now()
+	s.metadata.LastActiveAt = s.now()
 }
 
 // Wrapper returns the current wrapper and lifecycle status for this session.
@@ -263,7 +255,7 @@ func (s *Session) Wrapper() (wrapper.Wrapper, Status) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return s.wrapper, s.status
+	return s.wrapper, s.metadata.Status
 }
 
 func (s *Session) setWrapper(w wrapper.Wrapper) {
@@ -271,7 +263,7 @@ func (s *Session) setWrapper(w wrapper.Wrapper) {
 	defer s.mu.Unlock()
 
 	s.wrapper = w
-	s.status = StatusRunning
+	s.metadata.Status = StatusRunning
 }
 
 func (s *Session) watchWrapper(w wrapper.Wrapper) {
@@ -283,7 +275,7 @@ func (s *Session) watchWrapper(w wrapper.Wrapper) {
 		return
 	}
 
-	s.status = StatusExited
+	s.metadata.Status = StatusExited
 	s.wrapper = nil
 }
 
