@@ -133,18 +133,19 @@ func (m *Manager) Create(ctx context.Context, name string) (*Session, error) {
 
 	session := newSession(id, name, m.now)
 
-	m.mu.Lock()
-	m.sessions[id] = session
-	m.mu.Unlock()
-
 	w, err := m.startWrapper(ctx)
 	if err != nil {
-		m.remove(id, session)
-
 		return nil, err
 	}
 
 	session.setWrapper(w)
+	if err := m.add(id, session); err != nil {
+		if shutdownErr := session.Shutdown(ctx); shutdownErr != nil {
+			return nil, errors.Join(err, shutdownErr)
+		}
+
+		return nil, err
+	}
 	go session.watchWrapper(w)
 
 	return session, nil
@@ -171,7 +172,9 @@ func (m *Manager) Get(id string) (*Session, bool) {
 	return session, ok
 }
 
-// Delete removes a session from the registry and shuts down its live wrapper.
+// Delete shuts down a session's live wrapper and removes it from the registry.
+// If shutdown fails, the session remains listed so callers can retry or inspect
+// its current state.
 func (m *Manager) Delete(ctx context.Context, id string) (bool, error) {
 	m.mu.Lock()
 	session, ok := m.sessions[id]
@@ -179,13 +182,13 @@ func (m *Manager) Delete(ctx context.Context, id string) (bool, error) {
 		m.mu.Unlock()
 		return false, nil
 	}
-	delete(m.sessions, id)
 	m.mu.Unlock()
 
 	if err := session.Shutdown(ctx); err != nil {
 		return true, err
 	}
 
+	m.remove(id, session)
 	return true, nil
 }
 
@@ -219,6 +222,18 @@ func (m *Manager) all() []*Session {
 	}
 
 	return sessions
+}
+
+func (m *Manager) add(id string, session *Session) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if _, ok := m.sessions[id]; ok {
+		return fmt.Errorf("session id %q already exists", id)
+	}
+
+	m.sessions[id] = session
+	return nil
 }
 
 func (m *Manager) remove(id string, session *Session) {
