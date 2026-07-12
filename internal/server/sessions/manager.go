@@ -66,10 +66,6 @@ type Option func(*options) error
 
 // NewManager creates a session manager whose wrappers share the lifetime of ctx.
 func NewManager(ctx context.Context, opts ...Option) (*Manager, error) {
-	if ctx == nil {
-		return nil, fmt.Errorf("session lifecycle context is required")
-	}
-
 	cfg := options{
 		startWrapper: startWrapperSession,
 		newID:        newSessionID,

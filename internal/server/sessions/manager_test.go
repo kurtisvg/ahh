@@ -28,16 +28,6 @@ func TestManagerCreateRequiresName(t *testing.T) {
 	}
 }
 
-func TestNewManagerRequiresLifecycleContext(t *testing.T) {
-	manager, err := NewManager(nil)
-	if err == nil {
-		t.Fatal("NewManager() error = nil, want error")
-	}
-	if manager != nil {
-		t.Fatalf("NewManager() manager = %v, want nil", manager)
-	}
-}
-
 func TestManagerCreateTrimsName(t *testing.T) {
 	fake := newTestWrapper()
 	manager := newTestManager(t, func(context.Context) (wrapper.Wrapper, error) {
