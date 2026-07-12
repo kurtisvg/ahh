@@ -165,16 +165,19 @@ func (m *Manager) Create(ctx context.Context, name string) (*Session, error) {
 	}
 	m.mu.Unlock()
 
-	if exists || closed {
-		err := fmt.Errorf("session id %q already exists", id)
-		if closed {
-			err = fmt.Errorf("session manager is shut down")
-		}
+	var registrationErr error
+	switch {
+	case closed:
+		registrationErr = fmt.Errorf("session manager is shut down")
+	case exists:
+		registrationErr = fmt.Errorf("session id %q already exists", id)
+	}
+	if registrationErr != nil {
 		if shutdownErr := session.Shutdown(ctx); shutdownErr != nil {
-			return nil, errors.Join(err, shutdownErr)
+			return nil, errors.Join(registrationErr, shutdownErr)
 		}
 
-		return nil, err
+		return nil, registrationErr
 	}
 	go session.watchWrapper(w)
 
