@@ -317,11 +317,13 @@ function updateViewHeading() {
   if (!active) {
     viewTitle.textContent = 'Ahh';
     viewSubtitle.textContent = 'No conversation selected';
+    viewSubtitle.hidden = false;
     return;
   }
 
   viewTitle.textContent = active.name;
-  viewSubtitle.textContent = active.status;
+  viewSubtitle.textContent = '';
+  viewSubtitle.hidden = true;
 }
 
 async function loadConversations({ preserveActive = true } = {}) {
