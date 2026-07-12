@@ -30,14 +30,7 @@ type Server struct {
 
 // Start starts the Ahh HTTP server.
 func Start(ctx context.Context, addr string, opts ...Option) (*Server, error) {
-	manager, err := sessions.NewManager()
-	if err != nil {
-		return nil, err
-	}
-
-	cfg := options{
-		sessions: manager,
-	}
+	cfg := options{}
 	for _, opt := range opts {
 		if err := opt(&cfg); err != nil {
 			return nil, err
@@ -47,13 +40,20 @@ func Start(ctx context.Context, addr string, opts ...Option) (*Server, error) {
 	if addr == "" {
 		return nil, fmt.Errorf("server listen address is required")
 	}
-	if cfg.sessions == nil {
-		return nil, fmt.Errorf("session manager is required")
-	}
 
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("listen on %s: %w", addr, err)
+	}
+	if cfg.sessions == nil {
+		manager, err := sessions.NewManager(ctx)
+		if err != nil {
+			if closeErr := listener.Close(); closeErr != nil {
+				return nil, errors.Join(err, fmt.Errorf("close listener: %w", closeErr))
+			}
+			return nil, err
+		}
+		cfg.sessions = manager
 	}
 
 	server := &Server{

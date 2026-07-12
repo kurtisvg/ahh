@@ -48,7 +48,9 @@ type Session struct {
 type Manager struct {
 	mu           sync.Mutex
 	sessions     map[string]*Session
-	startWrapper func(context.Context) (wrapper.Wrapper, error)
+	closed       bool
+	startWrapper func() (wrapper.Wrapper, error)
+	cancel       context.CancelFunc
 	newID        func() (string, error)
 	now          func() time.Time
 }
@@ -62,8 +64,8 @@ type options struct {
 // Option configures a Manager.
 type Option func(*options) error
 
-// NewManager creates the production session manager used by the server.
-func NewManager(opts ...Option) (*Manager, error) {
+// NewManager creates a session manager whose wrappers share the lifetime of ctx.
+func NewManager(ctx context.Context, opts ...Option) (*Manager, error) {
 	cfg := options{
 		startWrapper: startWrapperSession,
 		newID:        newSessionID,
@@ -74,12 +76,16 @@ func NewManager(opts ...Option) (*Manager, error) {
 			return nil, err
 		}
 	}
+	lifetimeCtx, cancel := context.WithCancel(ctx)
 
 	return &Manager{
-		sessions:     map[string]*Session{},
-		startWrapper: cfg.startWrapper,
-		newID:        cfg.newID,
-		now:          cfg.now,
+		sessions: map[string]*Session{},
+		startWrapper: func() (wrapper.Wrapper, error) {
+			return cfg.startWrapper(lifetimeCtx)
+		},
+		cancel: cancel,
+		newID:  cfg.newID,
+		now:    cfg.now,
 	}, nil
 }
 
@@ -125,6 +131,12 @@ func (m *Manager) Create(ctx context.Context, name string) (*Session, error) {
 	if name == "" {
 		return nil, fmt.Errorf("session name is required")
 	}
+	m.mu.Lock()
+	closed := m.closed
+	m.mu.Unlock()
+	if closed {
+		return nil, fmt.Errorf("session manager is shut down")
+	}
 
 	id, err := m.newID()
 	if err != nil {
@@ -133,9 +145,8 @@ func (m *Manager) Create(ctx context.Context, name string) (*Session, error) {
 
 	session := newSession(id, name, m.now)
 
-	// Sessions outlive the request that creates them. Preserve context values
-	// without allowing request cancellation to stop the wrapper.
-	w, err := m.startWrapper(context.WithoutCancel(ctx))
+	// Wrapper lifetime belongs to the manager, not the request creating it.
+	w, err := m.startWrapper()
 	if err != nil {
 		return nil, err
 	}
@@ -144,18 +155,25 @@ func (m *Manager) Create(ctx context.Context, name string) (*Session, error) {
 
 	m.mu.Lock()
 	_, exists := m.sessions[id]
-	if !exists {
+	closed = m.closed
+	if !exists && !closed {
 		m.sessions[id] = session
 	}
 	m.mu.Unlock()
 
-	if exists {
-		err := fmt.Errorf("session id %q already exists", id)
+	var registrationErr error
+	switch {
+	case closed:
+		registrationErr = fmt.Errorf("session manager is shut down")
+	case exists:
+		registrationErr = fmt.Errorf("session id %q already exists", id)
+	}
+	if registrationErr != nil {
 		if shutdownErr := session.Shutdown(ctx); shutdownErr != nil {
-			return nil, errors.Join(err, shutdownErr)
+			return nil, errors.Join(registrationErr, shutdownErr)
 		}
 
-		return nil, err
+		return nil, registrationErr
 	}
 	go session.watchWrapper(w)
 
@@ -205,7 +223,20 @@ func (m *Manager) Delete(ctx context.Context, id string) (bool, error) {
 
 // Shutdown stops every live session wrapper managed by m.
 func (m *Manager) Shutdown(ctx context.Context) error {
-	sessions := m.all()
+	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		return nil
+	}
+	m.closed = true
+	sessions := make([]*Session, 0, len(m.sessions))
+	for _, session := range m.sessions {
+		sessions = append(sessions, session)
+	}
+	m.mu.Unlock()
+
+	m.cancel()
+
 	wrappers := make([]wrapper.Wrapper, 0, len(sessions))
 	for _, session := range sessions {
 		if sessionWrapper, _ := session.Wrapper(); sessionWrapper != nil {
