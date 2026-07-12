@@ -139,7 +139,16 @@ func (m *Manager) Create(ctx context.Context, name string) (*Session, error) {
 	}
 
 	session.setWrapper(w)
-	if err := m.add(id, session); err != nil {
+
+	m.mu.Lock()
+	_, exists := m.sessions[id]
+	if !exists {
+		m.sessions[id] = session
+	}
+	m.mu.Unlock()
+
+	if exists {
+		err := fmt.Errorf("session id %q already exists", id)
 		if shutdownErr := session.Shutdown(ctx); shutdownErr != nil {
 			return nil, errors.Join(err, shutdownErr)
 		}
@@ -222,18 +231,6 @@ func (m *Manager) all() []*Session {
 	}
 
 	return sessions
-}
-
-func (m *Manager) add(id string, session *Session) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if _, ok := m.sessions[id]; ok {
-		return fmt.Errorf("session id %q already exists", id)
-	}
-
-	m.sessions[id] = session
-	return nil
 }
 
 func (m *Manager) remove(id string, session *Session) {
