@@ -133,7 +133,9 @@ func (m *Manager) Create(ctx context.Context, name string) (*Session, error) {
 
 	session := newSession(id, name, m.now)
 
-	w, err := m.startWrapper(ctx)
+	// Sessions outlive the request that creates them. Preserve context values
+	// without allowing request cancellation to stop the wrapper.
+	w, err := m.startWrapper(context.WithoutCancel(ctx))
 	if err != nil {
 		return nil, err
 	}

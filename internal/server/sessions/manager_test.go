@@ -45,6 +45,26 @@ func TestManagerCreateTrimsName(t *testing.T) {
 	}
 }
 
+func TestManagerCreateDetachesWrapperLifetimeFromCaller(t *testing.T) {
+	fake := newTestWrapper()
+	var wrapperCtx context.Context
+	manager := newTestManager(t, func(ctx context.Context) (wrapper.Wrapper, error) {
+		wrapperCtx = ctx
+		return fake, nil
+	})
+	defer fake.shutdown()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	if _, err := manager.Create(ctx, "terminal"); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	cancel()
+
+	if err := wrapperCtx.Err(); err != nil {
+		t.Fatalf("wrapper context error after caller cancellation = %v, want nil", err)
+	}
+}
+
 func TestManagerCreateListsOnlyStartedSessions(t *testing.T) {
 	fake := newTestWrapper()
 	started := make(chan struct{})
