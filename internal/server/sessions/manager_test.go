@@ -28,6 +28,16 @@ func TestManagerCreateRequiresName(t *testing.T) {
 	}
 }
 
+func TestNewManagerRequiresLifecycleContext(t *testing.T) {
+	manager, err := NewManager(nil)
+	if err == nil {
+		t.Fatal("NewManager() error = nil, want error")
+	}
+	if manager != nil {
+		t.Fatalf("NewManager() manager = %v, want nil", manager)
+	}
+}
+
 func TestManagerCreateTrimsName(t *testing.T) {
 	fake := newTestWrapper()
 	manager := newTestManager(t, func(context.Context) (wrapper.Wrapper, error) {
@@ -45,23 +55,54 @@ func TestManagerCreateTrimsName(t *testing.T) {
 	}
 }
 
-func TestManagerCreateDetachesWrapperLifetimeFromCaller(t *testing.T) {
+func TestManagerCreateUsesManagerLifecycleContext(t *testing.T) {
+	fake := newTestWrapper()
+	var wrapperCtx context.Context
+	lifecycleCtx, cancelLifecycle := context.WithCancel(t.Context())
+	manager, err := NewManager(lifecycleCtx, WithStartWrapper(func(ctx context.Context) (wrapper.Wrapper, error) {
+		wrapperCtx = ctx
+		return fake, nil
+	}))
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+	defer fake.shutdown()
+
+	requestCtx, cancelRequest := context.WithCancel(t.Context())
+	if _, err := manager.Create(requestCtx, "terminal"); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	cancelRequest()
+
+	if err := wrapperCtx.Err(); err != nil {
+		t.Fatalf("wrapper context error after request cancellation = %v, want nil", err)
+	}
+
+	cancelLifecycle()
+	if err := wrapperCtx.Err(); !errors.Is(err, context.Canceled) {
+		t.Fatalf("wrapper context error after lifecycle cancellation = %v, want context canceled", err)
+	}
+}
+
+func TestManagerShutdownCancelsLifecycleAndRejectsCreate(t *testing.T) {
 	fake := newTestWrapper()
 	var wrapperCtx context.Context
 	manager := newTestManager(t, func(ctx context.Context) (wrapper.Wrapper, error) {
 		wrapperCtx = ctx
 		return fake, nil
 	})
-	defer fake.shutdown()
 
-	ctx, cancel := context.WithCancel(t.Context())
-	if _, err := manager.Create(ctx, "terminal"); err != nil {
+	if _, err := manager.Create(t.Context(), "terminal"); err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
-	cancel()
-
-	if err := wrapperCtx.Err(); err != nil {
-		t.Fatalf("wrapper context error after caller cancellation = %v, want nil", err)
+	if err := manager.Shutdown(t.Context()); err != nil {
+		t.Fatalf("Shutdown() error = %v", err)
+	}
+	if err := wrapperCtx.Err(); !errors.Is(err, context.Canceled) {
+		t.Fatalf("wrapper context error after shutdown = %v, want context canceled", err)
+	}
+	if _, err := manager.Create(t.Context(), "another"); err == nil {
+		t.Fatal("Create() error after shutdown = nil, want error")
 	}
 }
 
@@ -108,6 +149,47 @@ func TestManagerCreateListsOnlyStartedSessions(t *testing.T) {
 	}
 }
 
+func TestManagerCreateDoesNotRegisterAfterShutdown(t *testing.T) {
+	fake := newTestWrapper()
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseStart := func() {
+		releaseOnce.Do(func() {
+			close(release)
+		})
+	}
+	manager := newTestManager(t, func(context.Context) (wrapper.Wrapper, error) {
+		close(started)
+		<-release
+		return fake, nil
+	})
+	defer releaseStart()
+
+	result := make(chan error, 1)
+	go func() {
+		_, err := manager.Create(t.Context(), "terminal")
+		result <- err
+	}()
+
+	<-started
+	if err := manager.Shutdown(t.Context()); err != nil {
+		t.Fatalf("Shutdown() error = %v", err)
+	}
+	releaseStart()
+	if err := <-result; err == nil {
+		t.Fatal("Create() error = nil, want shutdown error")
+	}
+	if got := manager.List(); len(got) != 0 {
+		t.Fatalf("List() length after shutdown during create = %d, want 0", len(got))
+	}
+	select {
+	case <-fake.done:
+	default:
+		t.Fatal("wrapper was not shut down after concurrent manager shutdown")
+	}
+}
+
 func TestManagerListSortsMostRecentFirst(t *testing.T) {
 	var wrappers []*testWrapper
 	startWrapper := func(context.Context) (wrapper.Wrapper, error) {
@@ -141,6 +223,7 @@ func TestManagerListSortsMostRecentFirst(t *testing.T) {
 	}
 
 	manager, err := NewManager(
+		t.Context(),
 		WithStartWrapper(startWrapper),
 		WithClock(now),
 		WithIDGenerator(newID),
@@ -262,7 +345,7 @@ func newTestManager(
 ) *Manager {
 	t.Helper()
 
-	manager, err := NewManager(WithStartWrapper(startWrapper))
+	manager, err := NewManager(t.Context(), WithStartWrapper(startWrapper))
 	if err != nil {
 		t.Fatalf("NewManager() error = %v", err)
 	}

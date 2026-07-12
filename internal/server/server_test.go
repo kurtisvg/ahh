@@ -155,6 +155,7 @@ func TestServerSessionsAPI(t *testing.T) {
 		base.Add(time.Minute),
 	}
 	manager, err := sessions.NewManager(
+		t.Context(),
 		sessions.WithStartWrapper(factory.start),
 		sessions.WithClock(func() time.Time {
 			if len(times) == 0 {
@@ -509,7 +510,7 @@ func newTestSessionManager(
 ) *sessions.Manager {
 	t.Helper()
 
-	manager, err := sessions.NewManager(sessions.WithStartWrapper(startWrapper))
+	manager, err := sessions.NewManager(t.Context(), sessions.WithStartWrapper(startWrapper))
 	if err != nil {
 		t.Fatalf("sessions.NewManager() error = %v", err)
 	}
