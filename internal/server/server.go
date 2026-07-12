@@ -64,7 +64,11 @@ func Start(ctx context.Context, addr string, opts ...Option) (*Server, error) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", server.serveTerminal)
+	mux.HandleFunc("GET /conversations/{id}", server.serveTerminal)
 	mux.Handle("/assets/", serveAssets())
+	// Relative asset URLs on /conversations/{id} resolve beneath
+	// /conversations while preserving any reverse-proxy mount prefix.
+	mux.Handle("/conversations/assets/", http.StripPrefix("/conversations", serveAssets()))
 	mux.HandleFunc("/ready", server.serveReady)
 	mux.Handle("/api/", http.StripPrefix("/api", server.serveAPI()))
 
@@ -139,7 +143,7 @@ func (s *Server) serveTerminal(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	if r.URL.Path != "/" {
+	if r.URL.Path != "/" && r.Pattern != "GET /conversations/{id}" {
 		http.NotFound(w, r)
 		return
 	}

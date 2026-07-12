@@ -31,7 +31,13 @@ func TestServerHTTP(t *testing.T) {
 			name:             "serves terminal page",
 			path:             "/",
 			wantStatus:       http.StatusOK,
-			wantBodyContains: "Claude Code PTY",
+			wantBodyContains: "New conversation",
+		},
+		{
+			name:             "serves bookmarked conversation",
+			path:             "/conversations/bookmarked-id",
+			wantStatus:       http.StatusOK,
+			wantBodyContains: "New conversation",
 		},
 		{
 			name:             "serves terminal assets",
@@ -48,6 +54,12 @@ func TestServerHTTP(t *testing.T) {
 		{
 			name:             "serves app script",
 			path:             "/assets/app.js",
+			wantStatus:       http.StatusOK,
+			wantBodyContains: "terminalSocketURL",
+		},
+		{
+			name:             "serves assets from bookmarked conversation",
+			path:             "/conversations/assets/app.js",
 			wantStatus:       http.StatusOK,
 			wantBodyContains: "terminalSocketURL",
 		},
@@ -349,9 +361,10 @@ func TestAppScriptIncludesConnectionLifecycleStates(t *testing.T) {
 	app := string(readAsset(t, "assets/app.js"))
 	wants := []string{
 		"scheduleReconnect",
-		"readReadyState",
-		"startReadinessPolling",
-		"harness-exited",
+		"loadConversations",
+		"startConversationPolling",
+		"conversationIdFromPath",
+		"conversation-exited",
 	}
 	for _, want := range wants {
 		if !strings.Contains(app, want) {
