@@ -66,6 +66,8 @@ func Start(ctx context.Context, addr string, opts ...Option) (*Server, error) {
 	mux.HandleFunc("/", server.serveTerminal)
 	mux.HandleFunc("GET /conversations/{id}", server.serveTerminal)
 	mux.Handle("/assets/", serveAssets())
+	// Relative asset URLs on /conversations/{id} resolve beneath
+	// /conversations while preserving any reverse-proxy mount prefix.
 	mux.Handle("/conversations/assets/", http.StripPrefix("/conversations", serveAssets()))
 	mux.HandleFunc("/ready", server.serveReady)
 	mux.Handle("/api/", http.StripPrefix("/api", server.serveAPI()))
