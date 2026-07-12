@@ -227,11 +227,11 @@ input {
 
 .conversation-item {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 34px 14px;
+  grid-template-columns: minmax(0, 1fr) 34px 8px;
   gap: 6px;
   width: 100%;
   min-height: 52px;
-  padding: 0;
+  padding: 0 10px 0 0;
   border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;
