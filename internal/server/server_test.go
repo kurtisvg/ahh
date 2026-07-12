@@ -315,6 +315,13 @@ func TestServerPersistsSessionMetadata(t *testing.T) {
 	if initialStart.SessionID != session.ID || initialStart.SessionName != "persisted" || initialStart.Resume {
 		t.Fatalf("initial wrapper start = %+v, want id %q name persisted without resume", initialStart, session.ID)
 	}
+	createdSession, ok := manager.Get(session.ID)
+	if !ok {
+		t.Fatalf("created session %q not found", session.ID)
+	}
+	if err := createdSession.MarkResumable(); err != nil {
+		t.Fatalf("MarkResumable() error = %v", err)
+	}
 	shutdownTestServer(t, server)
 
 	if _, err := os.Stat(filepath.Join(stateDir, "sessions", session.ID+".json")); err != nil {
@@ -419,6 +426,45 @@ func TestServerTTYMissingSession(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	assertStatus(t, resp, http.StatusNotFound)
+}
+
+func TestSubmittedTerminalInput(t *testing.T) {
+	tests := []struct {
+		name        string
+		messageType websocket.MessageType
+		data        string
+		want        bool
+	}{
+		{
+			name:        "submitted input",
+			messageType: websocket.MessageText,
+			data:        `{"type":"input","data":"prompt\r"}`,
+			want:        true,
+		},
+		{
+			name:        "typing without submission",
+			messageType: websocket.MessageText,
+			data:        `{"type":"input","data":"prompt"}`,
+		},
+		{
+			name:        "terminal resize",
+			messageType: websocket.MessageText,
+			data:        `{"type":"resize","rows":24,"cols":80}`,
+		},
+		{
+			name:        "binary message",
+			messageType: websocket.MessageBinary,
+			data:        `{"type":"input","data":"prompt\r"}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := submittedTerminalInput(tt.messageType, []byte(tt.data)); got != tt.want {
+				t.Fatalf("submittedTerminalInput() = %t, want %t", got, tt.want)
+			}
+		})
+	}
 }
 
 func TestTerminalPageUsesProxySafePaths(t *testing.T) {

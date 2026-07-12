@@ -265,6 +265,55 @@ func TestSessionDeletePreventsRestartAndMetadataWrites(t *testing.T) {
 	}
 }
 
+func TestSessionMarkResumablePersistsOnce(t *testing.T) {
+	store := &testMetadataStore{}
+	session := restoreSession(
+		Metadata{ID: "persisted", Name: "persisted"},
+		time.Now,
+		store,
+		func(WrapperStart) (wrapper.Wrapper, error) {
+			return newTestWrapper(), nil
+		},
+	)
+
+	if err := session.MarkResumable(); err != nil {
+		t.Fatalf("MarkResumable() error = %v", err)
+	}
+	if err := session.MarkResumable(); err != nil {
+		t.Fatalf("second MarkResumable() error = %v", err)
+	}
+	if !session.Metadata().Resumable {
+		t.Fatal("session resumable = false, want true")
+	}
+	if store.saveCalls != 1 {
+		t.Fatalf("metadata saves = %d, want 1", store.saveCalls)
+	}
+}
+
+func TestUntouchedRestoredSessionStartsWithoutResume(t *testing.T) {
+	fake := newTestWrapper()
+	var gotStart WrapperStart
+	session := restoreSession(
+		Metadata{ID: "persisted", Name: "persisted"},
+		time.Now,
+		nil,
+		func(start WrapperStart) (wrapper.Wrapper, error) {
+			gotStart = start
+			return fake, nil
+		},
+	)
+
+	if _, err := session.Start(t.Context()); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	if gotStart.Resume {
+		t.Fatalf("wrapper start = %+v, want new session", gotStart)
+	}
+	if err := session.Shutdown(t.Context()); err != nil {
+		t.Fatalf("Shutdown() error = %v", err)
+	}
+}
+
 func TestManagerListSortsMostRecentFirst(t *testing.T) {
 	var wrappers []*testWrapper
 	startWrapper := func(context.Context, WrapperStart) (wrapper.Wrapper, error) {

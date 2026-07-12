@@ -121,7 +121,7 @@ func (s *Server) serveTTY(w http.ResponseWriter, r *http.Request) {
 
 	errCh := make(chan error, 2)
 	go func() {
-		errCh <- copyWebSocketMessages(ctx, wrapperConn, browserConn)
+		errCh <- copyBrowserToWrapper(ctx, wrapperConn, browserConn, session)
 	}()
 	go func() {
 		errCh <- copyWebSocketMessages(ctx, browserConn, wrapperConn)
@@ -140,6 +140,44 @@ func (s *Server) serveTTY(w http.ResponseWriter, r *http.Request) {
 	_ = browserConn.Close(closeStatus, reason)
 	_ = wrapperConn.Close(closeStatus, reason)
 	<-errCh
+}
+
+func copyBrowserToWrapper(
+	ctx context.Context,
+	dst *websocket.Conn,
+	src *websocket.Conn,
+	session *sessions.Session,
+) error {
+	for {
+		messageType, data, err := src.Read(ctx)
+		if err != nil {
+			return err
+		}
+		if err := dst.Write(ctx, messageType, data); err != nil {
+			return err
+		}
+		if submittedTerminalInput(messageType, data) {
+			if err := session.MarkResumable(); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+func submittedTerminalInput(messageType websocket.MessageType, data []byte) bool {
+	if messageType != websocket.MessageText {
+		return false
+	}
+
+	var msg struct {
+		Type string `json:"type"`
+		Data string `json:"data"`
+	}
+	if err := json.Unmarshal(data, &msg); err != nil {
+		return false
+	}
+
+	return msg.Type == "input" && strings.ContainsAny(msg.Data, "\r\n")
 }
 
 // copyWebSocketMessages forwards websocket frames until one side closes.

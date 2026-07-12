@@ -32,6 +32,7 @@ type Metadata struct {
 	ID           string    `json:"id"`
 	Name         string    `json:"name"`
 	Status       Status    `json:"status"`
+	Resumable    bool      `json:"resumable,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`
 	LastActiveAt time.Time `json:"last_active_at"`
 }
@@ -411,6 +412,41 @@ func (s *Session) Touch() error {
 	return nil
 }
 
+// MarkResumable records that Claude has received input for this session.
+func (s *Session) MarkResumable() error {
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
+
+	if s.deleted {
+		return fmt.Errorf("session is deleted")
+	}
+
+	s.mu.Lock()
+	if s.metadata.Resumable {
+		s.mu.Unlock()
+		return nil
+	}
+	metadata := s.metadata
+	metadata.Resumable = true
+	store := s.store
+	if store == nil {
+		s.metadata.Resumable = true
+	}
+	s.mu.Unlock()
+
+	if store == nil {
+		return nil
+	}
+	if err := store.Save(metadata); err != nil {
+		return fmt.Errorf("persist resumable session: %w", err)
+	}
+	s.mu.Lock()
+	s.metadata.Resumable = true
+	s.mu.Unlock()
+
+	return nil
+}
+
 // Wrapper returns the current wrapper and lifecycle status for this session.
 func (s *Session) Wrapper() (wrapper.Wrapper, Status) {
 	s.mu.Lock()
@@ -441,7 +477,7 @@ func (s *Session) Start(ctx context.Context) (wrapper.Wrapper, error) {
 	w, err := s.startWrapper(WrapperStart{
 		SessionID:   metadata.ID,
 		SessionName: metadata.Name,
-		Resume:      true,
+		Resume:      metadata.Resumable,
 	})
 	if err != nil {
 		s.mu.Lock()
