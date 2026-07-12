@@ -46,7 +46,7 @@ func TestHarness(t *testing.T) {
 			name: "reports missing command",
 			startHarness: func(t *testing.T, ctx context.Context) (Harness, error) {
 				setHarnessCommand(t, filepath.Join(t.TempDir(), "missing-claude"))
-				return Start(ctx, StartOptions{})
+				return Start(ctx)
 			},
 			wantStartErrContains: "no such file or directory",
 		},
@@ -165,13 +165,13 @@ func fakeHarness(t *testing.T, ctx context.Context, mode string) (Harness, error
 	setHarnessCommand(t, fakeHarnessCommand(t))
 	t.Setenv("AHH_HELPER_HARNESS_MODE", mode)
 
-	return Start(ctx, StartOptions{})
+	return Start(ctx)
 }
 
 func TestClaudeArguments(t *testing.T) {
 	tests := []struct {
 		name string
-		opts StartOptions
+		opts []Option
 		want []string
 	}{
 		{
@@ -179,21 +179,65 @@ func TestClaudeArguments(t *testing.T) {
 		},
 		{
 			name: "starts identified conversation",
-			opts: StartOptions{SessionID: "session-id", SessionName: "review"},
+			opts: []Option{WithNewSession("session-id", "review")},
 			want: []string{"--session-id", "session-id", "--name", "review"},
 		},
 		{
 			name: "resumes identified conversation",
-			opts: StartOptions{SessionID: "session-id", SessionName: "ignored", Resume: true},
+			opts: []Option{WithResumeSession("session-id")},
 			want: []string{"--resume", "session-id"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := claudeArguments(tt.opts)
+			cfg := options{}
+			for _, opt := range tt.opts {
+				if err := opt(&cfg); err != nil {
+					t.Fatalf("Option() error = %v", err)
+				}
+			}
+			got := claudeArguments(cfg)
 			if !slices.Equal(got, tt.want) {
 				t.Fatalf("claudeArguments() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSessionOptionsRejectInvalidConfiguration(t *testing.T) {
+	tests := []struct {
+		name string
+		opts []Option
+	}{
+		{
+			name: "new session without id",
+			opts: []Option{WithNewSession("", "review")},
+		},
+		{
+			name: "resume session without id",
+			opts: []Option{WithResumeSession("")},
+		},
+		{
+			name: "multiple session modes",
+			opts: []Option{
+				WithNewSession("first", "review"),
+				WithResumeSession("second"),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := options{}
+			var err error
+			for _, opt := range tt.opts {
+				if err = opt(&cfg); err != nil {
+					break
+				}
+			}
+			if err == nil {
+				t.Fatal("options error = nil, want error")
 			}
 		})
 	}

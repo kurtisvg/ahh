@@ -25,7 +25,7 @@ type Wrapper interface {
 }
 
 type options struct {
-	harness harness.StartOptions
+	harness []harness.Option
 }
 
 // Option configures a wrapper and its harness process.
@@ -37,8 +37,7 @@ func WithNewSession(id, name string) Option {
 		if id == "" {
 			return fmt.Errorf("session id is required")
 		}
-		opts.harness.SessionID = id
-		opts.harness.SessionName = name
+		opts.harness = append(opts.harness, harness.WithNewSession(id, name))
 		return nil
 	}
 }
@@ -49,8 +48,7 @@ func WithResumeSession(id string) Option {
 		if id == "" {
 			return fmt.Errorf("session id is required")
 		}
-		opts.harness.SessionID = id
-		opts.harness.Resume = true
+		opts.harness = append(opts.harness, harness.WithResumeSession(id))
 		return nil
 	}
 }
@@ -96,11 +94,11 @@ func Start(ctx context.Context, harnessName string, addr string, opts ...Option)
 func startHarness(
 	ctx context.Context,
 	harnessName string,
-	opts harness.StartOptions,
+	opts []harness.Option,
 ) (harness.Harness, error) {
 	switch harnessName {
 	case ClaudeCodeHarness:
-		h, err := harness.Start(ctx, opts)
+		h, err := harness.Start(ctx, opts...)
 		if err != nil {
 			return nil, fmt.Errorf("start %s harness: %w", harnessName, err)
 		}

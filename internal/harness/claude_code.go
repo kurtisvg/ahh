@@ -17,11 +17,46 @@ const (
 
 var claudeCommand = "claude"
 
-// StartOptions identify the Claude Code conversation to create or resume.
-type StartOptions struct {
-	SessionID   string
-	SessionName string
-	Resume      bool
+type options struct {
+	sessionID   string
+	sessionName string
+	resume      bool
+	configured  bool
+}
+
+// Option configures a Claude Code harness process.
+type Option func(*options) error
+
+// WithNewSession configures Claude Code to create a session with id and name.
+func WithNewSession(id, name string) Option {
+	return func(opts *options) error {
+		if id == "" {
+			return fmt.Errorf("session id is required")
+		}
+		if opts.configured {
+			return fmt.Errorf("session start mode is already configured")
+		}
+		opts.sessionID = id
+		opts.sessionName = name
+		opts.configured = true
+		return nil
+	}
+}
+
+// WithResumeSession configures Claude Code to resume the session with id.
+func WithResumeSession(id string) Option {
+	return func(opts *options) error {
+		if id == "" {
+			return fmt.Errorf("session id is required")
+		}
+		if opts.configured {
+			return fmt.Errorf("session start mode is already configured")
+		}
+		opts.sessionID = id
+		opts.resume = true
+		opts.configured = true
+		return nil
+	}
 }
 
 // ClaudeCodeHarness owns a Claude Code PTY subprocess.
@@ -35,7 +70,14 @@ type ClaudeCodeHarness struct {
 }
 
 // Start starts a Claude Code subprocess inside a PTY.
-func Start(ctx context.Context, opts StartOptions) (Harness, error) {
+func Start(ctx context.Context, startOpts ...Option) (Harness, error) {
+	opts := options{}
+	for _, opt := range startOpts {
+		if err := opt(&opts); err != nil {
+			return nil, err
+		}
+	}
+
 	ctx, cancel := context.WithCancel(ctx)
 	cmd := exec.CommandContext(ctx, claudeCommand, claudeArguments(opts)...)
 	cmd.Env = claudeEnvironment(os.Environ())
@@ -74,17 +116,17 @@ func Start(ctx context.Context, opts StartOptions) (Harness, error) {
 	return h, nil
 }
 
-func claudeArguments(opts StartOptions) []string {
-	if opts.Resume {
-		return []string{"--resume", opts.SessionID}
+func claudeArguments(opts options) []string {
+	if opts.resume {
+		return []string{"--resume", opts.sessionID}
 	}
-	if opts.SessionID == "" {
+	if opts.sessionID == "" {
 		return nil
 	}
 
-	args := []string{"--session-id", opts.SessionID}
-	if opts.SessionName != "" {
-		args = append(args, "--name", opts.SessionName)
+	args := []string{"--session-id", opts.sessionID}
+	if opts.sessionName != "" {
+		args = append(args, "--name", opts.sessionName)
 	}
 
 	return args
