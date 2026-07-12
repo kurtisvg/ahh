@@ -2,6 +2,7 @@ package sessions
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -41,6 +42,49 @@ func TestManagerCreateTrimsName(t *testing.T) {
 
 	if got := session.Metadata().Name; got != "terminal" {
 		t.Fatalf("Create() name = %q, want terminal", got)
+	}
+}
+
+func TestManagerCreateListsOnlyStartedSessions(t *testing.T) {
+	fake := newTestWrapper()
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseStart := func() {
+		releaseOnce.Do(func() {
+			close(release)
+		})
+	}
+	manager := newTestManager(t, func(context.Context) (wrapper.Wrapper, error) {
+		close(started)
+		<-release
+		return fake, nil
+	})
+	defer releaseStart()
+	defer fake.shutdown()
+
+	type createResult struct {
+		session *Session
+		err     error
+	}
+	result := make(chan createResult, 1)
+	go func() {
+		session, err := manager.Create(t.Context(), "terminal")
+		result <- createResult{session: session, err: err}
+	}()
+
+	<-started
+	if got := manager.List(); len(got) != 0 {
+		t.Fatalf("List() length during wrapper startup = %d, want 0", len(got))
+	}
+
+	releaseStart()
+	got := <-result
+	if got.err != nil {
+		t.Fatalf("Create() error = %v", got.err)
+	}
+	if got.session == nil {
+		t.Fatal("Create() session = nil, want session")
 	}
 }
 
@@ -110,6 +154,32 @@ func TestManagerListSortsMostRecentFirst(t *testing.T) {
 	}
 }
 
+func TestManagerDeleteKeepsSessionWhenShutdownFails(t *testing.T) {
+	fake := newTestWrapper()
+	fake.shutdownErr = errors.New("boom")
+	manager := newTestManager(t, func(context.Context) (wrapper.Wrapper, error) {
+		return fake, nil
+	})
+
+	session, err := manager.Create(t.Context(), "terminal")
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	defer fake.shutdown()
+
+	deleted, err := manager.Delete(t.Context(), session.ID())
+	if !deleted {
+		t.Fatal("Delete() deleted = false, want true")
+	}
+	if err == nil {
+		t.Fatal("Delete() error = nil, want error")
+	}
+
+	if _, ok := manager.Get(session.ID()); !ok {
+		t.Fatal("Delete() removed session after shutdown failure")
+	}
+}
+
 func TestNewSessionIDGeneratesUUIDV4(t *testing.T) {
 	id, err := newSessionID()
 	if err != nil {
@@ -129,8 +199,9 @@ func TestNewSessionIDGeneratesUUIDV4(t *testing.T) {
 }
 
 type testWrapper struct {
-	done      chan struct{}
-	closeOnce sync.Once
+	done        chan struct{}
+	closeOnce   sync.Once
+	shutdownErr error
 }
 
 func newTestWrapper() *testWrapper {
@@ -150,6 +221,10 @@ func (w *testWrapper) Wait() error {
 }
 
 func (w *testWrapper) Shutdown(context.Context) error {
+	if w.shutdownErr != nil {
+		return w.shutdownErr
+	}
+
 	w.shutdown()
 
 	return nil

@@ -133,18 +133,28 @@ func (m *Manager) Create(ctx context.Context, name string) (*Session, error) {
 
 	session := newSession(id, name, m.now)
 
-	m.mu.Lock()
-	m.sessions[id] = session
-	m.mu.Unlock()
-
 	w, err := m.startWrapper(ctx)
 	if err != nil {
-		m.remove(id, session)
-
 		return nil, err
 	}
 
 	session.setWrapper(w)
+
+	m.mu.Lock()
+	_, exists := m.sessions[id]
+	if !exists {
+		m.sessions[id] = session
+	}
+	m.mu.Unlock()
+
+	if exists {
+		err := fmt.Errorf("session id %q already exists", id)
+		if shutdownErr := session.Shutdown(ctx); shutdownErr != nil {
+			return nil, errors.Join(err, shutdownErr)
+		}
+
+		return nil, err
+	}
 	go session.watchWrapper(w)
 
 	return session, nil
@@ -169,6 +179,26 @@ func (m *Manager) Get(id string) (*Session, bool) {
 
 	session, ok := m.sessions[id]
 	return session, ok
+}
+
+// Delete shuts down a session's live wrapper and removes it from the registry.
+// If shutdown fails, the session remains listed so callers can retry or inspect
+// its current state.
+func (m *Manager) Delete(ctx context.Context, id string) (bool, error) {
+	m.mu.Lock()
+	session, ok := m.sessions[id]
+	if !ok {
+		m.mu.Unlock()
+		return false, nil
+	}
+	m.mu.Unlock()
+
+	if err := session.Shutdown(ctx); err != nil {
+		return true, err
+	}
+
+	m.remove(id, session)
+	return true, nil
 }
 
 // Shutdown stops every live session wrapper managed by m.
@@ -256,6 +286,19 @@ func (s *Session) Wrapper() (wrapper.Wrapper, Status) {
 	defer s.mu.Unlock()
 
 	return s.wrapper, s.metadata.Status
+}
+
+// Shutdown stops this session's live wrapper, if one exists.
+func (s *Session) Shutdown(ctx context.Context) error {
+	w, _ := s.Wrapper()
+	if w == nil {
+		return nil
+	}
+	if err := w.Shutdown(ctx); err != nil {
+		return fmt.Errorf("shutdown session wrapper: %w", err)
+	}
+
+	return nil
 }
 
 func (s *Session) setWrapper(w wrapper.Wrapper) {

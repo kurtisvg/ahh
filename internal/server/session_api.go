@@ -2,13 +2,82 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
+	"strings"
 
 	"github.com/coder/websocket"
 	"github.com/kurtisvg/ahh/internal/server/sessions"
 )
+
+type createSessionRequest struct {
+	Name string `json:"name"`
+}
+
+type sessionsResponse struct {
+	Sessions []sessions.Metadata `json:"sessions"`
+}
+
+type errorResponse struct {
+	Error string `json:"error"`
+}
+
+func (s *Server) listSessions(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, sessionsResponse{
+		Sessions: s.sessions.List(),
+	})
+}
+
+func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
+	var req createSessionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid session request")
+		return
+	}
+
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		writeAPIError(w, http.StatusBadRequest, "session name is required")
+		return
+	}
+
+	session, err := s.sessions.Create(r.Context(), name)
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "create session failed")
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, session.Metadata())
+}
+
+func (s *Server) deleteSession(w http.ResponseWriter, r *http.Request) {
+	deleted, err := s.sessions.Delete(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "delete session failed")
+		return
+	}
+	if !deleted {
+		http.NotFound(w, r)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func writeJSON(w http.ResponseWriter, status int, value any) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(value)
+}
+
+func writeAPIError(w http.ResponseWriter, status int, message string) {
+	writeJSON(w, status, errorResponse{
+		Error: message,
+	})
+}
 
 // serveTTY proxies browser websocket traffic to the session wrapper's PTY
 // endpoint. The public Ahh API uses tty terminology; the wrapper still owns the

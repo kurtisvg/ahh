@@ -102,6 +102,9 @@ func Start(ctx context.Context, addr string, opts ...Option) (*Server, error) {
 // serveAPI owns routes under /api after the server strips that prefix.
 func (s *Server) serveAPI() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /sessions", s.listSessions)
+	mux.HandleFunc("POST /sessions", s.createSession)
+	mux.HandleFunc("DELETE /sessions/{id}", s.deleteSession)
 	mux.HandleFunc("GET /sessions/{id}/tty", s.serveTTY)
 
 	return mux
