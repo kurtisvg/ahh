@@ -232,6 +232,39 @@ func TestSessionStartDeduplicatesConcurrentCalls(t *testing.T) {
 	}
 }
 
+func TestSessionDeletePreventsRestartAndMetadataWrites(t *testing.T) {
+	store := &testMetadataStore{}
+	startCalled := false
+	session := restoreSession(
+		Metadata{ID: "persisted", Name: "persisted"},
+		time.Now,
+		store,
+		func() (wrapper.Wrapper, error) {
+			startCalled = true
+			return newTestWrapper(), nil
+		},
+	)
+
+	if err := session.delete(t.Context()); err != nil {
+		t.Fatalf("delete() error = %v", err)
+	}
+	if store.deletedID != "persisted" {
+		t.Fatalf("deleted session ID = %q, want persisted", store.deletedID)
+	}
+	if err := session.Touch(); err == nil {
+		t.Fatal("Touch() error after delete = nil, want error")
+	}
+	if store.saveCalls != 0 {
+		t.Fatalf("metadata saves after delete = %d, want 0", store.saveCalls)
+	}
+	if _, err := session.Start(t.Context()); err == nil {
+		t.Fatal("Start() error after delete = nil, want error")
+	}
+	if startCalled {
+		t.Fatal("wrapper started after session delete")
+	}
+}
+
 func TestManagerListSortsMostRecentFirst(t *testing.T) {
 	var wrappers []*testWrapper
 	startWrapper := func(context.Context) (wrapper.Wrapper, error) {
@@ -349,6 +382,25 @@ type testWrapper struct {
 	done        chan struct{}
 	closeOnce   sync.Once
 	shutdownErr error
+}
+
+type testMetadataStore struct {
+	saveCalls int
+	deletedID string
+}
+
+func (s *testMetadataStore) Load() ([]Metadata, error) {
+	return nil, nil
+}
+
+func (s *testMetadataStore) Save(Metadata) error {
+	s.saveCalls++
+	return nil
+}
+
+func (s *testMetadataStore) Delete(id string) error {
+	s.deletedID = id
+	return nil
 }
 
 func newTestWrapper() *testWrapper {

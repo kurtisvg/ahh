@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 type metadataStore interface {
@@ -17,6 +18,7 @@ type metadataStore interface {
 
 type fileMetadataStore struct {
 	configDir string
+	mu        sync.Mutex
 }
 
 func newFileMetadataStore(configDir string) *fileMetadataStore {
@@ -26,6 +28,9 @@ func newFileMetadataStore(configDir string) *fileMetadataStore {
 }
 
 func (s *fileMetadataStore) Load() ([]Metadata, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	entries, err := os.ReadDir(s.sessionsDir())
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -51,8 +56,17 @@ func (s *fileMetadataStore) Load() ([]Metadata, error) {
 		if err := json.Unmarshal(data, &session); err != nil {
 			return nil, fmt.Errorf("decode session metadata %q: %w", path, err)
 		}
+		fileID := strings.TrimSuffix(entry.Name(), ".json")
 		if session.ID == "" {
-			session.ID = strings.TrimSuffix(entry.Name(), ".json")
+			session.ID = fileID
+		}
+		if session.ID != fileID {
+			return nil, fmt.Errorf(
+				"session metadata %q has id %q, want %q",
+				path,
+				session.ID,
+				fileID,
+			)
 		}
 		if session.LastActiveAt.IsZero() {
 			session.LastActiveAt = session.CreatedAt
@@ -66,6 +80,9 @@ func (s *fileMetadataStore) Load() ([]Metadata, error) {
 }
 
 func (s *fileMetadataStore) Save(session Metadata) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if err := os.MkdirAll(s.sessionsDir(), 0o755); err != nil {
 		return fmt.Errorf("create sessions directory: %w", err)
 	}
@@ -94,6 +111,9 @@ func (s *fileMetadataStore) Save(session Metadata) error {
 }
 
 func (s *fileMetadataStore) Delete(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	path, err := s.sessionPath(id)
 	if err != nil {
 		return err

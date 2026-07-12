@@ -39,12 +39,13 @@ type Metadata struct {
 // Session manages the mutable runtime state for one terminal session.
 type Session struct {
 	mu           sync.Mutex
-	startMu      sync.Mutex
+	lifecycleMu  sync.Mutex
 	metadata     Metadata
 	wrapper      wrapper.Wrapper
 	startWrapper func() (wrapper.Wrapper, error)
 	now          func() time.Time
 	store        metadataStore
+	deleted      bool
 }
 
 // Manager owns the session registry. Each Session owns its own mutable state.
@@ -258,13 +259,8 @@ func (m *Manager) Delete(ctx context.Context, id string) (bool, error) {
 	}
 	m.mu.Unlock()
 
-	if err := session.Shutdown(ctx); err != nil {
+	if err := session.delete(ctx); err != nil {
 		return true, err
-	}
-	if m.store != nil {
-		if err := m.store.Delete(id); err != nil {
-			return true, err
-		}
 	}
 
 	m.remove(id, session)
@@ -380,6 +376,13 @@ func (s *Session) Metadata() Metadata {
 
 // Touch records user-visible activity for this session.
 func (s *Session) Touch() error {
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
+
+	if s.deleted {
+		return fmt.Errorf("session is deleted")
+	}
+
 	s.mu.Lock()
 	s.metadata.LastActiveAt = s.now()
 	metadata := s.metadata
@@ -406,8 +409,12 @@ func (s *Session) Wrapper() (wrapper.Wrapper, Status) {
 
 // Start returns the live wrapper, starting it when this session is not running.
 func (s *Session) Start(ctx context.Context) (wrapper.Wrapper, error) {
-	s.startMu.Lock()
-	defer s.startMu.Unlock()
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
+
+	if s.deleted {
+		return nil, fmt.Errorf("session is deleted")
+	}
 
 	s.mu.Lock()
 	if s.wrapper != nil {
@@ -456,9 +463,13 @@ func (s *Session) Start(ctx context.Context) (wrapper.Wrapper, error) {
 
 // Shutdown stops this session's live wrapper, if one exists.
 func (s *Session) Shutdown(ctx context.Context) error {
-	s.startMu.Lock()
-	defer s.startMu.Unlock()
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
 
+	return s.shutdown(ctx)
+}
+
+func (s *Session) shutdown(ctx context.Context) error {
 	w, _ := s.Wrapper()
 	if w == nil {
 		return nil
@@ -466,6 +477,26 @@ func (s *Session) Shutdown(ctx context.Context) error {
 	if err := w.Shutdown(ctx); err != nil {
 		return fmt.Errorf("shutdown session wrapper: %w", err)
 	}
+
+	return nil
+}
+
+func (s *Session) delete(ctx context.Context) error {
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
+
+	if s.deleted {
+		return nil
+	}
+	if err := s.shutdown(ctx); err != nil {
+		return err
+	}
+	if s.store != nil {
+		if err := s.store.Delete(s.ID()); err != nil {
+			return err
+		}
+	}
+	s.deleted = true
 
 	return nil
 }

@@ -326,7 +326,7 @@ function updateViewHeading() {
   viewSubtitle.hidden = true;
 }
 
-async function loadConversations({ preserveActive = true } = {}) {
+async function loadConversations({ preserveActive = true, syncConnection = true } = {}) {
   const response = await fetch(appURL('api/sessions'), { cache: 'no-store' });
   if (!response.ok) {
     throw new Error(`list conversations failed: ${response.status}`);
@@ -341,7 +341,9 @@ async function loadConversations({ preserveActive = true } = {}) {
   }
 
   renderConversations();
-  syncActiveConversation();
+  if (syncConnection) {
+    syncActiveConversation();
+  }
   updateConversationURL(activeConversationId);
 }
 
@@ -372,6 +374,12 @@ function syncActiveConversation() {
 
 function selectConversation(conversationId) {
   if (conversationId === activeConversationId) {
+    const active = activeConversation();
+    if (active?.status === 'exited') {
+      resetTerminalForActiveConversation();
+      renderConversations();
+      syncActiveConversation();
+    }
     updateConversationURL(conversationId, 'push');
     return;
   }
@@ -493,7 +501,7 @@ async function handleSocketClose() {
   showBanner('disconnected', 'Terminal connection dropped. Checking conversation state.');
 
   try {
-    await loadConversations();
+    await loadConversations({ syncConnection: false });
   } catch {
     scheduleReconnect();
     return;
