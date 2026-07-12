@@ -311,6 +311,10 @@ func TestServerPersistsSessionMetadata(t *testing.T) {
 		Timeout: 2 * time.Second,
 	}
 	session := createSessionViaAPI(t, client, server, "persisted")
+	initialStart := factory.startRequest(0)
+	if initialStart.SessionID != session.ID || initialStart.SessionName != "persisted" || initialStart.Resume {
+		t.Fatalf("initial wrapper start = %+v, want id %q name persisted without resume", initialStart, session.ID)
+	}
 	shutdownTestServer(t, server)
 
 	if _, err := os.Stat(filepath.Join(stateDir, "sessions", session.ID+".json")); err != nil {
@@ -378,6 +382,10 @@ func TestServerPersistsSessionMetadata(t *testing.T) {
 	waitForSessionStatus(t, restartedManager, session.ID, sessions.StatusRunning)
 	if got := restartedFactory.wrapperCount(); got != 1 {
 		t.Fatalf("wrappers started after persisted tty connection = %d, want 1", got)
+	}
+	restoredStart := restartedFactory.startRequest(0)
+	if restoredStart.SessionID != session.ID || !restoredStart.Resume {
+		t.Fatalf("restored wrapper start = %+v, want id %q with resume", restoredStart, session.ID)
 	}
 
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodDelete, "http://"+restartedServer.Addr+"/api/sessions/"+session.ID, nil)
@@ -492,7 +500,7 @@ func TestServerTTYWebSocketProxy(t *testing.T) {
 		}
 	}))
 
-	manager := newTestSessionManager(t, func(context.Context) (wrapper.Wrapper, error) {
+	manager := newTestSessionManager(t, func(context.Context, sessions.WrapperStart) (wrapper.Wrapper, error) {
 		return fake, nil
 	})
 	session, err := manager.Create(ctx, "terminal")
@@ -543,10 +551,14 @@ type fakeWrapperServer struct {
 type fakeWrapperFactory struct {
 	mu       sync.Mutex
 	wrappers []*fakeWrapperServer
+	starts   []sessions.WrapperStart
 	handler  http.Handler
 }
 
-func (f *fakeWrapperFactory) start(context.Context) (wrapper.Wrapper, error) {
+func (f *fakeWrapperFactory) start(
+	_ context.Context,
+	start sessions.WrapperStart,
+) (wrapper.Wrapper, error) {
 	handler := f.handler
 	if handler == nil {
 		handler = http.NotFoundHandler()
@@ -557,6 +569,7 @@ func (f *fakeWrapperFactory) start(context.Context) (wrapper.Wrapper, error) {
 	defer f.mu.Unlock()
 
 	f.wrappers = append(f.wrappers, fake)
+	f.starts = append(f.starts, start)
 	return fake, nil
 }
 
@@ -572,6 +585,13 @@ func (f *fakeWrapperFactory) wrapper(index int) *fakeWrapperServer {
 	defer f.mu.Unlock()
 
 	return f.wrappers[index]
+}
+
+func (f *fakeWrapperFactory) startRequest(index int) sessions.WrapperStart {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.starts[index]
 }
 
 func newFakeWrapperServer(handler http.Handler) *fakeWrapperServer {
@@ -613,7 +633,7 @@ func startTestServer(t *testing.T, opts ...Option) *Server {
 
 func newTestSessionManager(
 	t *testing.T,
-	startWrapper func(context.Context) (wrapper.Wrapper, error),
+	startWrapper func(context.Context, sessions.WrapperStart) (wrapper.Wrapper, error),
 ) *sessions.Manager {
 	t.Helper()
 

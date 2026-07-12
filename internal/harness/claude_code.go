@@ -17,6 +17,13 @@ const (
 
 var claudeCommand = "claude"
 
+// StartOptions identify the Claude Code conversation to create or resume.
+type StartOptions struct {
+	SessionID   string
+	SessionName string
+	Resume      bool
+}
+
 // ClaudeCodeHarness owns a Claude Code PTY subprocess.
 type ClaudeCodeHarness struct {
 	cancel context.CancelFunc
@@ -28,9 +35,9 @@ type ClaudeCodeHarness struct {
 }
 
 // Start starts a Claude Code subprocess inside a PTY.
-func Start(ctx context.Context) (Harness, error) {
+func Start(ctx context.Context, opts StartOptions) (Harness, error) {
 	ctx, cancel := context.WithCancel(ctx)
-	cmd := exec.CommandContext(ctx, claudeCommand)
+	cmd := exec.CommandContext(ctx, claudeCommand, claudeArguments(opts)...)
 	cmd.Env = claudeEnvironment(os.Environ())
 
 	ptyFile, err := pty.StartWithSize(cmd, &pty.Winsize{
@@ -65,6 +72,22 @@ func Start(ctx context.Context) (Harness, error) {
 	}()
 
 	return h, nil
+}
+
+func claudeArguments(opts StartOptions) []string {
+	if opts.Resume {
+		return []string{"--resume", opts.SessionID}
+	}
+	if opts.SessionID == "" {
+		return nil
+	}
+
+	args := []string{"--session-id", opts.SessionID}
+	if opts.SessionName != "" {
+		args = append(args, "--name", opts.SessionName)
+	}
+
+	return args
 }
 
 func (h *ClaudeCodeHarness) Wait(ctx context.Context) error {

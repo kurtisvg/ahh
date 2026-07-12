@@ -24,6 +24,37 @@ type Wrapper interface {
 	Shutdown(context.Context) error
 }
 
+type options struct {
+	harness harness.StartOptions
+}
+
+// Option configures a wrapper and its harness process.
+type Option func(*options) error
+
+// WithNewSession configures Claude Code to create a session with id and name.
+func WithNewSession(id, name string) Option {
+	return func(opts *options) error {
+		if id == "" {
+			return fmt.Errorf("session id is required")
+		}
+		opts.harness.SessionID = id
+		opts.harness.SessionName = name
+		return nil
+	}
+}
+
+// WithResumeSession configures Claude Code to resume the session with id.
+func WithResumeSession(id string) Option {
+	return func(opts *options) error {
+		if id == "" {
+			return fmt.Errorf("session id is required")
+		}
+		opts.harness.SessionID = id
+		opts.harness.Resume = true
+		return nil
+	}
+}
+
 // Server exposes the wrapper API for a running harness.
 type Server struct {
 	Addr       string
@@ -40,8 +71,15 @@ type Server struct {
 var _ Wrapper = (*Server)(nil)
 
 // Start starts the wrapper HTTP server for the requested harness.
-func Start(ctx context.Context, harnessName string, addr string) (*Server, error) {
-	h, err := startHarness(ctx, harnessName)
+func Start(ctx context.Context, harnessName string, addr string, opts ...Option) (*Server, error) {
+	cfg := options{}
+	for _, opt := range opts {
+		if err := opt(&cfg); err != nil {
+			return nil, err
+		}
+	}
+
+	h, err := startHarness(ctx, harnessName, cfg.harness)
 	if err != nil {
 		return nil, err
 	}
@@ -55,10 +93,14 @@ func Start(ctx context.Context, harnessName string, addr string) (*Server, error
 	return server, nil
 }
 
-func startHarness(ctx context.Context, harnessName string) (harness.Harness, error) {
+func startHarness(
+	ctx context.Context,
+	harnessName string,
+	opts harness.StartOptions,
+) (harness.Harness, error) {
 	switch harnessName {
 	case ClaudeCodeHarness:
-		h, err := harness.Start(ctx)
+		h, err := harness.Start(ctx, opts)
 		if err != nil {
 			return nil, fmt.Errorf("start %s harness: %w", harnessName, err)
 		}

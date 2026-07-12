@@ -30,6 +30,43 @@ type fakeHarness struct {
 	runErr    error
 }
 
+func TestSessionOptions(t *testing.T) {
+	tests := []struct {
+		name       string
+		opt        Option
+		wantID     string
+		wantName   string
+		wantResume bool
+	}{
+		{
+			name:     "new session",
+			opt:      WithNewSession("session-id", "review"),
+			wantID:   "session-id",
+			wantName: "review",
+		},
+		{
+			name:       "resumed session",
+			opt:        WithResumeSession("session-id"),
+			wantID:     "session-id",
+			wantResume: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := options{}
+			if err := tt.opt(&cfg); err != nil {
+				t.Fatalf("Option() error = %v", err)
+			}
+			if cfg.harness.SessionID != tt.wantID ||
+				cfg.harness.SessionName != tt.wantName ||
+				cfg.harness.Resume != tt.wantResume {
+				t.Fatalf("harness options = %+v", cfg.harness)
+			}
+		})
+	}
+}
+
 func TestServerHTTP(t *testing.T) {
 	tests := []struct {
 		name             string
