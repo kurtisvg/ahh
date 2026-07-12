@@ -77,7 +77,7 @@ func TestServerHTTP(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			server := startTestServer(t, nil)
+			server := startTestServer(t)
 			defer shutdownTestServer(t, server)
 
 			client := &http.Client{
@@ -136,7 +136,7 @@ func TestStartRejectsNilSessionManager(t *testing.T) {
 }
 
 func TestServerSessionsAPI(t *testing.T) {
-	factory := newFakeWrapperFactory()
+	factory := &fakeWrapperFactory{}
 	base := time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC)
 	times := []time.Time{
 		base,
@@ -158,7 +158,7 @@ func TestServerSessionsAPI(t *testing.T) {
 		t.Fatalf("sessions.NewManager() error = %v", err)
 	}
 
-	server := startTestServer(t, manager)
+	server := startTestServer(t, WithSessionManager(manager))
 	defer shutdownTestServer(t, server)
 
 	client := &http.Client{
@@ -169,6 +169,7 @@ func TestServerSessionsAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET /api/sessions: %v", err)
 	}
+	defer resp.Body.Close()
 	assertStatus(t, resp, http.StatusOK)
 	var initial sessionsResponse
 	decodeJSON(t, resp, &initial)
@@ -180,6 +181,7 @@ func TestServerSessionsAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("POST blank session: %v", err)
 	}
+	defer resp.Body.Close()
 	assertStatus(t, resp, http.StatusBadRequest)
 	var apiErr errorResponse
 	decodeJSON(t, resp, &apiErr)
@@ -203,6 +205,7 @@ func TestServerSessionsAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET /api/sessions after create: %v", err)
 	}
+	defer resp.Body.Close()
 	assertStatus(t, resp, http.StatusOK)
 	var listed sessionsResponse
 	decodeJSON(t, resp, &listed)
@@ -220,9 +223,9 @@ func TestServerSessionsAPI(t *testing.T) {
 }
 
 func TestServerDeleteSessionAPI(t *testing.T) {
-	factory := newFakeWrapperFactory()
+	factory := &fakeWrapperFactory{}
 	manager := newTestSessionManager(t, factory.start)
-	server := startTestServer(t, manager)
+	server := startTestServer(t, WithSessionManager(manager))
 	defer shutdownTestServer(t, server)
 
 	client := &http.Client{
@@ -246,8 +249,8 @@ func TestServerDeleteSessionAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DELETE /api/sessions/%s: %v", session.ID, err)
 	}
+	defer resp.Body.Close()
 	assertStatus(t, resp, http.StatusNoContent)
-	resp.Body.Close()
 
 	select {
 	case <-factory.wrappers[0].done:
@@ -259,6 +262,7 @@ func TestServerDeleteSessionAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET /api/sessions after delete: %v", err)
 	}
+	defer resp.Body.Close()
 	assertStatus(t, resp, http.StatusOK)
 	var listed sessionsResponse
 	decodeJSON(t, resp, &listed)
@@ -270,19 +274,19 @@ func TestServerDeleteSessionAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second DELETE /api/sessions/%s: %v", session.ID, err)
 	}
+	defer resp.Body.Close()
 	assertStatus(t, resp, http.StatusNotFound)
-	resp.Body.Close()
 }
 
 func TestServerTTYStatusCodes(t *testing.T) {
-	factory := newFakeWrapperFactory()
+	factory := &fakeWrapperFactory{}
 	manager := newTestSessionManager(t, factory.start)
 	session, err := manager.Create(t.Context(), "terminal")
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
 
-	server := startTestServer(t, manager)
+	server := startTestServer(t, WithSessionManager(manager))
 	defer shutdownTestServer(t, server)
 
 	client := &http.Client{
@@ -292,8 +296,8 @@ func TestServerTTYStatusCodes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET missing tty: %v", err)
 	}
+	defer resp.Body.Close()
 	assertStatus(t, resp, http.StatusNotFound)
-	resp.Body.Close()
 
 	if err := factory.wrappers[0].Shutdown(t.Context()); err != nil {
 		t.Fatalf("shutdown wrapper: %v", err)
@@ -304,8 +308,8 @@ func TestServerTTYStatusCodes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET exited tty: %v", err)
 	}
+	defer resp.Body.Close()
 	assertStatus(t, resp, http.StatusGone)
-	resp.Body.Close()
 }
 
 func TestTerminalPageUsesProxySafePaths(t *testing.T) {
@@ -394,7 +398,7 @@ func TestServerTTYWebSocketProxy(t *testing.T) {
 		t.Fatalf("Create() error = %v", err)
 	}
 
-	server := startTestServer(t, manager)
+	server := startTestServer(t, WithSessionManager(manager))
 	defer shutdownTestServer(t, server)
 
 	conn, _, err := websocket.Dial(ctx, "ws://"+server.Addr+"/api/sessions/"+session.ID()+"/tty", nil)
@@ -439,10 +443,6 @@ type fakeWrapperFactory struct {
 	wrappers []*fakeWrapperServer
 }
 
-func newFakeWrapperFactory() *fakeWrapperFactory {
-	return &fakeWrapperFactory{}
-}
-
 func (f *fakeWrapperFactory) start(context.Context) (wrapper.Wrapper, error) {
 	fake := newFakeWrapperServer(http.NotFoundHandler())
 
@@ -479,16 +479,10 @@ func (s *fakeWrapperServer) Shutdown(context.Context) error {
 	return nil
 }
 
-func startTestServer(t *testing.T, manager *sessions.Manager) *Server {
+func startTestServer(t *testing.T, opts ...Option) *Server {
 	t.Helper()
 
-	if manager == nil {
-		manager = newTestSessionManager(t, func(context.Context) (wrapper.Wrapper, error) {
-			return nil, fmt.Errorf("unexpected session start")
-		})
-	}
-
-	server, err := Start(t.Context(), "127.0.0.1:0", WithSessionManager(manager))
+	server, err := Start(t.Context(), "127.0.0.1:0", opts...)
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
@@ -540,6 +534,7 @@ func createSessionViaAPI(t *testing.T, client *http.Client, server *Server, name
 	if err != nil {
 		t.Fatalf("POST /api/sessions: %v", err)
 	}
+	defer resp.Body.Close()
 	assertStatus(t, resp, http.StatusCreated)
 
 	var session sessions.Metadata
@@ -562,7 +557,6 @@ func assertStatus(t *testing.T, resp *http.Response, want int) {
 
 func decodeJSON(t *testing.T, resp *http.Response, value any) {
 	t.Helper()
-	defer resp.Body.Close()
 
 	if err := json.NewDecoder(resp.Body).Decode(value); err != nil {
 		t.Fatalf("decode JSON response: %v", err)
