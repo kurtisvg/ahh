@@ -9,19 +9,19 @@ import (
 )
 
 type options struct {
-	sessions  *sessions.Manager
-	configDir string
+	sessions *sessions.Manager
+	stateDir string
 }
 
-// WithConfigDir sets the directory used for persisted Ahh metadata.
-func WithConfigDir(configDir string) Option {
+// WithStateDir sets the directory used for persistent Ahh state.
+func WithStateDir(stateDir string) Option {
 	return func(opts *options) error {
-		opts.configDir = configDir
+		opts.stateDir = stateDir
 		return nil
 	}
 }
 
-func defaultConfigDir() string {
+func defaultStateDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
 		return ".ahh"

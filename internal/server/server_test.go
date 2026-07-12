@@ -295,12 +295,12 @@ func TestServerDeleteSessionAPI(t *testing.T) {
 }
 
 func TestServerPersistsSessionMetadata(t *testing.T) {
-	configDir := t.TempDir()
+	stateDir := t.TempDir()
 	factory := &fakeWrapperFactory{}
 	manager, err := sessions.NewManager(
 		t.Context(),
 		sessions.WithStartWrapper(factory.start),
-		sessions.WithConfigDir(configDir),
+		sessions.WithStateDir(stateDir),
 	)
 	if err != nil {
 		t.Fatalf("sessions.NewManager() error = %v", err)
@@ -313,7 +313,7 @@ func TestServerPersistsSessionMetadata(t *testing.T) {
 	session := createSessionViaAPI(t, client, server, "persisted")
 	shutdownTestServer(t, server)
 
-	if _, err := os.Stat(filepath.Join(configDir, "sessions", session.ID+".json")); err != nil {
+	if _, err := os.Stat(filepath.Join(stateDir, "sessions", session.ID+".json")); err != nil {
 		t.Fatalf("stat persisted session metadata: %v", err)
 	}
 
@@ -335,7 +335,7 @@ func TestServerPersistsSessionMetadata(t *testing.T) {
 	restartedManager, err := sessions.NewManager(
 		t.Context(),
 		sessions.WithStartWrapper(restartedFactory.start),
-		sessions.WithConfigDir(configDir),
+		sessions.WithStateDir(stateDir),
 	)
 	if err != nil {
 		t.Fatalf("reload sessions.NewManager() error = %v", err)
@@ -390,7 +390,7 @@ func TestServerPersistsSessionMetadata(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	assertStatus(t, resp, http.StatusNoContent)
-	if _, err := os.Stat(filepath.Join(configDir, "sessions", session.ID+".json")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(stateDir, "sessions", session.ID+".json")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("stat deleted session metadata error = %v, want not exist", err)
 	}
 }

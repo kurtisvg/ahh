@@ -11,7 +11,7 @@ import (
 const defaultServerAddr = "127.0.0.1:0"
 
 type serveOptions struct {
-	configDir string
+	stateDir string
 }
 
 func newServeCommand() *cobra.Command {
@@ -27,14 +27,19 @@ func newServeCommand() *cobra.Command {
 			return runServeCommand(cmd, opts)
 		},
 	}
-	cmd.Flags().StringVar(&opts.configDir, "config", "", "directory for Ahh metadata")
+	cmd.Flags().StringVar(
+		&opts.stateDir,
+		"state-dir",
+		"",
+		"directory for persistent Ahh state (default ~/.ahh)",
+	)
 
 	return cmd
 }
 
 func runServeCommand(cmd *cobra.Command, opts serveOptions) error {
 	ctx := cmd.Context()
-	server, err := ahhserver.Start(ctx, defaultServerAddr, ahhserver.WithConfigDir(opts.configDir))
+	server, err := ahhserver.Start(ctx, defaultServerAddr, ahhserver.WithStateDir(opts.stateDir))
 	if err != nil {
 		return fmt.Errorf("start server: %w", err)
 	}

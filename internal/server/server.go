@@ -31,15 +31,15 @@ type Server struct {
 // Start starts the Ahh HTTP server.
 func Start(ctx context.Context, addr string, opts ...Option) (*Server, error) {
 	cfg := options{
-		configDir: defaultConfigDir(),
+		stateDir: defaultStateDir(),
 	}
 	for _, opt := range opts {
 		if err := opt(&cfg); err != nil {
 			return nil, err
 		}
 	}
-	if cfg.configDir == "" {
-		cfg.configDir = defaultConfigDir()
+	if cfg.stateDir == "" {
+		cfg.stateDir = defaultStateDir()
 	}
 
 	if addr == "" {
@@ -51,7 +51,7 @@ func Start(ctx context.Context, addr string, opts ...Option) (*Server, error) {
 		return nil, fmt.Errorf("listen on %s: %w", addr, err)
 	}
 	if cfg.sessions == nil {
-		manager, err := sessions.NewManager(ctx, sessions.WithConfigDir(cfg.configDir))
+		manager, err := sessions.NewManager(ctx, sessions.WithStateDir(cfg.stateDir))
 		if err != nil {
 			if closeErr := listener.Close(); closeErr != nil {
 				return nil, errors.Join(err, fmt.Errorf("close listener: %w", closeErr))

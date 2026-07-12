@@ -17,13 +17,13 @@ type metadataStore interface {
 }
 
 type fileMetadataStore struct {
-	configDir string
-	mu        sync.Mutex
+	stateDir string
+	mu       sync.Mutex
 }
 
-func newFileMetadataStore(configDir string) *fileMetadataStore {
+func newFileMetadataStore(stateDir string) *fileMetadataStore {
 	return &fileMetadataStore{
-		configDir: configDir,
+		stateDir: stateDir,
 	}
 }
 
@@ -126,7 +126,7 @@ func (s *fileMetadataStore) Delete(id string) error {
 }
 
 func (s *fileMetadataStore) sessionsDir() string {
-	return filepath.Join(s.configDir, "sessions")
+	return filepath.Join(s.stateDir, "sessions")
 }
 
 func (s *fileMetadataStore) sessionPath(id string) (string, error) {

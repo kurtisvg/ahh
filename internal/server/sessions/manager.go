@@ -113,14 +113,14 @@ func NewManager(ctx context.Context, opts ...Option) (*Manager, error) {
 	return manager, nil
 }
 
-// WithConfigDir persists session metadata beneath configDir.
-func WithConfigDir(configDir string) Option {
+// WithStateDir persists session metadata beneath stateDir.
+func WithStateDir(stateDir string) Option {
 	return func(opts *options) error {
-		if strings.TrimSpace(configDir) == "" {
-			return fmt.Errorf("session config directory is required")
+		if strings.TrimSpace(stateDir) == "" {
+			return fmt.Errorf("session state directory is required")
 		}
 
-		opts.store = newFileMetadataStore(configDir)
+		opts.store = newFileMetadataStore(stateDir)
 		return nil
 	}
 }

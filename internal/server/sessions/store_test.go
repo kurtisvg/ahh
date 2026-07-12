@@ -8,8 +8,8 @@ import (
 )
 
 func TestFileMetadataStoreLoadRejectsMismatchedID(t *testing.T) {
-	configDir := t.TempDir()
-	sessionsDir := filepath.Join(configDir, "sessions")
+	stateDir := t.TempDir()
+	sessionsDir := filepath.Join(stateDir, "sessions")
 	if err := os.MkdirAll(sessionsDir, 0o755); err != nil {
 		t.Fatalf("create sessions directory: %v", err)
 	}
@@ -21,7 +21,7 @@ func TestFileMetadataStoreLoadRejectsMismatchedID(t *testing.T) {
 		t.Fatalf("write session metadata: %v", err)
 	}
 
-	_, err := newFileMetadataStore(configDir).Load()
+	_, err := newFileMetadataStore(stateDir).Load()
 	if err == nil {
 		t.Fatal("Load() error = nil, want mismatched ID error")
 	}
