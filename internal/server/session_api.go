@@ -124,7 +124,7 @@ func (s *Server) serveTTY(w http.ResponseWriter, r *http.Request) {
 		errCh <- copyBrowserToWrapper(ctx, wrapperConn, browserConn, session)
 	}()
 	go func() {
-		errCh <- copyWebSocketMessages(ctx, browserConn, wrapperConn)
+		errCh <- copyWrapperToBrowser(ctx, browserConn, wrapperConn)
 	}()
 
 	err = <-errCh
@@ -180,8 +180,8 @@ func submittedTerminalInput(messageType websocket.MessageType, data []byte) bool
 	return msg.Type == "input" && strings.ContainsAny(msg.Data, "\r\n")
 }
 
-// copyWebSocketMessages forwards websocket frames until one side closes.
-func copyWebSocketMessages(ctx context.Context, dst, src *websocket.Conn) error {
+// copyWrapperToBrowser forwards wrapper PTY output to the browser until one side closes.
+func copyWrapperToBrowser(ctx context.Context, dst, src *websocket.Conn) error {
 	for {
 		messageType, data, err := src.Read(ctx)
 		if err != nil {
