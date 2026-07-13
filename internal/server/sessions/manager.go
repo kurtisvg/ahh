@@ -32,16 +32,31 @@ type Metadata struct {
 	ID           string    `json:"id"`
 	Name         string    `json:"name"`
 	Status       Status    `json:"status"`
+	Resumable    bool      `json:"resumable,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`
 	LastActiveAt time.Time `json:"last_active_at"`
 }
 
+// WrapperStart identifies the harness session a wrapper should create or resume.
+type WrapperStart struct {
+	SessionID string
+	Resume    bool
+}
+
 // Session manages the mutable runtime state for one terminal session.
 type Session struct {
-	mu       sync.Mutex
+	startWrapper func(WrapperStart) (wrapper.Wrapper, error)
+	now          func() time.Time
+	store        metadataStore
+
+	// operationMu serializes operations and protects the fields below it.
+	operationMu sync.Mutex
+	deleted     bool
+
+	// stateMu protects the fields below it.
+	stateMu  sync.Mutex
 	metadata Metadata
 	wrapper  wrapper.Wrapper
-	now      func() time.Time
 }
 
 // Manager owns the session registry. Each Session owns its own mutable state.
@@ -49,16 +64,18 @@ type Manager struct {
 	mu           sync.Mutex
 	sessions     map[string]*Session
 	closed       bool
-	startWrapper func() (wrapper.Wrapper, error)
+	startWrapper func(WrapperStart) (wrapper.Wrapper, error)
 	cancel       context.CancelFunc
 	newID        func() (string, error)
 	now          func() time.Time
+	store        metadataStore
 }
 
 type options struct {
-	startWrapper func(context.Context) (wrapper.Wrapper, error)
+	startWrapper func(context.Context, WrapperStart) (wrapper.Wrapper, error)
 	newID        func() (string, error)
 	now          func() time.Time
+	store        metadataStore
 }
 
 // Option configures a Manager.
@@ -78,19 +95,51 @@ func NewManager(ctx context.Context, opts ...Option) (*Manager, error) {
 	}
 	lifetimeCtx, cancel := context.WithCancel(ctx)
 
-	return &Manager{
+	manager := &Manager{
 		sessions: map[string]*Session{},
-		startWrapper: func() (wrapper.Wrapper, error) {
-			return cfg.startWrapper(lifetimeCtx)
+		startWrapper: func(start WrapperStart) (wrapper.Wrapper, error) {
+			if err := lifetimeCtx.Err(); err != nil {
+				return nil, err
+			}
+			return cfg.startWrapper(lifetimeCtx, start)
 		},
 		cancel: cancel,
 		newID:  cfg.newID,
 		now:    cfg.now,
-	}, nil
+		store:  cfg.store,
+	}
+	if cfg.store == nil {
+		return manager, nil
+	}
+
+	stored, err := cfg.store.Load()
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	for _, metadata := range stored {
+		manager.sessions[metadata.ID] = restoreSession(metadata, cfg.now, cfg.store, manager.startWrapper)
+	}
+
+	return manager, nil
+}
+
+// WithStateDir persists session metadata beneath stateDir.
+func WithStateDir(stateDir string) Option {
+	return func(opts *options) error {
+		if strings.TrimSpace(stateDir) == "" {
+			return fmt.Errorf("session state directory is required")
+		}
+
+		opts.store = newFileMetadataStore(stateDir)
+		return nil
+	}
 }
 
 // WithStartWrapper replaces the wrapper startup hook used when creating sessions.
-func WithStartWrapper(start func(context.Context) (wrapper.Wrapper, error)) Option {
+func WithStartWrapper(
+	start func(context.Context, WrapperStart) (wrapper.Wrapper, error),
+) Option {
 	return func(opts *options) error {
 		if start == nil {
 			return fmt.Errorf("wrapper start function is required")
@@ -137,20 +186,30 @@ func (m *Manager) Create(ctx context.Context, name string) (*Session, error) {
 	if closed {
 		return nil, fmt.Errorf("session manager is shut down")
 	}
-
 	id, err := m.newID()
 	if err != nil {
 		return nil, fmt.Errorf("generate session id: %w", err)
 	}
 
-	session := newSession(id, name, m.now)
-
 	// Wrapper lifetime belongs to the manager, not the request creating it.
-	w, err := m.startWrapper()
+	w, err := m.startWrapper(WrapperStart{SessionID: id})
 	if err != nil {
 		return nil, err
 	}
 
+	createdAt := m.now()
+	session := &Session{
+		metadata: Metadata{
+			ID:           id,
+			Name:         name,
+			Status:       StatusStarting,
+			CreatedAt:    createdAt,
+			LastActiveAt: createdAt,
+		},
+		startWrapper: m.startWrapper,
+		now:          m.now,
+		store:        m.store,
+	}
 	session.setWrapper(w)
 
 	m.mu.Lock()
@@ -174,6 +233,16 @@ func (m *Manager) Create(ctx context.Context, name string) (*Session, error) {
 		}
 
 		return nil, registrationErr
+	}
+	if m.store != nil {
+		if err := m.store.Save(session.Metadata()); err != nil {
+			m.remove(id, session)
+			if shutdownErr := session.Shutdown(ctx); shutdownErr != nil {
+				return nil, errors.Join(err, shutdownErr)
+			}
+
+			return nil, err
+		}
 	}
 	go session.watchWrapper(w)
 
@@ -213,7 +282,7 @@ func (m *Manager) Delete(ctx context.Context, id string) (bool, error) {
 	}
 	m.mu.Unlock()
 
-	if err := session.Shutdown(ctx); err != nil {
+	if err := session.delete(ctx); err != nil {
 		return true, err
 	}
 
@@ -275,54 +344,171 @@ func (m *Manager) remove(id string, session *Session) {
 	}
 }
 
-func newSession(id string, name string, now func() time.Time) *Session {
-	createdAt := now()
+func restoreSession(
+	metadata Metadata,
+	now func() time.Time,
+	store metadataStore,
+	startWrapper func(WrapperStart) (wrapper.Wrapper, error),
+) *Session {
+	metadata.Status = StatusExited
 	return &Session{
-		metadata: Metadata{
-			ID:           id,
-			Name:         name,
-			Status:       StatusStarting,
-			CreatedAt:    createdAt,
-			LastActiveAt: createdAt,
-		},
-		now: now,
+		metadata:     metadata,
+		startWrapper: startWrapper,
+		now:          now,
+		store:        store,
 	}
 }
 
 // ID returns the stable session id.
 func (s *Session) ID() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
 
 	return s.metadata.ID
 }
 
 // Metadata returns a copy of the session metadata suitable for JSON responses.
 func (s *Session) Metadata() Metadata {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
 
 	return s.metadata
 }
 
 // Touch records user-visible activity for this session.
-func (s *Session) Touch() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (s *Session) Touch() error {
+	s.operationMu.Lock()
+	defer s.operationMu.Unlock()
 
+	if s.deleted {
+		return fmt.Errorf("session is deleted")
+	}
+
+	s.stateMu.Lock()
 	s.metadata.LastActiveAt = s.now()
+	metadata := s.metadata
+	store := s.store
+	s.stateMu.Unlock()
+
+	if store == nil {
+		return nil
+	}
+	if err := store.Save(metadata); err != nil {
+		return fmt.Errorf("persist session activity: %w", err)
+	}
+
+	return nil
+}
+
+// MarkResumable records that Claude has received input for this session.
+func (s *Session) MarkResumable() error {
+	s.operationMu.Lock()
+	defer s.operationMu.Unlock()
+
+	if s.deleted {
+		return fmt.Errorf("session is deleted")
+	}
+
+	s.stateMu.Lock()
+	if s.metadata.Resumable {
+		s.stateMu.Unlock()
+		return nil
+	}
+	metadata := s.metadata
+	metadata.Resumable = true
+	store := s.store
+	if store == nil {
+		s.metadata.Resumable = true
+	}
+	s.stateMu.Unlock()
+
+	if store == nil {
+		return nil
+	}
+	if err := store.Save(metadata); err != nil {
+		return fmt.Errorf("persist resumable session: %w", err)
+	}
+	s.stateMu.Lock()
+	s.metadata.Resumable = true
+	s.stateMu.Unlock()
+
+	return nil
 }
 
 // Wrapper returns the current wrapper and lifecycle status for this session.
 func (s *Session) Wrapper() (wrapper.Wrapper, Status) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
 
 	return s.wrapper, s.metadata.Status
 }
 
+// Start returns the live wrapper, starting it when this session is not running.
+func (s *Session) Start(ctx context.Context) (wrapper.Wrapper, error) {
+	s.operationMu.Lock()
+	defer s.operationMu.Unlock()
+
+	if s.deleted {
+		return nil, fmt.Errorf("session is deleted")
+	}
+
+	s.stateMu.Lock()
+	if s.wrapper != nil {
+		w := s.wrapper
+		s.stateMu.Unlock()
+		return w, nil
+	}
+	s.metadata.Status = StatusStarting
+	s.stateMu.Unlock()
+
+	metadata := s.Metadata()
+	w, err := s.startWrapper(WrapperStart{
+		SessionID: metadata.ID,
+		Resume:    metadata.Resumable,
+	})
+	if err != nil {
+		s.stateMu.Lock()
+		s.metadata.Status = StatusExited
+		s.stateMu.Unlock()
+		return nil, fmt.Errorf("start session wrapper: %w", err)
+	}
+	s.stateMu.Lock()
+	s.wrapper = w
+	s.metadata.Status = StatusRunning
+	metadata = s.metadata
+	store := s.store
+	s.stateMu.Unlock()
+
+	if store != nil {
+		if err := store.Save(metadata); err != nil {
+			persistErr := fmt.Errorf("persist started session: %w", err)
+			shutdownErr := w.Shutdown(ctx)
+			s.stateMu.Lock()
+			if s.wrapper == w {
+				s.wrapper = nil
+				s.metadata.Status = StatusExited
+			}
+			s.stateMu.Unlock()
+			if shutdownErr != nil {
+				return nil, errors.Join(persistErr, shutdownErr)
+			}
+			return nil, persistErr
+		}
+	}
+
+	go s.watchWrapper(w)
+	return w, nil
+}
+
 // Shutdown stops this session's live wrapper, if one exists.
 func (s *Session) Shutdown(ctx context.Context) error {
+	s.operationMu.Lock()
+	defer s.operationMu.Unlock()
+
+	return s.shutdown(ctx)
+}
+
+func (s *Session) shutdown(ctx context.Context) error {
 	w, _ := s.Wrapper()
 	if w == nil {
 		return nil
@@ -334,9 +520,29 @@ func (s *Session) Shutdown(ctx context.Context) error {
 	return nil
 }
 
+func (s *Session) delete(ctx context.Context) error {
+	s.operationMu.Lock()
+	defer s.operationMu.Unlock()
+
+	if s.deleted {
+		return nil
+	}
+	if err := s.shutdown(ctx); err != nil {
+		return err
+	}
+	if s.store != nil {
+		if err := s.store.Delete(s.ID()); err != nil {
+			return err
+		}
+	}
+	s.deleted = true
+
+	return nil
+}
+
 func (s *Session) setWrapper(w wrapper.Wrapper) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
 
 	s.wrapper = w
 	s.metadata.Status = StatusRunning
@@ -345,8 +551,8 @@ func (s *Session) setWrapper(w wrapper.Wrapper) {
 func (s *Session) watchWrapper(w wrapper.Wrapper) {
 	_ = w.Wait()
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
 	if s.wrapper != w {
 		return
 	}
@@ -356,8 +562,18 @@ func (s *Session) watchWrapper(w wrapper.Wrapper) {
 }
 
 // startWrapperSession starts the default wrapper backing a new session.
-func startWrapperSession(ctx context.Context) (wrapper.Wrapper, error) {
-	w, err := wrapper.Start(ctx, defaultWrapperHarness, defaultWrapperAddr)
+func startWrapperSession(ctx context.Context, start WrapperStart) (wrapper.Wrapper, error) {
+	var opts []wrapper.Option
+	if start.Resume {
+		opts = append(opts, wrapper.WithResume())
+	}
+	w, err := wrapper.Start(
+		ctx,
+		defaultWrapperHarness,
+		defaultWrapperAddr,
+		start.SessionID,
+		opts...,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("start wrapper server: %w", err)
 	}

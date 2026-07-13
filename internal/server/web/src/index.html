@@ -29,15 +29,14 @@
           <div id="view-subtitle" class="view-subtitle">No conversation selected</div>
         </div>
         <div class="status-surface" aria-live="polite">
-          <div id="status" class="status" data-state="idle">
+          <div id="status" class="status" data-state="disconnected">
             <span class="dot"></span>
-            <span id="status-text">idle</span>
+            <span id="status-text">disconnected</span>
           </div>
-          <div id="status-detail" class="status-detail" hidden></div>
         </div>
       </header>
       <main class="terminal-region">
-        <div id="connection-banner" class="connection-banner" data-state="connecting" hidden>
+        <div id="connection-banner" class="connection-banner" data-state="reconnecting" hidden>
           <span id="connection-banner-text">Connecting to terminal</span>
         </div>
         <section class="terminal-shell" aria-label="Conversation terminal">
@@ -53,7 +52,7 @@
             </button>
           </div>
           <div class="terminal-stage" role="tabpanel" aria-label="TTY terminal">
-            <div id="terminal-state" class="terminal-state" data-state="idle">
+            <div id="terminal-state" class="terminal-state" data-state="disconnected">
               <span id="terminal-state-text">No conversation selected</span>
             </div>
             <div id="terminal"></div>

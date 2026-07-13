@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/kurtisvg/ahh/internal/wrapper"
 	"github.com/spf13/cobra"
 )
@@ -29,7 +30,7 @@ func runWrapCommand(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	harnessName := args[0]
 
-	server, err := wrapper.Start(ctx, harnessName, defaultWrapperAddr)
+	server, err := wrapper.Start(ctx, harnessName, defaultWrapperAddr, uuid.NewString())
 	if err != nil {
 		return fmt.Errorf("start wrapper server: %w", err)
 	}

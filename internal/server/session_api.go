@@ -91,14 +91,13 @@ func (s *Server) serveTTY(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sessionWrapper, sessionStatus := session.Wrapper()
-	if sessionStatus == sessions.StatusExited || sessionWrapper == nil {
-		http.Error(w, "session exited", http.StatusGone)
-		return
-	}
-
 	browserConn, err := websocket.Accept(w, r, nil)
 	if err != nil {
+		return
+	}
+	sessionWrapper, err := session.Start(r.Context())
+	if err != nil {
+		_ = browserConn.Close(websocket.StatusTryAgainLater, "session unavailable")
 		return
 	}
 
@@ -114,14 +113,18 @@ func (s *Server) serveTTY(w http.ResponseWriter, r *http.Request) {
 	// A session is touched when a browser successfully connects to its TTY
 	// stream. Individual terminal frames do not update activity; this keeps
 	// "most recent" tied to session selection rather than terminal noise.
-	session.Touch()
+	if err := session.Touch(); err != nil {
+		_ = browserConn.Close(websocket.StatusInternalError, "session metadata unavailable")
+		_ = wrapperConn.Close(websocket.StatusInternalError, "session metadata unavailable")
+		return
+	}
 
 	errCh := make(chan error, 2)
 	go func() {
-		errCh <- copyWebSocketMessages(ctx, wrapperConn, browserConn)
+		errCh <- copyBrowserToWrapper(ctx, wrapperConn, browserConn, session)
 	}()
 	go func() {
-		errCh <- copyWebSocketMessages(ctx, browserConn, wrapperConn)
+		errCh <- copyWrapperToBrowser(ctx, browserConn, wrapperConn)
 	}()
 
 	err = <-errCh
@@ -139,8 +142,46 @@ func (s *Server) serveTTY(w http.ResponseWriter, r *http.Request) {
 	<-errCh
 }
 
-// copyWebSocketMessages forwards websocket frames until one side closes.
-func copyWebSocketMessages(ctx context.Context, dst, src *websocket.Conn) error {
+func copyBrowserToWrapper(
+	ctx context.Context,
+	dst *websocket.Conn,
+	src *websocket.Conn,
+	session *sessions.Session,
+) error {
+	for {
+		messageType, data, err := src.Read(ctx)
+		if err != nil {
+			return err
+		}
+		if err := dst.Write(ctx, messageType, data); err != nil {
+			return err
+		}
+		if submittedTerminalInput(messageType, data) {
+			if err := session.MarkResumable(); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+func submittedTerminalInput(messageType websocket.MessageType, data []byte) bool {
+	if messageType != websocket.MessageText {
+		return false
+	}
+
+	var msg struct {
+		Type string `json:"type"`
+		Data string `json:"data"`
+	}
+	if err := json.Unmarshal(data, &msg); err != nil {
+		return false
+	}
+
+	return msg.Type == "input" && strings.ContainsAny(msg.Data, "\r\n")
+}
+
+// copyWrapperToBrowser forwards wrapper PTY output to the browser until one side closes.
+func copyWrapperToBrowser(ctx context.Context, dst, src *websocket.Conn) error {
 	for {
 		messageType, data, err := src.Read(ctx)
 		if err != nil {

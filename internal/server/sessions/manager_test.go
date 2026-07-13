@@ -14,7 +14,7 @@ import (
 )
 
 func TestManagerCreateRequiresName(t *testing.T) {
-	manager := newTestManager(t, func(context.Context) (wrapper.Wrapper, error) {
+	manager := newTestManager(t, func(context.Context, WrapperStart) (wrapper.Wrapper, error) {
 		t.Fatal("wrapper should not start without a session name")
 		return nil, nil
 	})
@@ -30,7 +30,7 @@ func TestManagerCreateRequiresName(t *testing.T) {
 
 func TestManagerCreateTrimsName(t *testing.T) {
 	fake := newTestWrapper()
-	manager := newTestManager(t, func(context.Context) (wrapper.Wrapper, error) {
+	manager := newTestManager(t, func(context.Context, WrapperStart) (wrapper.Wrapper, error) {
 		return fake, nil
 	})
 
@@ -49,7 +49,7 @@ func TestManagerCreateUsesManagerLifecycleContext(t *testing.T) {
 	fake := newTestWrapper()
 	var wrapperCtx context.Context
 	lifecycleCtx, cancelLifecycle := context.WithCancel(t.Context())
-	manager, err := NewManager(lifecycleCtx, WithStartWrapper(func(ctx context.Context) (wrapper.Wrapper, error) {
+	manager, err := NewManager(lifecycleCtx, WithStartWrapper(func(ctx context.Context, _ WrapperStart) (wrapper.Wrapper, error) {
 		wrapperCtx = ctx
 		return fake, nil
 	}))
@@ -77,7 +77,7 @@ func TestManagerCreateUsesManagerLifecycleContext(t *testing.T) {
 func TestManagerShutdownCancelsLifecycleAndRejectsCreate(t *testing.T) {
 	fake := newTestWrapper()
 	var wrapperCtx context.Context
-	manager := newTestManager(t, func(ctx context.Context) (wrapper.Wrapper, error) {
+	manager := newTestManager(t, func(ctx context.Context, _ WrapperStart) (wrapper.Wrapper, error) {
 		wrapperCtx = ctx
 		return fake, nil
 	})
@@ -106,7 +106,7 @@ func TestManagerCreateListsOnlyStartedSessions(t *testing.T) {
 			close(release)
 		})
 	}
-	manager := newTestManager(t, func(context.Context) (wrapper.Wrapper, error) {
+	manager := newTestManager(t, func(context.Context, WrapperStart) (wrapper.Wrapper, error) {
 		close(started)
 		<-release
 		return fake, nil
@@ -149,7 +149,7 @@ func TestManagerCreateDoesNotRegisterAfterShutdown(t *testing.T) {
 			close(release)
 		})
 	}
-	manager := newTestManager(t, func(context.Context) (wrapper.Wrapper, error) {
+	manager := newTestManager(t, func(context.Context, WrapperStart) (wrapper.Wrapper, error) {
 		close(started)
 		<-release
 		return fake, nil
@@ -180,9 +180,143 @@ func TestManagerCreateDoesNotRegisterAfterShutdown(t *testing.T) {
 	}
 }
 
+func TestSessionStartDeduplicatesConcurrentCalls(t *testing.T) {
+	fake := newTestWrapper()
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var calls int
+	var callsMu sync.Mutex
+	var startedOnce sync.Once
+	session := restoreSession(
+		Metadata{ID: "persisted", Name: "persisted"},
+		time.Now,
+		nil,
+		func(WrapperStart) (wrapper.Wrapper, error) {
+			callsMu.Lock()
+			calls++
+			callsMu.Unlock()
+			startedOnce.Do(func() {
+				close(started)
+			})
+			<-release
+			return fake, nil
+		},
+	)
+
+	results := make(chan wrapper.Wrapper, 2)
+	for range 2 {
+		go func() {
+			w, err := session.Start(t.Context())
+			if err != nil {
+				t.Errorf("Start() error = %v", err)
+			}
+			results <- w
+		}()
+	}
+
+	<-started
+	close(release)
+	first := <-results
+	second := <-results
+	if first != fake || second != fake {
+		t.Fatalf("Start() wrappers = [%p, %p], want %p", first, second, fake)
+	}
+	callsMu.Lock()
+	gotCalls := calls
+	callsMu.Unlock()
+	if gotCalls != 1 {
+		t.Fatalf("wrapper start calls = %d, want 1", gotCalls)
+	}
+	if err := session.Shutdown(t.Context()); err != nil {
+		t.Fatalf("Shutdown() error = %v", err)
+	}
+}
+
+func TestSessionDeletePreventsRestartAndMetadataWrites(t *testing.T) {
+	store := &testMetadataStore{}
+	startCalled := false
+	session := restoreSession(
+		Metadata{ID: "persisted", Name: "persisted"},
+		time.Now,
+		store,
+		func(WrapperStart) (wrapper.Wrapper, error) {
+			startCalled = true
+			return newTestWrapper(), nil
+		},
+	)
+
+	if err := session.delete(t.Context()); err != nil {
+		t.Fatalf("delete() error = %v", err)
+	}
+	if store.deletedID != "persisted" {
+		t.Fatalf("deleted session ID = %q, want persisted", store.deletedID)
+	}
+	if err := session.Touch(); err == nil {
+		t.Fatal("Touch() error after delete = nil, want error")
+	}
+	if store.saveCalls != 0 {
+		t.Fatalf("metadata saves after delete = %d, want 0", store.saveCalls)
+	}
+	if _, err := session.Start(t.Context()); err == nil {
+		t.Fatal("Start() error after delete = nil, want error")
+	}
+	if startCalled {
+		t.Fatal("wrapper started after session delete")
+	}
+}
+
+func TestSessionMarkResumablePersistsOnce(t *testing.T) {
+	store := &testMetadataStore{}
+	session := restoreSession(
+		Metadata{ID: "persisted", Name: "persisted"},
+		time.Now,
+		store,
+		func(WrapperStart) (wrapper.Wrapper, error) {
+			return newTestWrapper(), nil
+		},
+	)
+
+	if err := session.MarkResumable(); err != nil {
+		t.Fatalf("MarkResumable() error = %v", err)
+	}
+	if err := session.MarkResumable(); err != nil {
+		t.Fatalf("second MarkResumable() error = %v", err)
+	}
+	if !session.Metadata().Resumable {
+		t.Fatal("session resumable = false, want true")
+	}
+	if store.saveCalls != 1 {
+		t.Fatalf("metadata saves = %d, want 1", store.saveCalls)
+	}
+}
+
+func TestUntouchedRestoredSessionStartsWithoutResume(t *testing.T) {
+	fake := newTestWrapper()
+	var gotStart WrapperStart
+	session := restoreSession(
+		Metadata{ID: "persisted", Name: "persisted"},
+		time.Now,
+		nil,
+		func(start WrapperStart) (wrapper.Wrapper, error) {
+			gotStart = start
+			return fake, nil
+		},
+	)
+
+	if _, err := session.Start(t.Context()); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	if gotStart.Resume {
+		t.Fatalf("wrapper start = %+v, want new session", gotStart)
+	}
+	if err := session.Shutdown(t.Context()); err != nil {
+		t.Fatalf("Shutdown() error = %v", err)
+	}
+}
+
 func TestManagerListSortsMostRecentFirst(t *testing.T) {
 	var wrappers []*testWrapper
-	startWrapper := func(context.Context) (wrapper.Wrapper, error) {
+	startWrapper := func(context.Context, WrapperStart) (wrapper.Wrapper, error) {
 		fake := newTestWrapper()
 		wrappers = append(wrappers, fake)
 		return fake, nil
@@ -230,7 +364,9 @@ func TestManagerListSortsMostRecentFirst(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create(second) error = %v", err)
 	}
-	first.Touch()
+	if err := first.Touch(); err != nil {
+		t.Fatalf("Touch() error = %v", err)
+	}
 
 	got := manager.List()
 	if len(got) != 2 {
@@ -250,7 +386,7 @@ func TestManagerListSortsMostRecentFirst(t *testing.T) {
 func TestManagerDeleteKeepsSessionWhenShutdownFails(t *testing.T) {
 	fake := newTestWrapper()
 	fake.shutdownErr = errors.New("boom")
-	manager := newTestManager(t, func(context.Context) (wrapper.Wrapper, error) {
+	manager := newTestManager(t, func(context.Context, WrapperStart) (wrapper.Wrapper, error) {
 		return fake, nil
 	})
 
@@ -297,6 +433,25 @@ type testWrapper struct {
 	shutdownErr error
 }
 
+type testMetadataStore struct {
+	saveCalls int
+	deletedID string
+}
+
+func (s *testMetadataStore) Load() ([]Metadata, error) {
+	return nil, nil
+}
+
+func (s *testMetadataStore) Save(Metadata) error {
+	s.saveCalls++
+	return nil
+}
+
+func (s *testMetadataStore) Delete(id string) error {
+	s.deletedID = id
+	return nil
+}
+
 func newTestWrapper() *testWrapper {
 	return &testWrapper{
 		done: make(chan struct{}),
@@ -331,7 +486,7 @@ func (w *testWrapper) shutdown() {
 
 func newTestManager(
 	t *testing.T,
-	startWrapper func(context.Context) (wrapper.Wrapper, error),
+	startWrapper func(context.Context, WrapperStart) (wrapper.Wrapper, error),
 ) *Manager {
 	t.Helper()
 

@@ -30,6 +30,20 @@ type fakeHarness struct {
 	runErr    error
 }
 
+func TestStartRejectsInvalidSessionID(t *testing.T) {
+	if _, err := Start(t.Context(), ClaudeCodeHarness, "127.0.0.1:0", "not-a-uuid"); err == nil {
+		t.Fatal("Start() error = nil, want invalid session ID error")
+	}
+}
+
+func TestWithResume(t *testing.T) {
+	cfg := options{}
+	WithResume()(&cfg)
+	if !cfg.resume {
+		t.Fatal("resume = false, want true")
+	}
+}
+
 func TestServerHTTP(t *testing.T) {
 	tests := []struct {
 		name             string

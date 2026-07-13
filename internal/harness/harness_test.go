@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -45,7 +46,7 @@ func TestHarness(t *testing.T) {
 			name: "reports missing command",
 			startHarness: func(t *testing.T, ctx context.Context) (Harness, error) {
 				setHarnessCommand(t, filepath.Join(t.TempDir(), "missing-claude"))
-				return Start(ctx)
+				return Start(ctx, "test-session-id")
 			},
 			wantStartErrContains: "no such file or directory",
 		},
@@ -164,7 +165,47 @@ func fakeHarness(t *testing.T, ctx context.Context, mode string) (Harness, error
 	setHarnessCommand(t, fakeHarnessCommand(t))
 	t.Setenv("AHH_HELPER_HARNESS_MODE", mode)
 
-	return Start(ctx)
+	return Start(ctx, "test-session-id")
+}
+
+func TestClaudeArguments(t *testing.T) {
+	tests := []struct {
+		name string
+		id   string
+		opts []Option
+		want []string
+	}{
+		{
+			name: "starts conversation",
+			id:   "session-id",
+			want: []string{"--session-id", "session-id"},
+		},
+		{
+			name: "resumes identified conversation",
+			id:   "session-id",
+			opts: []Option{WithResume()},
+			want: []string{"--resume", "session-id"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := options{}
+			for _, opt := range tt.opts {
+				opt(&cfg)
+			}
+			got := claudeArguments(tt.id, cfg)
+			if !slices.Equal(got, tt.want) {
+				t.Fatalf("claudeArguments() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestStartRequiresSessionID(t *testing.T) {
+	if _, err := Start(t.Context(), ""); err == nil {
+		t.Fatal("Start() error = nil, want session ID error")
+	}
 }
 
 func setHarnessCommand(t *testing.T, command string) {

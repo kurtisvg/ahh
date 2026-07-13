@@ -1,7 +1,6 @@
 const appShell = document.querySelector('.app-shell');
 const statusEl = document.getElementById('status');
 const statusText = document.getElementById('status-text');
-const statusDetail = document.getElementById('status-detail');
 const connectionBanner = document.getElementById('connection-banner');
 const connectionBannerText = document.getElementById('connection-banner-text');
 const conversationListEl = document.getElementById('conversation-list');
@@ -21,41 +20,18 @@ const terminalStateText = document.getElementById('terminal-state-text');
 const reconnectBaseDelay = 500;
 const reconnectMaxDelay = 5000;
 const conversationPollInterval = 3000;
-const stateLabels = {
-  idle: 'idle',
-  connecting: 'connecting',
-  connected: 'connected',
-  disconnected: 'disconnected',
-  reconnecting: 'reconnecting',
-  error: 'error',
-  'conversation-exited': 'not running'
-};
-const connectionDetails = {
-  idle: '',
-  connecting: 'opening websocket',
-  connected: 'terminal connected',
-  disconnected: 'socket disconnected',
-  reconnecting: 'retrying connection',
-  error: 'connection error',
-  'conversation-exited': 'terminal stopped'
-};
 const terminalStateMessages = {
-  idle: 'No conversation selected',
-  connecting: 'Connecting to terminal',
   disconnected: 'Terminal disconnected',
-  reconnecting: 'Reconnecting to terminal',
-  error: 'Terminal connection error',
-  'conversation-exited': 'Conversation is not running'
+  reconnecting: 'Reconnecting to terminal'
 };
 
 let conversations = [];
 let activeConversationId = '';
 let socket;
-let connectionState = 'idle';
+let connectionState = 'disconnected';
 let reconnectAttempt = 0;
 let reconnectTimer;
 let conversationTimer;
-let conversationExited = false;
 let hasTerminalOutput = false;
 
 const terminal = new Terminal({
@@ -83,30 +59,9 @@ terminal.open(terminalEl);
 function setStatus(state) {
   connectionState = state;
   statusEl.dataset.state = state;
-  statusText.textContent = stateLabels[state] || state;
-  updateStatusDetail();
+  statusText.textContent = state;
+  updateConversationStatuses();
   updateTerminalState();
-}
-
-function updateStatusDetail() {
-  const detail = statusDetailText();
-  statusDetail.textContent = detail;
-  statusDetail.hidden = detail === '';
-}
-
-function statusDetailText() {
-  const active = activeConversation();
-  if (!active) {
-    return '';
-  }
-  if (active.status === 'exited') {
-    return 'conversation exited';
-  }
-  if (connectionState === 'connected') {
-    return '';
-  }
-
-  return connectionDetails[connectionState] || '';
 }
 
 function updateTerminalState() {
@@ -115,7 +70,9 @@ function updateTerminalState() {
     return;
   }
 
-  const message = terminalStateMessages[connectionState];
+  const message = activeConversation()
+    ? terminalStateMessages[connectionState]
+    : 'No conversation selected';
   terminalState.hidden = !message;
   terminalState.dataset.state = connectionState;
   terminalStateText.textContent = message || '';
@@ -234,9 +191,13 @@ function renderConversations() {
   appShell.dataset.hasConversations = conversations.length === 0 ? 'false' : 'true';
 
   for (const conversation of conversations) {
+    const stateName = conversation.id === activeConversationId
+      ? connectionState
+      : 'disconnected';
     const item = document.createElement('div');
     item.className = 'conversation-item';
-    item.dataset.state = conversation.status;
+    item.dataset.conversationId = conversation.id;
+    item.dataset.state = stateName;
     if (conversation.id === activeConversationId) {
       item.classList.add('is-active');
     }
@@ -256,7 +217,7 @@ function renderConversations() {
 
     const meta = document.createElement('span');
     meta.className = 'conversation-meta';
-    meta.textContent = conversation.status;
+    meta.textContent = stateName;
 
     const state = document.createElement('span');
     state.className = 'state-pill';
@@ -287,6 +248,16 @@ function renderConversations() {
   }
 
   updateViewHeading();
+}
+
+function updateConversationStatuses() {
+  for (const item of conversationListEl.querySelectorAll('.conversation-item')) {
+    const stateName = item.dataset.conversationId === activeConversationId
+      ? connectionState
+      : 'disconnected';
+    item.dataset.state = stateName;
+    item.querySelector('.conversation-meta').textContent = stateName;
+  }
 }
 
 function openConversationDialog() {
@@ -326,7 +297,7 @@ function updateViewHeading() {
   viewSubtitle.hidden = true;
 }
 
-async function loadConversations({ preserveActive = true } = {}) {
+async function loadConversations({ preserveActive = true, syncConnection = true } = {}) {
   const response = await fetch(appURL('api/sessions'), { cache: 'no-store' });
   if (!response.ok) {
     throw new Error(`list conversations failed: ${response.status}`);
@@ -341,7 +312,9 @@ async function loadConversations({ preserveActive = true } = {}) {
   }
 
   renderConversations();
-  syncActiveConversation();
+  if (syncConnection) {
+    syncActiveConversation();
+  }
   updateConversationURL(activeConversationId);
 }
 
@@ -349,26 +322,22 @@ function resetTerminalForActiveConversation() {
   closeSocket();
   terminal.reset();
   hasTerminalOutput = false;
-  conversationExited = false;
   reconnectAttempt = 0;
   hideBanner();
+  setStatus('disconnected');
 }
 
 function syncActiveConversation() {
   const active = activeConversation();
   if (!active) {
     closeSocket();
-    setStatus('idle');
+    setStatus('disconnected');
     updateViewHeading();
     updateTerminalState();
     return;
   }
 
   updateViewHeading();
-  if (active.status === 'exited') {
-    markConversationExited();
-    return;
-  }
   if (!socket || socket.readyState === WebSocket.CLOSED) {
     connectSocket();
   }
@@ -376,6 +345,9 @@ function syncActiveConversation() {
 
 function selectConversation(conversationId) {
   if (conversationId === activeConversationId) {
+    if (!socket || socket.readyState === WebSocket.CLOSED) {
+      syncActiveConversation();
+    }
     updateConversationURL(conversationId, 'push');
     return;
   }
@@ -443,17 +415,17 @@ async function readErrorPayload(response) {
 
 function connectSocket() {
   const active = activeConversation();
-  if (!active || conversationExited) {
+  if (!active) {
     return;
   }
 
-  setStatus(reconnectAttempt === 0 ? 'connecting' : 'reconnecting');
+  setStatus('reconnecting');
   socket = new WebSocket(terminalSocketURL(active.id));
   socket.binaryType = 'arraybuffer';
   const activeSocket = socket;
 
   activeSocket.addEventListener('open', () => {
-    if (activeSocket !== socket || conversationExited) {
+    if (activeSocket !== socket) {
       return;
     }
     reconnectAttempt = 0;
@@ -464,7 +436,7 @@ function connectSocket() {
   });
 
   activeSocket.addEventListener('message', (event) => {
-    if (activeSocket !== socket || conversationExited) {
+    if (activeSocket !== socket) {
       return;
     }
     if (event.data instanceof ArrayBuffer) {
@@ -479,14 +451,14 @@ function connectSocket() {
   });
 
   activeSocket.addEventListener('close', () => {
-    if (activeSocket !== socket || conversationExited) {
+    if (activeSocket !== socket) {
       return;
     }
     void handleSocketClose();
   });
 
   activeSocket.addEventListener('error', () => {
-    if (activeSocket === socket && !conversationExited) {
+    if (activeSocket === socket) {
       setStatus('disconnected');
     }
   });
@@ -497,15 +469,13 @@ async function handleSocketClose() {
   showBanner('disconnected', 'Terminal connection dropped. Checking conversation state.');
 
   try {
-    await loadConversations();
+    await loadConversations({ syncConnection: false });
   } catch {
     scheduleReconnect();
     return;
   }
 
-  const active = activeConversation();
-  if (!active || active.status === 'exited') {
-    markConversationExited();
+  if (!activeConversation()) {
     return;
   }
 
@@ -527,18 +497,6 @@ function scheduleReconnect() {
 
 function formatDelay(delay) {
   return `${Math.ceil(delay / 1000)}s`;
-}
-
-function markConversationExited() {
-  if (conversationExited && connectionState === 'conversation-exited') {
-    return;
-  }
-
-  conversationExited = true;
-  closeSocket();
-  setStatus('conversation-exited');
-  showBanner('conversation-exited', 'Conversation is not running. Delete it or create a new conversation.');
-  updateTerminalState();
 }
 
 function closeSocket() {
@@ -601,7 +559,7 @@ window.addEventListener('popstate', () => {
 });
 
 terminal.onData((data) => {
-  if (socket && socket.readyState === WebSocket.OPEN && !conversationExited) {
+  if (socket && socket.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify({
       type: 'input',
       data

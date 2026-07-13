@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/kurtisvg/ahh/internal/harness"
 )
 
@@ -22,6 +23,20 @@ type Wrapper interface {
 	Address() string
 	Wait() error
 	Shutdown(context.Context) error
+}
+
+type options struct {
+	resume bool
+}
+
+// Option configures a wrapper and its harness process.
+type Option func(*options)
+
+// WithResume configures the harness to resume the requested session.
+func WithResume() Option {
+	return func(opts *options) {
+		opts.resume = true
+	}
 }
 
 // Server exposes the wrapper API for a running harness.
@@ -40,8 +55,25 @@ type Server struct {
 var _ Wrapper = (*Server)(nil)
 
 // Start starts the wrapper HTTP server for the requested harness.
-func Start(ctx context.Context, harnessName string, addr string) (*Server, error) {
-	h, err := startHarness(ctx, harnessName)
+func Start(
+	ctx context.Context,
+	harnessName string,
+	addr string,
+	sessionID string,
+	opts ...Option,
+) (*Server, error) {
+	parsedID, err := uuid.Parse(sessionID)
+	if err != nil || parsedID == uuid.Nil {
+		return nil, fmt.Errorf("invalid session id %q", sessionID)
+	}
+	sessionID = parsedID.String()
+
+	cfg := options{}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
+	h, err := startHarness(ctx, harnessName, sessionID, cfg.resume)
 	if err != nil {
 		return nil, err
 	}
@@ -55,10 +87,19 @@ func Start(ctx context.Context, harnessName string, addr string) (*Server, error
 	return server, nil
 }
 
-func startHarness(ctx context.Context, harnessName string) (harness.Harness, error) {
+func startHarness(
+	ctx context.Context,
+	harnessName string,
+	sessionID string,
+	resume bool,
+) (harness.Harness, error) {
 	switch harnessName {
 	case ClaudeCodeHarness:
-		h, err := harness.Start(ctx)
+		var opts []harness.Option
+		if resume {
+			opts = append(opts, harness.WithResume())
+		}
+		h, err := harness.Start(ctx, sessionID, opts...)
 		if err != nil {
 			return nil, fmt.Errorf("start %s harness: %w", harnessName, err)
 		}

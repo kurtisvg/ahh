@@ -17,6 +17,20 @@ const (
 
 var claudeCommand = "claude"
 
+type options struct {
+	resume bool
+}
+
+// Option configures a Claude Code harness process.
+type Option func(*options)
+
+// WithResume configures Claude Code to resume the requested session.
+func WithResume() Option {
+	return func(opts *options) {
+		opts.resume = true
+	}
+}
+
 // ClaudeCodeHarness owns a Claude Code PTY subprocess.
 type ClaudeCodeHarness struct {
 	cancel context.CancelFunc
@@ -28,9 +42,17 @@ type ClaudeCodeHarness struct {
 }
 
 // Start starts a Claude Code subprocess inside a PTY.
-func Start(ctx context.Context) (Harness, error) {
+func Start(ctx context.Context, sessionID string, startOpts ...Option) (Harness, error) {
+	if sessionID == "" {
+		return nil, fmt.Errorf("session id is required")
+	}
+	opts := options{}
+	for _, opt := range startOpts {
+		opt(&opts)
+	}
+
 	ctx, cancel := context.WithCancel(ctx)
-	cmd := exec.CommandContext(ctx, claudeCommand)
+	cmd := exec.CommandContext(ctx, claudeCommand, claudeArguments(sessionID, opts)...)
 	cmd.Env = claudeEnvironment(os.Environ())
 
 	ptyFile, err := pty.StartWithSize(cmd, &pty.Winsize{
@@ -65,6 +87,14 @@ func Start(ctx context.Context) (Harness, error) {
 	}()
 
 	return h, nil
+}
+
+func claudeArguments(sessionID string, opts options) []string {
+	if opts.resume {
+		return []string{"--resume", sessionID}
+	}
+
+	return []string{"--session-id", sessionID}
 }
 
 func (h *ClaudeCodeHarness) Wait(ctx context.Context) error {

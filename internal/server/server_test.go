@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -147,6 +150,16 @@ func TestStartRejectsNilSessionManager(t *testing.T) {
 	}
 }
 
+func TestStartRejectsEmptyStateDir(t *testing.T) {
+	_, err := Start(t.Context(), "127.0.0.1:0", WithStateDir(" \t "))
+	if err == nil {
+		t.Fatal("Start() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "state directory is required") {
+		t.Fatalf("Start() error = %q, want state directory is required", err.Error())
+	}
+}
+
 func TestServerSessionsAPI(t *testing.T) {
 	factory := &fakeWrapperFactory{}
 	base := time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC)
@@ -245,8 +258,8 @@ func TestServerDeleteSessionAPI(t *testing.T) {
 		Timeout: 2 * time.Second,
 	}
 	session := createSessionViaAPI(t, client, server, "delete me")
-	if len(factory.wrappers) != 1 {
-		t.Fatalf("started wrappers = %d, want 1", len(factory.wrappers))
+	if got := factory.wrapperCount(); got != 1 {
+		t.Fatalf("started wrappers = %d, want 1", got)
 	}
 
 	req, err := http.NewRequestWithContext(
@@ -266,7 +279,7 @@ func TestServerDeleteSessionAPI(t *testing.T) {
 	assertStatus(t, resp, http.StatusNoContent)
 
 	select {
-	case <-factory.wrappers[0].done:
+	case <-factory.wrapper(0).done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("deleted session wrapper was not shut down")
 	}
@@ -291,13 +304,125 @@ func TestServerDeleteSessionAPI(t *testing.T) {
 	assertStatus(t, resp, http.StatusNotFound)
 }
 
-func TestServerTTYStatusCodes(t *testing.T) {
+func TestServerPersistsSessionMetadata(t *testing.T) {
+	stateDir := t.TempDir()
+	factory := &fakeWrapperFactory{}
+	manager, err := sessions.NewManager(
+		t.Context(),
+		sessions.WithStartWrapper(factory.start),
+		sessions.WithStateDir(stateDir),
+	)
+	if err != nil {
+		t.Fatalf("sessions.NewManager() error = %v", err)
+	}
+
+	server := startTestServer(t, WithSessionManager(manager))
+	client := &http.Client{
+		Timeout: 2 * time.Second,
+	}
+	session := createSessionViaAPI(t, client, server, "persisted")
+	initialStart := factory.startRequest(0)
+	if initialStart.SessionID != session.ID || initialStart.Resume {
+		t.Fatalf("initial wrapper start = %+v, want id %q without resume", initialStart, session.ID)
+	}
+	createdSession, ok := manager.Get(session.ID)
+	if !ok {
+		t.Fatalf("created session %q not found", session.ID)
+	}
+	if err := createdSession.MarkResumable(); err != nil {
+		t.Fatalf("MarkResumable() error = %v", err)
+	}
+	shutdownTestServer(t, server)
+
+	if _, err := os.Stat(filepath.Join(stateDir, "sessions", session.ID+".json")); err != nil {
+		t.Fatalf("stat persisted session metadata: %v", err)
+	}
+
+	restartedFactory := &fakeWrapperFactory{
+		handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/pty" {
+				http.NotFound(w, r)
+				return
+			}
+
+			conn, err := websocket.Accept(w, r, nil)
+			if err != nil {
+				return
+			}
+			defer conn.Close(websocket.StatusNormalClosure, "")
+			_, _, _ = conn.Read(r.Context())
+		}),
+	}
+	restartedManager, err := sessions.NewManager(
+		t.Context(),
+		sessions.WithStartWrapper(restartedFactory.start),
+		sessions.WithStateDir(stateDir),
+	)
+	if err != nil {
+		t.Fatalf("reload sessions.NewManager() error = %v", err)
+	}
+	restartedServer := startTestServer(t, WithSessionManager(restartedManager))
+	defer shutdownTestServer(t, restartedServer)
+
+	resp, err := client.Get("http://" + restartedServer.Addr + "/api/sessions")
+	if err != nil {
+		t.Fatalf("GET /api/sessions after restart: %v", err)
+	}
+	defer resp.Body.Close()
+	assertStatus(t, resp, http.StatusOK)
+	var listed sessionsResponse
+	decodeJSON(t, resp, &listed)
+	if len(listed.Sessions) != 1 {
+		t.Fatalf("restarted sessions = %d, want 1", len(listed.Sessions))
+	}
+	if listed.Sessions[0].ID != session.ID || listed.Sessions[0].Name != "persisted" {
+		t.Fatalf("restarted session = %+v, want id %q name persisted", listed.Sessions[0], session.ID)
+	}
+	if listed.Sessions[0].Status != sessions.StatusExited {
+		t.Fatalf("restarted session status = %q, want %q", listed.Sessions[0].Status, sessions.StatusExited)
+	}
+	if got := restartedFactory.wrapperCount(); got != 0 {
+		t.Fatalf("wrappers started on metadata reload = %d, want 0", got)
+	}
+
+	conn, _, err := websocket.Dial(
+		t.Context(),
+		"ws://"+restartedServer.Addr+"/api/sessions/"+session.ID+"/tty",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("dial persisted session tty: %v", err)
+	}
+	if err := conn.Close(websocket.StatusNormalClosure, ""); err != nil {
+		t.Fatalf("close persisted session tty: %v", err)
+	}
+	waitForSessionStatus(t, restartedManager, session.ID, sessions.StatusRunning)
+	if got := restartedFactory.wrapperCount(); got != 1 {
+		t.Fatalf("wrappers started after persisted tty connection = %d, want 1", got)
+	}
+	restoredStart := restartedFactory.startRequest(0)
+	if restoredStart.SessionID != session.ID || !restoredStart.Resume {
+		t.Fatalf("restored wrapper start = %+v, want id %q with resume", restoredStart, session.ID)
+	}
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodDelete, "http://"+restartedServer.Addr+"/api/sessions/"+session.ID, nil)
+	if err != nil {
+		t.Fatalf("new delete request: %v", err)
+	}
+	resp, err = client.Do(req)
+	if err != nil {
+		t.Fatalf("DELETE persisted session: %v", err)
+	}
+	defer resp.Body.Close()
+	assertStatus(t, resp, http.StatusNoContent)
+	if _, err := os.Stat(filepath.Join(stateDir, "sessions", session.ID+".json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("stat deleted session metadata error = %v, want not exist", err)
+	}
+}
+
+func TestServerTTYMissingSession(t *testing.T) {
 	factory := &fakeWrapperFactory{}
 	manager := newTestSessionManager(t, factory.start)
-	session, err := manager.Create(t.Context(), "terminal")
-	if err != nil {
-		t.Fatalf("Create() error = %v", err)
-	}
 
 	server := startTestServer(t, WithSessionManager(manager))
 	defer shutdownTestServer(t, server)
@@ -311,18 +436,45 @@ func TestServerTTYStatusCodes(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	assertStatus(t, resp, http.StatusNotFound)
+}
 
-	if err := factory.wrappers[0].Shutdown(t.Context()); err != nil {
-		t.Fatalf("shutdown wrapper: %v", err)
+func TestSubmittedTerminalInput(t *testing.T) {
+	tests := []struct {
+		name        string
+		messageType websocket.MessageType
+		data        string
+		want        bool
+	}{
+		{
+			name:        "submitted input",
+			messageType: websocket.MessageText,
+			data:        `{"type":"input","data":"prompt\r"}`,
+			want:        true,
+		},
+		{
+			name:        "typing without submission",
+			messageType: websocket.MessageText,
+			data:        `{"type":"input","data":"prompt"}`,
+		},
+		{
+			name:        "terminal resize",
+			messageType: websocket.MessageText,
+			data:        `{"type":"resize","rows":24,"cols":80}`,
+		},
+		{
+			name:        "binary message",
+			messageType: websocket.MessageBinary,
+			data:        `{"type":"input","data":"prompt\r"}`,
+		},
 	}
-	waitForSessionStatus(t, manager, session.ID(), sessions.StatusExited)
 
-	resp, err = client.Get("http://" + server.Addr + "/api/sessions/" + session.ID() + "/tty")
-	if err != nil {
-		t.Fatalf("GET exited tty: %v", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := submittedTerminalInput(tt.messageType, []byte(tt.data)); got != tt.want {
+				t.Fatalf("submittedTerminalInput() = %t, want %t", got, tt.want)
+			}
+		})
 	}
-	defer resp.Body.Close()
-	assertStatus(t, resp, http.StatusGone)
 }
 
 func TestTerminalPageUsesProxySafePaths(t *testing.T) {
@@ -358,18 +510,26 @@ func TestTerminalPageUsesProxySafePaths(t *testing.T) {
 	}
 }
 
-func TestAppScriptIncludesConnectionLifecycleStates(t *testing.T) {
+func TestAppScriptUsesConnectionLifecycleStates(t *testing.T) {
 	app := string(readAsset(t, "assets/app.js"))
 	wants := []string{
 		"scheduleReconnect",
 		"loadConversations",
 		"startConversationPolling",
 		"conversationIdFromPath",
-		"conversation-exited",
+		"updateConversationStatuses",
+		"setStatus('connected')",
+		"setStatus('reconnecting')",
+		"setStatus('disconnected')",
 	}
 	for _, want := range wants {
 		if !strings.Contains(app, want) {
 			t.Fatalf("app script does not contain %q", want)
+		}
+	}
+	for _, unwanted := range []string{"conversation-exited", "conversation.status"} {
+		if strings.Contains(app, unwanted) {
+			t.Fatalf("app script contains backend lifecycle state %q", unwanted)
 		}
 	}
 }
@@ -404,7 +564,7 @@ func TestServerTTYWebSocketProxy(t *testing.T) {
 		}
 	}))
 
-	manager := newTestSessionManager(t, func(context.Context) (wrapper.Wrapper, error) {
+	manager := newTestSessionManager(t, func(context.Context, sessions.WrapperStart) (wrapper.Wrapper, error) {
 		return fake, nil
 	})
 	session, err := manager.Create(ctx, "terminal")
@@ -455,16 +615,47 @@ type fakeWrapperServer struct {
 type fakeWrapperFactory struct {
 	mu       sync.Mutex
 	wrappers []*fakeWrapperServer
+	starts   []sessions.WrapperStart
+	handler  http.Handler
 }
 
-func (f *fakeWrapperFactory) start(context.Context) (wrapper.Wrapper, error) {
-	fake := newFakeWrapperServer(http.NotFoundHandler())
+func (f *fakeWrapperFactory) start(
+	_ context.Context,
+	start sessions.WrapperStart,
+) (wrapper.Wrapper, error) {
+	handler := f.handler
+	if handler == nil {
+		handler = http.NotFoundHandler()
+	}
+	fake := newFakeWrapperServer(handler)
 
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
 	f.wrappers = append(f.wrappers, fake)
+	f.starts = append(f.starts, start)
 	return fake, nil
+}
+
+func (f *fakeWrapperFactory) wrapperCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return len(f.wrappers)
+}
+
+func (f *fakeWrapperFactory) wrapper(index int) *fakeWrapperServer {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.wrappers[index]
+}
+
+func (f *fakeWrapperFactory) startRequest(index int) sessions.WrapperStart {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.starts[index]
 }
 
 func newFakeWrapperServer(handler http.Handler) *fakeWrapperServer {
@@ -506,7 +697,7 @@ func startTestServer(t *testing.T, opts ...Option) *Server {
 
 func newTestSessionManager(
 	t *testing.T,
-	startWrapper func(context.Context) (wrapper.Wrapper, error),
+	startWrapper func(context.Context, sessions.WrapperStart) (wrapper.Wrapper, error),
 ) *sessions.Manager {
 	t.Helper()
 
