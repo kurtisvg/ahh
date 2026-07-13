@@ -80,6 +80,20 @@ func TestResolveOptionsRejectsInvalidSessionID(t *testing.T) {
 	}
 }
 
+func TestResolveOptionsUsesLastSessionMode(t *testing.T) {
+	id := uuid.NewString()
+	opts, err := resolveOptions(
+		WithResume(uuid.NewString()),
+		WithSessionID(id),
+	)
+	if err != nil {
+		t.Fatalf("resolveOptions() error = %v", err)
+	}
+	if opts.sessionID != id || opts.resume {
+		t.Fatalf("resolveOptions() = %+v, want session id %q without resume", opts, id)
+	}
+}
+
 func TestServerHTTP(t *testing.T) {
 	tests := []struct {
 		name             string

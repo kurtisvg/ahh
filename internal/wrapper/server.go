@@ -53,9 +53,6 @@ func configureSession(opts *options, id string, resume bool) error {
 	if err != nil || parsed == uuid.Nil {
 		return fmt.Errorf("invalid session id %q", id)
 	}
-	if opts.sessionID != "" {
-		return fmt.Errorf("session id is already configured")
-	}
 	opts.sessionID = parsed.String()
 	opts.resume = resume
 	return nil

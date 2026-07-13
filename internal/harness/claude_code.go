@@ -18,9 +18,8 @@ const (
 var claudeCommand = "claude"
 
 type options struct {
-	sessionID  string
-	resume     bool
-	configured bool
+	sessionID string
+	resume    bool
 }
 
 // Option configures a Claude Code harness process.
@@ -32,11 +31,8 @@ func WithSessionID(id string) Option {
 		if id == "" {
 			return fmt.Errorf("session id is required")
 		}
-		if opts.configured {
-			return fmt.Errorf("session start mode is already configured")
-		}
 		opts.sessionID = id
-		opts.configured = true
+		opts.resume = false
 		return nil
 	}
 }
@@ -47,12 +43,8 @@ func WithResume(id string) Option {
 		if id == "" {
 			return fmt.Errorf("session id is required")
 		}
-		if opts.configured {
-			return fmt.Errorf("session start mode is already configured")
-		}
 		opts.sessionID = id
 		opts.resume = true
-		opts.configured = true
 		return nil
 	}
 }

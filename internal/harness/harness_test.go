@@ -205,7 +205,7 @@ func TestClaudeArguments(t *testing.T) {
 	}
 }
 
-func TestSessionOptionsRejectInvalidConfiguration(t *testing.T) {
+func TestSessionOptionsRejectEmptyID(t *testing.T) {
 	tests := []struct {
 		name string
 		opts []Option
@@ -217,13 +217,6 @@ func TestSessionOptionsRejectInvalidConfiguration(t *testing.T) {
 		{
 			name: "resume session without id",
 			opts: []Option{WithResume("")},
-		},
-		{
-			name: "multiple session modes",
-			opts: []Option{
-				WithSessionID("first"),
-				WithResume("second"),
-			},
 		},
 	}
 
@@ -240,6 +233,22 @@ func TestSessionOptionsRejectInvalidConfiguration(t *testing.T) {
 				t.Fatal("options error = nil, want error")
 			}
 		})
+	}
+}
+
+func TestSessionOptionsUseLastMode(t *testing.T) {
+	cfg := options{}
+	for _, opt := range []Option{
+		WithResume("first"),
+		WithSessionID("second"),
+	} {
+		if err := opt(&cfg); err != nil {
+			t.Fatalf("Option() error = %v", err)
+		}
+	}
+
+	if cfg.sessionID != "second" || cfg.resume {
+		t.Fatalf("session options = %+v, want second without resume", cfg)
 	}
 }
 
