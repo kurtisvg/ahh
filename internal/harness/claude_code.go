@@ -18,34 +18,16 @@ const (
 var claudeCommand = "claude"
 
 type options struct {
-	sessionID string
-	resume    bool
+	resume bool
 }
 
 // Option configures a Claude Code harness process.
-type Option func(*options) error
+type Option func(*options)
 
-// WithSessionID configures Claude Code to create a session with id.
-func WithSessionID(id string) Option {
-	return func(opts *options) error {
-		if id == "" {
-			return fmt.Errorf("session id is required")
-		}
-		opts.sessionID = id
-		opts.resume = false
-		return nil
-	}
-}
-
-// WithResume configures Claude Code to resume the session with id.
-func WithResume(id string) Option {
-	return func(opts *options) error {
-		if id == "" {
-			return fmt.Errorf("session id is required")
-		}
-		opts.sessionID = id
+// WithResume configures Claude Code to resume the requested session.
+func WithResume() Option {
+	return func(opts *options) {
 		opts.resume = true
-		return nil
 	}
 }
 
@@ -60,16 +42,17 @@ type ClaudeCodeHarness struct {
 }
 
 // Start starts a Claude Code subprocess inside a PTY.
-func Start(ctx context.Context, startOpts ...Option) (Harness, error) {
+func Start(ctx context.Context, sessionID string, startOpts ...Option) (Harness, error) {
+	if sessionID == "" {
+		return nil, fmt.Errorf("session id is required")
+	}
 	opts := options{}
 	for _, opt := range startOpts {
-		if err := opt(&opts); err != nil {
-			return nil, err
-		}
+		opt(&opts)
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
-	cmd := exec.CommandContext(ctx, claudeCommand, claudeArguments(opts)...)
+	cmd := exec.CommandContext(ctx, claudeCommand, claudeArguments(sessionID, opts)...)
 	cmd.Env = claudeEnvironment(os.Environ())
 
 	ptyFile, err := pty.StartWithSize(cmd, &pty.Winsize{
@@ -106,15 +89,12 @@ func Start(ctx context.Context, startOpts ...Option) (Harness, error) {
 	return h, nil
 }
 
-func claudeArguments(opts options) []string {
+func claudeArguments(sessionID string, opts options) []string {
 	if opts.resume {
-		return []string{"--resume", opts.sessionID}
-	}
-	if opts.sessionID == "" {
-		return nil
+		return []string{"--resume", sessionID}
 	}
 
-	return []string{"--session-id", opts.sessionID}
+	return []string{"--session-id", sessionID}
 }
 
 func (h *ClaudeCodeHarness) Wait(ctx context.Context) error {

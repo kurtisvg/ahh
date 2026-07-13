@@ -45,22 +45,6 @@ func TestManagerCreateTrimsName(t *testing.T) {
 	}
 }
 
-func TestManagerCreateRejectsEmptyWrapperSessionID(t *testing.T) {
-	fake := newTestWrapper("")
-	manager := newTestManager(t, func(context.Context, WrapperStart) (wrapper.Wrapper, error) {
-		return fake, nil
-	})
-
-	if _, err := manager.Create(t.Context(), "terminal"); err == nil {
-		t.Fatal("Create() error = nil, want empty wrapper session ID error")
-	}
-	select {
-	case <-fake.done:
-	default:
-		t.Fatal("wrapper with empty session ID was not shut down")
-	}
-}
-
 func TestManagerCreateUsesManagerLifecycleContext(t *testing.T) {
 	fake := newTestWrapper()
 	var wrapperCtx context.Context
@@ -197,7 +181,7 @@ func TestManagerCreateDoesNotRegisterAfterShutdown(t *testing.T) {
 }
 
 func TestSessionStartDeduplicatesConcurrentCalls(t *testing.T) {
-	fake := newTestWrapper("persisted")
+	fake := newTestWrapper()
 	started := make(chan struct{})
 	release := make(chan struct{})
 	var calls int
@@ -307,7 +291,7 @@ func TestSessionMarkResumablePersistsOnce(t *testing.T) {
 }
 
 func TestUntouchedRestoredSessionStartsWithoutResume(t *testing.T) {
-	fake := newTestWrapper("persisted")
+	fake := newTestWrapper()
 	var gotStart WrapperStart
 	session := restoreSession(
 		Metadata{ID: "persisted", Name: "persisted"},
@@ -330,33 +314,10 @@ func TestUntouchedRestoredSessionStartsWithoutResume(t *testing.T) {
 	}
 }
 
-func TestRestoredSessionRejectsMismatchedWrapperSessionID(t *testing.T) {
-	fake := newTestWrapper("different")
-	session := restoreSession(
-		Metadata{ID: "persisted", Name: "persisted"},
-		time.Now,
-		nil,
-		func(WrapperStart) (wrapper.Wrapper, error) {
-			return fake, nil
-		},
-	)
-
-	if _, err := session.Start(t.Context()); err == nil {
-		t.Fatal("Start() error = nil, want mismatched wrapper session ID error")
-	}
-	select {
-	case <-fake.done:
-	default:
-		t.Fatal("wrapper with mismatched session ID was not shut down")
-	}
-}
-
 func TestManagerListSortsMostRecentFirst(t *testing.T) {
 	var wrappers []*testWrapper
-	nextID := 0
 	startWrapper := func(context.Context, WrapperStart) (wrapper.Wrapper, error) {
-		nextID++
-		fake := newTestWrapper(fmt.Sprintf("session-%d", nextID))
+		fake := newTestWrapper()
 		wrappers = append(wrappers, fake)
 		return fake, nil
 	}
@@ -379,10 +340,17 @@ func TestManagerListSortsMostRecentFirst(t *testing.T) {
 		return t
 	}
 
+	nextID := 0
+	newID := func() (string, error) {
+		nextID++
+		return fmt.Sprintf("session-%d", nextID), nil
+	}
+
 	manager, err := NewManager(
 		t.Context(),
 		WithStartWrapper(startWrapper),
 		WithClock(now),
+		WithIDGenerator(newID),
 	)
 	if err != nil {
 		t.Fatalf("NewManager() error = %v", err)
@@ -441,8 +409,25 @@ func TestManagerDeleteKeepsSessionWhenShutdownFails(t *testing.T) {
 	}
 }
 
+func TestNewSessionIDGeneratesUUIDV4(t *testing.T) {
+	id, err := newSessionID()
+	if err != nil {
+		t.Fatalf("newSessionID() error = %v", err)
+	}
+
+	parsed, err := uuid.Parse(id)
+	if err != nil {
+		t.Fatalf("parse session id %q: %v", id, err)
+	}
+	if parsed.Version() != 4 {
+		t.Fatalf("session id version = %d, want 4", parsed.Version())
+	}
+	if parsed.Variant() != uuid.RFC4122 {
+		t.Fatalf("session id variant = %v, want RFC4122", parsed.Variant())
+	}
+}
+
 type testWrapper struct {
-	sessionID   string
 	done        chan struct{}
 	closeOnce   sync.Once
 	shutdownErr error
@@ -467,23 +452,14 @@ func (s *testMetadataStore) Delete(id string) error {
 	return nil
 }
 
-func newTestWrapper(sessionIDs ...string) *testWrapper {
-	sessionID := uuid.NewString()
-	if len(sessionIDs) != 0 {
-		sessionID = sessionIDs[0]
-	}
+func newTestWrapper() *testWrapper {
 	return &testWrapper{
-		sessionID: sessionID,
-		done:      make(chan struct{}),
+		done: make(chan struct{}),
 	}
 }
 
 func (w *testWrapper) Address() string {
 	return "127.0.0.1:1"
-}
-
-func (w *testWrapper) SessionID() string {
-	return w.sessionID
 }
 
 func (w *testWrapper) Wait() error {
