@@ -179,12 +179,12 @@ func TestClaudeArguments(t *testing.T) {
 		},
 		{
 			name: "starts identified conversation",
-			opts: []Option{WithNewSession("session-id", "review")},
-			want: []string{"--session-id", "session-id", "--name", "review"},
+			opts: []Option{WithSessionID("session-id")},
+			want: []string{"--session-id", "session-id"},
 		},
 		{
 			name: "resumes identified conversation",
-			opts: []Option{WithResumeSession("session-id")},
+			opts: []Option{WithResume("session-id")},
 			want: []string{"--resume", "session-id"},
 		},
 	}
@@ -212,17 +212,17 @@ func TestSessionOptionsRejectInvalidConfiguration(t *testing.T) {
 	}{
 		{
 			name: "new session without id",
-			opts: []Option{WithNewSession("", "review")},
+			opts: []Option{WithSessionID("")},
 		},
 		{
 			name: "resume session without id",
-			opts: []Option{WithResumeSession("")},
+			opts: []Option{WithResume("")},
 		},
 		{
 			name: "multiple session modes",
 			opts: []Option{
-				WithNewSession("first", "review"),
-				WithResumeSession("second"),
+				WithSessionID("first"),
+				WithResume("second"),
 			},
 		},
 	}

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/kurtisvg/ahh/internal/harness"
 )
 
@@ -20,42 +21,50 @@ const (
 // Wrapper manages a running harness wrapper.
 type Wrapper interface {
 	Address() string
+	SessionID() string
 	Wait() error
 	Shutdown(context.Context) error
 }
 
 type options struct {
-	harness []harness.Option
+	sessionID string
+	resume    bool
 }
 
 // Option configures a wrapper and its harness process.
 type Option func(*options) error
 
-// WithNewSession configures Claude Code to create a session with id and name.
-func WithNewSession(id, name string) Option {
+// WithSessionID uses id for a new harness session instead of generating one.
+func WithSessionID(id string) Option {
 	return func(opts *options) error {
-		if id == "" {
-			return fmt.Errorf("session id is required")
-		}
-		opts.harness = append(opts.harness, harness.WithNewSession(id, name))
-		return nil
+		return configureSession(opts, id, false)
 	}
 }
 
-// WithResumeSession configures Claude Code to resume the session with id.
-func WithResumeSession(id string) Option {
+// WithResume configures the harness to resume the session with id.
+func WithResume(id string) Option {
 	return func(opts *options) error {
-		if id == "" {
-			return fmt.Errorf("session id is required")
-		}
-		opts.harness = append(opts.harness, harness.WithResumeSession(id))
-		return nil
+		return configureSession(opts, id, true)
 	}
+}
+
+func configureSession(opts *options, id string, resume bool) error {
+	parsed, err := uuid.Parse(id)
+	if err != nil || parsed == uuid.Nil {
+		return fmt.Errorf("invalid session id %q", id)
+	}
+	if opts.sessionID != "" {
+		return fmt.Errorf("session id is already configured")
+	}
+	opts.sessionID = parsed.String()
+	opts.resume = resume
+	return nil
 }
 
 // Server exposes the wrapper API for a running harness.
 type Server struct {
 	Addr       string
+	sessionID  string
 	httpServer *http.Server
 	harness    harness.Harness
 	terminal   *terminalSession
@@ -70,19 +79,17 @@ var _ Wrapper = (*Server)(nil)
 
 // Start starts the wrapper HTTP server for the requested harness.
 func Start(ctx context.Context, harnessName string, addr string, opts ...Option) (*Server, error) {
-	cfg := options{}
-	for _, opt := range opts {
-		if err := opt(&cfg); err != nil {
-			return nil, err
-		}
-	}
-
-	h, err := startHarness(ctx, harnessName, cfg.harness)
+	cfg, err := resolveOptions(opts...)
 	if err != nil {
 		return nil, err
 	}
 
-	server, err := start(ctx, h, addr)
+	h, err := startHarness(ctx, harnessName, cfg.sessionID, cfg.resume)
+	if err != nil {
+		return nil, err
+	}
+
+	server, err := start(ctx, h, addr, cfg.sessionID)
 	if err != nil {
 		h.Close()
 		return nil, err
@@ -91,14 +98,50 @@ func Start(ctx context.Context, harnessName string, addr string, opts ...Option)
 	return server, nil
 }
 
+func resolveOptions(opts ...Option) (options, error) {
+	cfg := options{}
+	for _, opt := range opts {
+		if err := opt(&cfg); err != nil {
+			return options{}, err
+		}
+	}
+	if cfg.sessionID != "" {
+		return cfg, nil
+	}
+
+	id, err := newSessionID()
+	if err != nil {
+		return options{}, fmt.Errorf("generate session id: %w", err)
+	}
+	cfg.sessionID = id
+
+	return cfg, nil
+}
+
+func newSessionID() (string, error) {
+	id, err := uuid.NewRandom()
+	if err != nil {
+		return "", err
+	}
+
+	return id.String(), nil
+}
+
 func startHarness(
 	ctx context.Context,
 	harnessName string,
-	opts []harness.Option,
+	sessionID string,
+	resume bool,
 ) (harness.Harness, error) {
 	switch harnessName {
 	case ClaudeCodeHarness:
-		h, err := harness.Start(ctx, opts...)
+		var opt harness.Option
+		if resume {
+			opt = harness.WithResume(sessionID)
+		} else {
+			opt = harness.WithSessionID(sessionID)
+		}
+		h, err := harness.Start(ctx, opt)
 		if err != nil {
 			return nil, fmt.Errorf("start %s harness: %w", harnessName, err)
 		}
@@ -109,7 +152,7 @@ func startHarness(
 	}
 }
 
-func start(ctx context.Context, h harness.Harness, addr string) (*Server, error) {
+func start(ctx context.Context, h harness.Harness, addr, sessionID string) (*Server, error) {
 	if addr == "" {
 		return nil, fmt.Errorf("wrapper address is required")
 	}
@@ -120,10 +163,11 @@ func start(ctx context.Context, h harness.Harness, addr string) (*Server, error)
 	}
 
 	server := &Server{
-		Addr:     listener.Addr().String(),
-		harness:  h,
-		terminal: newTerminalSession(h),
-		done:     make(chan struct{}),
+		Addr:      listener.Addr().String(),
+		sessionID: sessionID,
+		harness:   h,
+		terminal:  newTerminalSession(h),
+		done:      make(chan struct{}),
 	}
 
 	mux := http.NewServeMux()
@@ -181,6 +225,11 @@ func start(ctx context.Context, h harness.Harness, addr string) (*Server, error)
 // Address returns the bound TCP address.
 func (s *Server) Address() string {
 	return s.Addr
+}
+
+// SessionID returns the harness session identity assigned at startup.
+func (s *Server) SessionID() string {
+	return s.sessionID
 }
 
 func (s *Server) Wait() error {

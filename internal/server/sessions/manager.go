@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/kurtisvg/ahh/internal/wrapper"
 )
 
@@ -39,9 +38,8 @@ type Metadata struct {
 
 // WrapperStart identifies the harness session a wrapper should create or resume.
 type WrapperStart struct {
-	SessionID   string
-	SessionName string
-	Resume      bool
+	SessionID string
+	Resume    bool
 }
 
 // Session manages the mutable runtime state for one terminal session.
@@ -63,14 +61,12 @@ type Manager struct {
 	closed       bool
 	startWrapper func(WrapperStart) (wrapper.Wrapper, error)
 	cancel       context.CancelFunc
-	newID        func() (string, error)
 	now          func() time.Time
 	store        metadataStore
 }
 
 type options struct {
 	startWrapper func(context.Context, WrapperStart) (wrapper.Wrapper, error)
-	newID        func() (string, error)
 	now          func() time.Time
 	store        metadataStore
 }
@@ -82,7 +78,6 @@ type Option func(*options) error
 func NewManager(ctx context.Context, opts ...Option) (*Manager, error) {
 	cfg := options{
 		startWrapper: startWrapperSession,
-		newID:        newSessionID,
 		now:          func() time.Time { return time.Now().UTC() },
 	}
 	for _, opt := range opts {
@@ -101,7 +96,6 @@ func NewManager(ctx context.Context, opts ...Option) (*Manager, error) {
 			return cfg.startWrapper(lifetimeCtx, start)
 		},
 		cancel: cancel,
-		newID:  cfg.newID,
 		now:    cfg.now,
 		store:  cfg.store,
 	}
@@ -147,18 +141,6 @@ func WithStartWrapper(
 	}
 }
 
-// WithIDGenerator replaces the session id generator.
-func WithIDGenerator(newID func() (string, error)) Option {
-	return func(opts *options) error {
-		if newID == nil {
-			return fmt.Errorf("session id generator is required")
-		}
-
-		opts.newID = newID
-		return nil
-	}
-}
-
 // WithClock replaces the clock used for session timestamps.
 func WithClock(now func() time.Time) Option {
 	return func(opts *options) error {
@@ -184,22 +166,21 @@ func (m *Manager) Create(ctx context.Context, name string) (*Session, error) {
 		return nil, fmt.Errorf("session manager is shut down")
 	}
 
-	id, err := m.newID()
-	if err != nil {
-		return nil, fmt.Errorf("generate session id: %w", err)
-	}
-
-	session := newSession(id, name, m.now, m.store, m.startWrapper)
-
 	// Wrapper lifetime belongs to the manager, not the request creating it.
-	w, err := m.startWrapper(WrapperStart{
-		SessionID:   id,
-		SessionName: name,
-	})
+	w, err := m.startWrapper(WrapperStart{})
 	if err != nil {
 		return nil, err
 	}
+	id := w.SessionID()
+	if id == "" {
+		startErr := fmt.Errorf("started wrapper returned an empty session id")
+		if shutdownErr := w.Shutdown(ctx); shutdownErr != nil {
+			return nil, errors.Join(startErr, shutdownErr)
+		}
+		return nil, startErr
+	}
 
+	session := newSession(id, name, m.now, m.store, m.startWrapper)
 	session.setWrapper(w)
 
 	m.mu.Lock()
@@ -475,15 +456,25 @@ func (s *Session) Start(ctx context.Context) (wrapper.Wrapper, error) {
 
 	metadata := s.Metadata()
 	w, err := s.startWrapper(WrapperStart{
-		SessionID:   metadata.ID,
-		SessionName: metadata.Name,
-		Resume:      metadata.Resumable,
+		SessionID: metadata.ID,
+		Resume:    metadata.Resumable,
 	})
 	if err != nil {
 		s.mu.Lock()
 		s.metadata.Status = StatusExited
 		s.mu.Unlock()
 		return nil, fmt.Errorf("start session wrapper: %w", err)
+	}
+	if w.SessionID() != metadata.ID {
+		startErr := fmt.Errorf(
+			"started wrapper session id = %q, want %q",
+			w.SessionID(),
+			metadata.ID,
+		)
+		if shutdownErr := w.Shutdown(ctx); shutdownErr != nil {
+			return nil, errors.Join(startErr, shutdownErr)
+		}
+		return nil, startErr
 	}
 
 	s.mu.Lock()
@@ -577,13 +568,14 @@ func (s *Session) watchWrapper(w wrapper.Wrapper) {
 
 // startWrapperSession starts the default wrapper backing a new session.
 func startWrapperSession(ctx context.Context, start WrapperStart) (wrapper.Wrapper, error) {
-	var opt wrapper.Option
-	if start.Resume {
-		opt = wrapper.WithResumeSession(start.SessionID)
-	} else {
-		opt = wrapper.WithNewSession(start.SessionID, start.SessionName)
+	var opts []wrapper.Option
+	switch {
+	case start.Resume:
+		opts = append(opts, wrapper.WithResume(start.SessionID))
+	case start.SessionID != "":
+		opts = append(opts, wrapper.WithSessionID(start.SessionID))
 	}
-	w, err := wrapper.Start(ctx, defaultWrapperHarness, defaultWrapperAddr, opt)
+	w, err := wrapper.Start(ctx, defaultWrapperHarness, defaultWrapperAddr, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("start wrapper server: %w", err)
 	}
@@ -605,14 +597,4 @@ func sortByActivity(metadata []Metadata) {
 
 		return left.ID < right.ID
 	})
-}
-
-// newSessionID generates an opaque random UUID v4 for bookmarkable session URLs.
-func newSessionID() (string, error) {
-	id, err := uuid.NewRandom()
-	if err != nil {
-		return "", err
-	}
-
-	return id.String(), nil
 }

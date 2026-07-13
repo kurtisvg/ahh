@@ -18,17 +18,16 @@ const (
 var claudeCommand = "claude"
 
 type options struct {
-	sessionID   string
-	sessionName string
-	resume      bool
-	configured  bool
+	sessionID  string
+	resume     bool
+	configured bool
 }
 
 // Option configures a Claude Code harness process.
 type Option func(*options) error
 
-// WithNewSession configures Claude Code to create a session with id and name.
-func WithNewSession(id, name string) Option {
+// WithSessionID configures Claude Code to create a session with id.
+func WithSessionID(id string) Option {
 	return func(opts *options) error {
 		if id == "" {
 			return fmt.Errorf("session id is required")
@@ -37,14 +36,13 @@ func WithNewSession(id, name string) Option {
 			return fmt.Errorf("session start mode is already configured")
 		}
 		opts.sessionID = id
-		opts.sessionName = name
 		opts.configured = true
 		return nil
 	}
 }
 
-// WithResumeSession configures Claude Code to resume the session with id.
-func WithResumeSession(id string) Option {
+// WithResume configures Claude Code to resume the session with id.
+func WithResume(id string) Option {
 	return func(opts *options) error {
 		if id == "" {
 			return fmt.Errorf("session id is required")
@@ -124,12 +122,7 @@ func claudeArguments(opts options) []string {
 		return nil
 	}
 
-	args := []string{"--session-id", opts.sessionID}
-	if opts.sessionName != "" {
-		args = append(args, "--name", opts.sessionName)
-	}
-
-	return args
+	return []string{"--session-id", opts.sessionID}
 }
 
 func (h *ClaudeCodeHarness) Wait(ctx context.Context) error {

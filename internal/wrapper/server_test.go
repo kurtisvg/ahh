@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/google/uuid"
 )
 
 type terminalSize struct {
@@ -28,6 +29,55 @@ type fakeHarness struct {
 	done      chan struct{}
 	closeOnce sync.Once
 	runErr    error
+}
+
+func TestResolveOptionsGeneratesUUIDV4(t *testing.T) {
+	opts, err := resolveOptions()
+	if err != nil {
+		t.Fatalf("resolveOptions() error = %v", err)
+	}
+
+	parsed, err := uuid.Parse(opts.sessionID)
+	if err != nil {
+		t.Fatalf("parse session id %q: %v", opts.sessionID, err)
+	}
+	if parsed.Version() != 4 {
+		t.Fatalf("session id version = %d, want 4", parsed.Version())
+	}
+	if parsed.Variant() != uuid.RFC4122 {
+		t.Fatalf("session id variant = %v, want RFC4122", parsed.Variant())
+	}
+	if opts.resume {
+		t.Fatal("resolveOptions() resume = true, want false")
+	}
+}
+
+func TestResolveOptionsResumesExistingSession(t *testing.T) {
+	id := uuid.NewString()
+	opts, err := resolveOptions(WithResume(id))
+	if err != nil {
+		t.Fatalf("resolveOptions() error = %v", err)
+	}
+	if opts.sessionID != id || !opts.resume {
+		t.Fatalf("resolveOptions() = %+v, want session id %q with resume", opts, id)
+	}
+}
+
+func TestResolveOptionsUsesExistingSessionIDWithoutResume(t *testing.T) {
+	id := uuid.NewString()
+	opts, err := resolveOptions(WithSessionID(id))
+	if err != nil {
+		t.Fatalf("resolveOptions() error = %v", err)
+	}
+	if opts.sessionID != id || opts.resume {
+		t.Fatalf("resolveOptions() = %+v, want session id %q without resume", opts, id)
+	}
+}
+
+func TestResolveOptionsRejectsInvalidSessionID(t *testing.T) {
+	if _, err := resolveOptions(WithResume("not-a-uuid")); err == nil {
+		t.Fatal("resolveOptions() error = nil, want invalid session ID error")
+	}
 }
 
 func TestServerHTTP(t *testing.T) {
@@ -301,7 +351,7 @@ func (h *fakeHarness) sendOutput(ctx context.Context, data string) error {
 func startTestServer(t *testing.T, h *fakeHarness) *Server {
 	t.Helper()
 
-	server, err := start(t.Context(), h, "127.0.0.1:0")
+	server, err := start(t.Context(), h, "127.0.0.1:0", uuid.NewString())
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}

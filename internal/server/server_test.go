@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/google/uuid"
 	"github.com/kurtisvg/ahh/internal/server/sessions"
 	"github.com/kurtisvg/ahh/internal/wrapper"
 )
@@ -312,8 +313,11 @@ func TestServerPersistsSessionMetadata(t *testing.T) {
 	}
 	session := createSessionViaAPI(t, client, server, "persisted")
 	initialStart := factory.startRequest(0)
-	if initialStart.SessionID != session.ID || initialStart.SessionName != "persisted" || initialStart.Resume {
-		t.Fatalf("initial wrapper start = %+v, want id %q name persisted without resume", initialStart, session.ID)
+	if initialStart.SessionID != "" || initialStart.Resume {
+		t.Fatalf("initial wrapper start = %+v, want generated session", initialStart)
+	}
+	if got := factory.wrapper(0).SessionID(); got != session.ID {
+		t.Fatalf("created session id = %q, want wrapper session id %q", session.ID, got)
 	}
 	createdSession, ok := manager.Get(session.ID)
 	if !ok {
@@ -597,6 +601,7 @@ func TestServerTTYWebSocketProxy(t *testing.T) {
 }
 
 type fakeWrapperServer struct {
+	sessionID string
 	server    *httptest.Server
 	done      chan struct{}
 	closeOnce sync.Once
@@ -618,6 +623,9 @@ func (f *fakeWrapperFactory) start(
 		handler = http.NotFoundHandler()
 	}
 	fake := newFakeWrapperServer(handler)
+	if start.SessionID != "" {
+		fake.sessionID = start.SessionID
+	}
 
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -650,13 +658,18 @@ func (f *fakeWrapperFactory) startRequest(index int) sessions.WrapperStart {
 
 func newFakeWrapperServer(handler http.Handler) *fakeWrapperServer {
 	return &fakeWrapperServer{
-		server: httptest.NewServer(handler),
-		done:   make(chan struct{}),
+		sessionID: uuid.NewString(),
+		server:    httptest.NewServer(handler),
+		done:      make(chan struct{}),
 	}
 }
 
 func (s *fakeWrapperServer) Address() string {
 	return strings.TrimPrefix(s.server.URL, "http://")
+}
+
+func (s *fakeWrapperServer) SessionID() string {
+	return s.sessionID
 }
 
 func (s *fakeWrapperServer) Wait() error {
