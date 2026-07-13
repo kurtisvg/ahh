@@ -17,8 +17,9 @@ type metadataStore interface {
 }
 
 type fileMetadataStore struct {
-	stateDir string
+	// mu serializes file operations rooted at stateDir.
 	mu       sync.Mutex
+	stateDir string
 }
 
 func newFileMetadataStore(stateDir string) *fileMetadataStore {
