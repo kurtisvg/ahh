@@ -44,14 +44,18 @@ type WrapperStart struct {
 
 // Session manages the mutable runtime state for one terminal session.
 type Session struct {
-	mu           sync.Mutex
-	lifecycleMu  sync.Mutex
-	metadata     Metadata
-	wrapper      wrapper.Wrapper
 	startWrapper func(WrapperStart) (wrapper.Wrapper, error)
 	now          func() time.Time
 	store        metadataStore
-	deleted      bool
+
+	// operationMu serializes operations and protects the fields below it.
+	operationMu sync.Mutex
+	deleted     bool
+
+	// stateMu protects the fields below it.
+	stateMu  sync.Mutex
+	metadata Metadata
+	wrapper  wrapper.Wrapper
 }
 
 // Manager owns the session registry. Each Session owns its own mutable state.
@@ -354,34 +358,34 @@ func restoreSession(
 
 // ID returns the stable session id.
 func (s *Session) ID() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
 
 	return s.metadata.ID
 }
 
 // Metadata returns a copy of the session metadata suitable for JSON responses.
 func (s *Session) Metadata() Metadata {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
 
 	return s.metadata
 }
 
 // Touch records user-visible activity for this session.
 func (s *Session) Touch() error {
-	s.lifecycleMu.Lock()
-	defer s.lifecycleMu.Unlock()
+	s.operationMu.Lock()
+	defer s.operationMu.Unlock()
 
 	if s.deleted {
 		return fmt.Errorf("session is deleted")
 	}
 
-	s.mu.Lock()
+	s.stateMu.Lock()
 	s.metadata.LastActiveAt = s.now()
 	metadata := s.metadata
 	store := s.store
-	s.mu.Unlock()
+	s.stateMu.Unlock()
 
 	if store == nil {
 		return nil
@@ -395,16 +399,16 @@ func (s *Session) Touch() error {
 
 // MarkResumable records that Claude has received input for this session.
 func (s *Session) MarkResumable() error {
-	s.lifecycleMu.Lock()
-	defer s.lifecycleMu.Unlock()
+	s.operationMu.Lock()
+	defer s.operationMu.Unlock()
 
 	if s.deleted {
 		return fmt.Errorf("session is deleted")
 	}
 
-	s.mu.Lock()
+	s.stateMu.Lock()
 	if s.metadata.Resumable {
-		s.mu.Unlock()
+		s.stateMu.Unlock()
 		return nil
 	}
 	metadata := s.metadata
@@ -413,7 +417,7 @@ func (s *Session) MarkResumable() error {
 	if store == nil {
 		s.metadata.Resumable = true
 	}
-	s.mu.Unlock()
+	s.stateMu.Unlock()
 
 	if store == nil {
 		return nil
@@ -421,38 +425,38 @@ func (s *Session) MarkResumable() error {
 	if err := store.Save(metadata); err != nil {
 		return fmt.Errorf("persist resumable session: %w", err)
 	}
-	s.mu.Lock()
+	s.stateMu.Lock()
 	s.metadata.Resumable = true
-	s.mu.Unlock()
+	s.stateMu.Unlock()
 
 	return nil
 }
 
 // Wrapper returns the current wrapper and lifecycle status for this session.
 func (s *Session) Wrapper() (wrapper.Wrapper, Status) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
 
 	return s.wrapper, s.metadata.Status
 }
 
 // Start returns the live wrapper, starting it when this session is not running.
 func (s *Session) Start(ctx context.Context) (wrapper.Wrapper, error) {
-	s.lifecycleMu.Lock()
-	defer s.lifecycleMu.Unlock()
+	s.operationMu.Lock()
+	defer s.operationMu.Unlock()
 
 	if s.deleted {
 		return nil, fmt.Errorf("session is deleted")
 	}
 
-	s.mu.Lock()
+	s.stateMu.Lock()
 	if s.wrapper != nil {
 		w := s.wrapper
-		s.mu.Unlock()
+		s.stateMu.Unlock()
 		return w, nil
 	}
 	s.metadata.Status = StatusStarting
-	s.mu.Unlock()
+	s.stateMu.Unlock()
 
 	metadata := s.Metadata()
 	w, err := s.startWrapper(WrapperStart{
@@ -460,9 +464,9 @@ func (s *Session) Start(ctx context.Context) (wrapper.Wrapper, error) {
 		Resume:    metadata.Resumable,
 	})
 	if err != nil {
-		s.mu.Lock()
+		s.stateMu.Lock()
 		s.metadata.Status = StatusExited
-		s.mu.Unlock()
+		s.stateMu.Unlock()
 		return nil, fmt.Errorf("start session wrapper: %w", err)
 	}
 	if w.SessionID() != metadata.ID {
@@ -477,23 +481,23 @@ func (s *Session) Start(ctx context.Context) (wrapper.Wrapper, error) {
 		return nil, startErr
 	}
 
-	s.mu.Lock()
+	s.stateMu.Lock()
 	s.wrapper = w
 	s.metadata.Status = StatusRunning
 	metadata = s.metadata
 	store := s.store
-	s.mu.Unlock()
+	s.stateMu.Unlock()
 
 	if store != nil {
 		if err := store.Save(metadata); err != nil {
 			persistErr := fmt.Errorf("persist started session: %w", err)
 			shutdownErr := w.Shutdown(ctx)
-			s.mu.Lock()
+			s.stateMu.Lock()
 			if s.wrapper == w {
 				s.wrapper = nil
 				s.metadata.Status = StatusExited
 			}
-			s.mu.Unlock()
+			s.stateMu.Unlock()
 			if shutdownErr != nil {
 				return nil, errors.Join(persistErr, shutdownErr)
 			}
@@ -507,8 +511,8 @@ func (s *Session) Start(ctx context.Context) (wrapper.Wrapper, error) {
 
 // Shutdown stops this session's live wrapper, if one exists.
 func (s *Session) Shutdown(ctx context.Context) error {
-	s.lifecycleMu.Lock()
-	defer s.lifecycleMu.Unlock()
+	s.operationMu.Lock()
+	defer s.operationMu.Unlock()
 
 	return s.shutdown(ctx)
 }
@@ -526,8 +530,8 @@ func (s *Session) shutdown(ctx context.Context) error {
 }
 
 func (s *Session) delete(ctx context.Context) error {
-	s.lifecycleMu.Lock()
-	defer s.lifecycleMu.Unlock()
+	s.operationMu.Lock()
+	defer s.operationMu.Unlock()
 
 	if s.deleted {
 		return nil
@@ -546,8 +550,8 @@ func (s *Session) delete(ctx context.Context) error {
 }
 
 func (s *Session) setWrapper(w wrapper.Wrapper) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
 
 	s.wrapper = w
 	s.metadata.Status = StatusRunning
@@ -556,8 +560,8 @@ func (s *Session) setWrapper(w wrapper.Wrapper) {
 func (s *Session) watchWrapper(w wrapper.Wrapper) {
 	_ = w.Wait()
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
 	if s.wrapper != w {
 		return
 	}
