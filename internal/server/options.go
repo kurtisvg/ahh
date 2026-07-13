@@ -6,12 +6,12 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/kurtisvg/ahh/internal/server/sessions"
+	"github.com/kurtisvg/ahh/internal/server/conversations"
 )
 
 type options struct {
-	sessions *sessions.Manager
-	stateDir string
+	conversations *conversations.Manager
+	stateDir      string
 }
 
 // WithStateDir sets the directory used for persistent Ahh state.
@@ -37,14 +37,14 @@ func defaultStateDir() string {
 // Option configures the Ahh server.
 type Option func(*options) error
 
-// WithSessionManager sets the session manager used by the server.
-func WithSessionManager(manager *sessions.Manager) Option {
+// WithConversationManager sets the conversation manager used by the server.
+func WithConversationManager(manager *conversations.Manager) Option {
 	return func(opts *options) error {
 		if manager == nil {
-			return fmt.Errorf("session manager is required")
+			return fmt.Errorf("conversation manager is required")
 		}
 
-		opts.sessions = manager
+		opts.conversations = manager
 		return nil
 	}
 }

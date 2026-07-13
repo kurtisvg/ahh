@@ -9,53 +9,53 @@ import (
 	"strings"
 
 	"github.com/coder/websocket"
-	"github.com/kurtisvg/ahh/internal/server/sessions"
+	"github.com/kurtisvg/ahh/internal/server/conversations"
 )
 
-type createSessionRequest struct {
+type createConversationRequest struct {
 	Name string `json:"name"`
 }
 
-type sessionsResponse struct {
-	Sessions []sessions.Metadata `json:"sessions"`
+type conversationsResponse struct {
+	Conversations []conversations.Metadata `json:"conversations"`
 }
 
 type errorResponse struct {
 	Error string `json:"error"`
 }
 
-func (s *Server) listSessions(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, sessionsResponse{
-		Sessions: s.sessions.List(),
+func (s *Server) listConversations(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, conversationsResponse{
+		Conversations: s.conversations.List(),
 	})
 }
 
-func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
-	var req createSessionRequest
+func (s *Server) createConversation(w http.ResponseWriter, r *http.Request) {
+	var req createConversationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeAPIError(w, http.StatusBadRequest, "invalid session request")
+		writeAPIError(w, http.StatusBadRequest, "invalid conversation request")
 		return
 	}
 
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
-		writeAPIError(w, http.StatusBadRequest, "session name is required")
+		writeAPIError(w, http.StatusBadRequest, "conversation name is required")
 		return
 	}
 
-	session, err := s.sessions.Create(r.Context(), name)
+	conversation, err := s.conversations.Create(r.Context(), name)
 	if err != nil {
-		writeAPIError(w, http.StatusInternalServerError, "create session failed")
+		writeAPIError(w, http.StatusInternalServerError, "create conversation failed")
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, session.Metadata())
+	writeJSON(w, http.StatusCreated, conversation.Metadata())
 }
 
-func (s *Server) deleteSession(w http.ResponseWriter, r *http.Request) {
-	deleted, err := s.sessions.Delete(r.Context(), r.PathValue("id"))
+func (s *Server) deleteConversation(w http.ResponseWriter, r *http.Request) {
+	deleted, err := s.conversations.Delete(r.Context(), r.PathValue("id"))
 	if err != nil {
-		writeAPIError(w, http.StatusInternalServerError, "delete session failed")
+		writeAPIError(w, http.StatusInternalServerError, "delete conversation failed")
 		return
 	}
 	if !deleted {
@@ -79,13 +79,13 @@ func writeAPIError(w http.ResponseWriter, status int, message string) {
 	})
 }
 
-// serveTTY proxies browser websocket traffic to the session wrapper's PTY
+// serveTTY proxies browser websocket traffic to the conversation wrapper's PTY
 // endpoint. The public Ahh API uses tty terminology; the wrapper still owns the
 // current PTY transport internally.
 func (s *Server) serveTTY(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	session, ok := s.sessions.Get(id)
+	conversation, ok := s.conversations.Get(id)
 	if !ok {
 		http.NotFound(w, r)
 		return
@@ -95,33 +95,33 @@ func (s *Server) serveTTY(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	sessionWrapper, err := session.Start(r.Context())
+	conversationWrapper, err := conversation.Start(r.Context())
 	if err != nil {
-		_ = browserConn.Close(websocket.StatusTryAgainLater, "session unavailable")
+		_ = browserConn.Close(websocket.StatusTryAgainLater, "conversation unavailable")
 		return
 	}
 
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 
-	wrapperConn, _, err := websocket.Dial(ctx, "ws://"+sessionWrapper.Address()+"/pty", nil)
+	wrapperConn, _, err := websocket.Dial(ctx, "ws://"+conversationWrapper.Address()+"/pty", nil)
 	if err != nil {
 		_ = browserConn.Close(websocket.StatusTryAgainLater, "wrapper unavailable")
 		return
 	}
 
-	// A session is touched when a browser successfully connects to its TTY
+	// A conversation is touched when a browser successfully connects to its TTY
 	// stream. Individual terminal frames do not update activity; this keeps
-	// "most recent" tied to session selection rather than terminal noise.
-	if err := session.Touch(); err != nil {
-		_ = browserConn.Close(websocket.StatusInternalError, "session metadata unavailable")
-		_ = wrapperConn.Close(websocket.StatusInternalError, "session metadata unavailable")
+	// "most recent" tied to conversation selection rather than terminal noise.
+	if err := conversation.Touch(); err != nil {
+		_ = browserConn.Close(websocket.StatusInternalError, "conversation metadata unavailable")
+		_ = wrapperConn.Close(websocket.StatusInternalError, "conversation metadata unavailable")
 		return
 	}
 
 	errCh := make(chan error, 2)
 	go func() {
-		errCh <- copyBrowserToWrapper(ctx, wrapperConn, browserConn, session)
+		errCh <- copyBrowserToWrapper(ctx, wrapperConn, browserConn, conversation)
 	}()
 	go func() {
 		errCh <- copyWrapperToBrowser(ctx, browserConn, wrapperConn)
@@ -146,7 +146,7 @@ func copyBrowserToWrapper(
 	ctx context.Context,
 	dst *websocket.Conn,
 	src *websocket.Conn,
-	session *sessions.Session,
+	conversation *conversations.Conversation,
 ) error {
 	for {
 		messageType, data, err := src.Read(ctx)
@@ -157,7 +157,7 @@ func copyBrowserToWrapper(
 			return err
 		}
 		if submittedTerminalInput(messageType, data) {
-			if err := session.MarkResumable(); err != nil {
+			if err := conversation.MarkResumable(); err != nil {
 				return err
 			}
 		}

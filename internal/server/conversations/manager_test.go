@@ -1,4 +1,4 @@
-package sessions
+package conversations
 
 import (
 	"context"
@@ -15,7 +15,7 @@ import (
 
 func TestManagerCreateRequiresName(t *testing.T) {
 	manager := newTestManager(t, func(context.Context, WrapperStart) (wrapper.Wrapper, error) {
-		t.Fatal("wrapper should not start without a session name")
+		t.Fatal("wrapper should not start without a conversation name")
 		return nil, nil
 	})
 
@@ -23,8 +23,8 @@ func TestManagerCreateRequiresName(t *testing.T) {
 	if err == nil {
 		t.Fatal("Create() error = nil, want error")
 	}
-	if !strings.Contains(err.Error(), "session name is required") {
-		t.Fatalf("Create() error = %q, want containing session name is required", err.Error())
+	if !strings.Contains(err.Error(), "conversation name is required") {
+		t.Fatalf("Create() error = %q, want containing conversation name is required", err.Error())
 	}
 }
 
@@ -34,13 +34,13 @@ func TestManagerCreateTrimsName(t *testing.T) {
 		return fake, nil
 	})
 
-	session, err := manager.Create(t.Context(), "  terminal  ")
+	conversation, err := manager.Create(t.Context(), "  terminal  ")
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
 	defer fake.shutdown()
 
-	if got := session.Metadata().Name; got != "terminal" {
+	if got := conversation.Metadata().Name; got != "terminal" {
 		t.Fatalf("Create() name = %q, want terminal", got)
 	}
 }
@@ -96,7 +96,7 @@ func TestManagerShutdownCancelsLifecycleAndRejectsCreate(t *testing.T) {
 	}
 }
 
-func TestManagerCreateListsOnlyStartedSessions(t *testing.T) {
+func TestManagerCreateListsOnlyStartedConversations(t *testing.T) {
 	fake := newTestWrapper()
 	started := make(chan struct{})
 	release := make(chan struct{})
@@ -115,13 +115,13 @@ func TestManagerCreateListsOnlyStartedSessions(t *testing.T) {
 	defer fake.shutdown()
 
 	type createResult struct {
-		session *Session
-		err     error
+		conversation *Conversation
+		err          error
 	}
 	result := make(chan createResult, 1)
 	go func() {
-		session, err := manager.Create(t.Context(), "terminal")
-		result <- createResult{session: session, err: err}
+		conversation, err := manager.Create(t.Context(), "terminal")
+		result <- createResult{conversation: conversation, err: err}
 	}()
 
 	<-started
@@ -134,8 +134,8 @@ func TestManagerCreateListsOnlyStartedSessions(t *testing.T) {
 	if got.err != nil {
 		t.Fatalf("Create() error = %v", got.err)
 	}
-	if got.session == nil {
-		t.Fatal("Create() session = nil, want session")
+	if got.conversation == nil {
+		t.Fatal("Create() conversation = nil, want conversation")
 	}
 }
 
@@ -180,14 +180,14 @@ func TestManagerCreateDoesNotRegisterAfterShutdown(t *testing.T) {
 	}
 }
 
-func TestSessionStartDeduplicatesConcurrentCalls(t *testing.T) {
+func TestConversationStartDeduplicatesConcurrentCalls(t *testing.T) {
 	fake := newTestWrapper()
 	started := make(chan struct{})
 	release := make(chan struct{})
 	var calls int
 	var callsMu sync.Mutex
 	var startedOnce sync.Once
-	session := restoreSession(
+	conversation := restoreConversation(
 		Metadata{ID: "persisted", Name: "persisted"},
 		time.Now,
 		nil,
@@ -206,7 +206,7 @@ func TestSessionStartDeduplicatesConcurrentCalls(t *testing.T) {
 	results := make(chan wrapper.Wrapper, 2)
 	for range 2 {
 		go func() {
-			w, err := session.Start(t.Context())
+			w, err := conversation.Start(t.Context())
 			if err != nil {
 				t.Errorf("Start() error = %v", err)
 			}
@@ -227,15 +227,15 @@ func TestSessionStartDeduplicatesConcurrentCalls(t *testing.T) {
 	if gotCalls != 1 {
 		t.Fatalf("wrapper start calls = %d, want 1", gotCalls)
 	}
-	if err := session.Shutdown(t.Context()); err != nil {
+	if err := conversation.Shutdown(t.Context()); err != nil {
 		t.Fatalf("Shutdown() error = %v", err)
 	}
 }
 
-func TestSessionDeletePreventsRestartAndMetadataWrites(t *testing.T) {
+func TestConversationDeletePreventsRestartAndMetadataWrites(t *testing.T) {
 	store := &testMetadataStore{}
 	startCalled := false
-	session := restoreSession(
+	conversation := restoreConversation(
 		Metadata{ID: "persisted", Name: "persisted"},
 		time.Now,
 		store,
@@ -245,29 +245,29 @@ func TestSessionDeletePreventsRestartAndMetadataWrites(t *testing.T) {
 		},
 	)
 
-	if err := session.delete(t.Context()); err != nil {
+	if err := conversation.delete(t.Context()); err != nil {
 		t.Fatalf("delete() error = %v", err)
 	}
 	if store.deletedID != "persisted" {
-		t.Fatalf("deleted session ID = %q, want persisted", store.deletedID)
+		t.Fatalf("deleted conversation ID = %q, want persisted", store.deletedID)
 	}
-	if err := session.Touch(); err == nil {
+	if err := conversation.Touch(); err == nil {
 		t.Fatal("Touch() error after delete = nil, want error")
 	}
 	if store.saveCalls != 0 {
 		t.Fatalf("metadata saves after delete = %d, want 0", store.saveCalls)
 	}
-	if _, err := session.Start(t.Context()); err == nil {
+	if _, err := conversation.Start(t.Context()); err == nil {
 		t.Fatal("Start() error after delete = nil, want error")
 	}
 	if startCalled {
-		t.Fatal("wrapper started after session delete")
+		t.Fatal("wrapper started after conversation delete")
 	}
 }
 
-func TestSessionMarkResumablePersistsOnce(t *testing.T) {
+func TestConversationMarkResumablePersistsOnce(t *testing.T) {
 	store := &testMetadataStore{}
-	session := restoreSession(
+	conversation := restoreConversation(
 		Metadata{ID: "persisted", Name: "persisted"},
 		time.Now,
 		store,
@@ -276,24 +276,24 @@ func TestSessionMarkResumablePersistsOnce(t *testing.T) {
 		},
 	)
 
-	if err := session.MarkResumable(); err != nil {
+	if err := conversation.MarkResumable(); err != nil {
 		t.Fatalf("MarkResumable() error = %v", err)
 	}
-	if err := session.MarkResumable(); err != nil {
+	if err := conversation.MarkResumable(); err != nil {
 		t.Fatalf("second MarkResumable() error = %v", err)
 	}
-	if !session.Metadata().Resumable {
-		t.Fatal("session resumable = false, want true")
+	if !conversation.Metadata().Resumable {
+		t.Fatal("conversation resumable = false, want true")
 	}
 	if store.saveCalls != 1 {
 		t.Fatalf("metadata saves = %d, want 1", store.saveCalls)
 	}
 }
 
-func TestUntouchedRestoredSessionStartsWithoutResume(t *testing.T) {
+func TestUntouchedRestoredConversationStartsWithoutResume(t *testing.T) {
 	fake := newTestWrapper()
 	var gotStart WrapperStart
-	session := restoreSession(
+	conversation := restoreConversation(
 		Metadata{ID: "persisted", Name: "persisted"},
 		time.Now,
 		nil,
@@ -303,13 +303,13 @@ func TestUntouchedRestoredSessionStartsWithoutResume(t *testing.T) {
 		},
 	)
 
-	if _, err := session.Start(t.Context()); err != nil {
+	if _, err := conversation.Start(t.Context()); err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
 	if gotStart.Resume {
-		t.Fatalf("wrapper start = %+v, want new session", gotStart)
+		t.Fatalf("wrapper start = %+v, want new conversation", gotStart)
 	}
-	if err := session.Shutdown(t.Context()); err != nil {
+	if err := conversation.Shutdown(t.Context()); err != nil {
 		t.Fatalf("Shutdown() error = %v", err)
 	}
 }
@@ -343,7 +343,7 @@ func TestManagerListSortsMostRecentFirst(t *testing.T) {
 	nextID := 0
 	newID := func() (string, error) {
 		nextID++
-		return fmt.Sprintf("session-%d", nextID), nil
+		return fmt.Sprintf("conversation-%d", nextID), nil
 	}
 
 	manager, err := NewManager(
@@ -383,20 +383,20 @@ func TestManagerListSortsMostRecentFirst(t *testing.T) {
 	}
 }
 
-func TestManagerDeleteKeepsSessionWhenShutdownFails(t *testing.T) {
+func TestManagerDeleteKeepsConversationWhenShutdownFails(t *testing.T) {
 	fake := newTestWrapper()
 	fake.shutdownErr = errors.New("boom")
 	manager := newTestManager(t, func(context.Context, WrapperStart) (wrapper.Wrapper, error) {
 		return fake, nil
 	})
 
-	session, err := manager.Create(t.Context(), "terminal")
+	conversation, err := manager.Create(t.Context(), "terminal")
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
 	defer fake.shutdown()
 
-	deleted, err := manager.Delete(t.Context(), session.ID())
+	deleted, err := manager.Delete(t.Context(), conversation.ID())
 	if !deleted {
 		t.Fatal("Delete() deleted = false, want true")
 	}
@@ -404,26 +404,26 @@ func TestManagerDeleteKeepsSessionWhenShutdownFails(t *testing.T) {
 		t.Fatal("Delete() error = nil, want error")
 	}
 
-	if _, ok := manager.Get(session.ID()); !ok {
-		t.Fatal("Delete() removed session after shutdown failure")
+	if _, ok := manager.Get(conversation.ID()); !ok {
+		t.Fatal("Delete() removed conversation after shutdown failure")
 	}
 }
 
-func TestNewSessionIDGeneratesUUIDV4(t *testing.T) {
-	id, err := newSessionID()
+func TestNewConversationIDGeneratesUUIDV4(t *testing.T) {
+	id, err := newConversationID()
 	if err != nil {
-		t.Fatalf("newSessionID() error = %v", err)
+		t.Fatalf("newConversationID() error = %v", err)
 	}
 
 	parsed, err := uuid.Parse(id)
 	if err != nil {
-		t.Fatalf("parse session id %q: %v", id, err)
+		t.Fatalf("parse conversation id %q: %v", id, err)
 	}
 	if parsed.Version() != 4 {
-		t.Fatalf("session id version = %d, want 4", parsed.Version())
+		t.Fatalf("conversation id version = %d, want 4", parsed.Version())
 	}
 	if parsed.Variant() != uuid.RFC4122 {
-		t.Fatalf("session id variant = %v, want RFC4122", parsed.Variant())
+		t.Fatalf("conversation id variant = %v, want RFC4122", parsed.Variant())
 	}
 }
 

@@ -144,7 +144,7 @@ function updateConversationURL(conversationId, mode = 'replace') {
 }
 
 function terminalSocketURL(conversationId) {
-  const url = appURL(`api/sessions/${encodeURIComponent(conversationId)}/tty`);
+  const url = appURL(`api/conversations/${encodeURIComponent(conversationId)}/tty`);
   url.protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   return url.toString();
 }
@@ -298,13 +298,13 @@ function updateViewHeading() {
 }
 
 async function loadConversations({ preserveActive = true, syncConnection = true } = {}) {
-  const response = await fetch(appURL('api/sessions'), { cache: 'no-store' });
+  const response = await fetch(appURL('api/conversations'), { cache: 'no-store' });
   if (!response.ok) {
     throw new Error(`list conversations failed: ${response.status}`);
   }
 
   const payload = await response.json();
-  conversations = payload.sessions || [];
+  conversations = payload.conversations || [];
   const nextActiveConversationId = chooseActiveConversationId({ preserveActive });
   if (nextActiveConversationId !== activeConversationId) {
     activeConversationId = nextActiveConversationId;
@@ -360,7 +360,7 @@ function selectConversation(conversationId) {
 }
 
 async function createConversation(name) {
-  const response = await fetch(appURL('api/sessions'), {
+  const response = await fetch(appURL('api/conversations'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'
@@ -382,7 +382,7 @@ async function createConversation(name) {
 }
 
 async function deleteConversation(conversationId) {
-  const response = await fetch(appURL(`api/sessions/${encodeURIComponent(conversationId)}`), {
+  const response = await fetch(appURL(`api/conversations/${encodeURIComponent(conversationId)}`), {
     method: 'DELETE'
   });
   if (!response.ok && response.status !== 404) {
