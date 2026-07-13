@@ -38,10 +38,6 @@ func Start(ctx context.Context, addr string, opts ...Option) (*Server, error) {
 			return nil, err
 		}
 	}
-	if cfg.stateDir == "" {
-		cfg.stateDir = defaultStateDir()
-	}
-
 	if addr == "" {
 		return nil, fmt.Errorf("server listen address is required")
 	}

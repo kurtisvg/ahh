@@ -151,6 +151,16 @@ func TestStartRejectsNilSessionManager(t *testing.T) {
 	}
 }
 
+func TestStartRejectsEmptyStateDir(t *testing.T) {
+	_, err := Start(t.Context(), "127.0.0.1:0", WithStateDir(" \t "))
+	if err == nil {
+		t.Fatal("Start() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "state directory is required") {
+		t.Fatalf("Start() error = %q, want state directory is required", err.Error())
+	}
+}
+
 func TestServerSessionsAPI(t *testing.T) {
 	factory := &fakeWrapperFactory{}
 	base := time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC)

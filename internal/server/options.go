@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/kurtisvg/ahh/internal/server/sessions"
 )
@@ -16,6 +17,9 @@ type options struct {
 // WithStateDir sets the directory used for persistent Ahh state.
 func WithStateDir(stateDir string) Option {
 	return func(opts *options) error {
+		if strings.TrimSpace(stateDir) == "" {
+			return fmt.Errorf("state directory is required")
+		}
 		opts.stateDir = stateDir
 		return nil
 	}

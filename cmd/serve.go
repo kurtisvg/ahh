@@ -39,7 +39,11 @@ func newServeCommand() *cobra.Command {
 
 func runServeCommand(cmd *cobra.Command, opts serveOptions) error {
 	ctx := cmd.Context()
-	server, err := ahhserver.Start(ctx, defaultServerAddr, ahhserver.WithStateDir(opts.stateDir))
+	var serverOpts []ahhserver.Option
+	if opts.stateDir != "" {
+		serverOpts = append(serverOpts, ahhserver.WithStateDir(opts.stateDir))
+	}
+	server, err := ahhserver.Start(ctx, defaultServerAddr, serverOpts...)
 	if err != nil {
 		return fmt.Errorf("start server: %w", err)
 	}
