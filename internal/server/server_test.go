@@ -500,18 +500,26 @@ func TestTerminalPageUsesProxySafePaths(t *testing.T) {
 	}
 }
 
-func TestAppScriptIncludesConnectionLifecycleStates(t *testing.T) {
+func TestAppScriptUsesConnectionLifecycleStates(t *testing.T) {
 	app := string(readAsset(t, "assets/app.js"))
 	wants := []string{
 		"scheduleReconnect",
 		"loadConversations",
 		"startConversationPolling",
 		"conversationIdFromPath",
-		"conversation-exited",
+		"updateConversationStatuses",
+		"setStatus('connected')",
+		"setStatus('reconnecting')",
+		"setStatus('disconnected')",
 	}
 	for _, want := range wants {
 		if !strings.Contains(app, want) {
 			t.Fatalf("app script does not contain %q", want)
+		}
+	}
+	for _, unwanted := range []string{"conversation-exited", "conversation.status"} {
+		if strings.Contains(app, unwanted) {
+			t.Fatalf("app script contains backend lifecycle state %q", unwanted)
 		}
 	}
 }

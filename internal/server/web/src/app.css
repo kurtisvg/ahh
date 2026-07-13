@@ -306,22 +306,11 @@ input {
   background: var(--ok);
 }
 
-.conversation-item[data-state="running"] .state-pill {
-  background: var(--ok);
-}
-
-.conversation-item[data-state="connecting"] .state-pill,
-.conversation-item[data-state="reconnecting"] .state-pill,
-.conversation-item[data-state="starting"] .state-pill {
+.conversation-item[data-state="reconnecting"] .state-pill {
   background: var(--warn);
 }
 
-.conversation-item[data-state="closed"] .state-pill,
-.conversation-item[data-state="disconnected"] .state-pill,
-.conversation-item[data-state="error"] .state-pill,
-.conversation-item[data-state="harness-exited"] .state-pill,
-.conversation-item[data-state="conversation-exited"] .state-pill,
-.conversation-item[data-state="exited"] .state-pill {
+.conversation-item[data-state="disconnected"] .state-pill {
   background: var(--bad);
 }
 
@@ -421,10 +410,9 @@ input {
 }
 
 .status-surface {
-  display: grid;
-  justify-items: end;
+  display: flex;
+  justify-content: flex-end;
   min-width: 144px;
-  gap: 1px;
 }
 
 .status {
@@ -435,19 +423,6 @@ input {
   color: var(--muted-strong);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
-}
-
-.status-detail {
-  max-width: 180px;
-  overflow: hidden;
-  color: var(--muted);
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.status-detail[hidden] {
-  display: none;
 }
 
 .dot {
@@ -462,20 +437,11 @@ input {
   background: var(--ok);
 }
 
-.status[data-state="idle"] .dot {
-  background: var(--muted);
-}
-
-.status[data-state="connecting"] .dot,
 .status[data-state="reconnecting"] .dot {
   background: var(--warn);
 }
 
-.status[data-state="closed"] .dot,
-.status[data-state="disconnected"] .dot,
-.status[data-state="error"] .dot,
-.status[data-state="harness-exited"] .dot,
-.status[data-state="conversation-exited"] .dot {
+.status[data-state="disconnected"] .dot {
   background: var(--bad);
 }
 
@@ -507,8 +473,6 @@ input {
 }
 
 .connection-banner[data-state="disconnected"],
-.connection-banner[data-state="harness-exited"],
-.connection-banner[data-state="conversation-exited"],
 .connection-banner[data-state="error"] {
   border-color: #6f3939;
   border-left-color: var(--bad);
@@ -585,10 +549,7 @@ input {
   text-align: center;
 }
 
-.terminal-state[data-state="disconnected"],
-.terminal-state[data-state="harness-exited"],
-.terminal-state[data-state="conversation-exited"],
-.terminal-state[data-state="error"] {
+.terminal-state[data-state="disconnected"] {
   color: #ffc8c8;
 }
 
@@ -634,9 +595,5 @@ input {
 
   .status-surface {
     min-width: 116px;
-  }
-
-  .status-detail {
-    max-width: 116px;
   }
 }
