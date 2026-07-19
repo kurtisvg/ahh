@@ -1,173 +1,325 @@
 package server
 
 import (
-	"bytes"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/kurtisvg/ahh/internal/harness"
 	"github.com/kurtisvg/ahh/internal/server/agents"
 )
 
-func TestServerAgentsAPI(t *testing.T) {
-	manager, err := agents.NewManager(t.TempDir())
-	if err != nil {
-		t.Fatalf("agents.NewManager() error = %v", err)
-	}
-	server := startTestServer(t, WithAgentManager(manager))
-	defer shutdownTestServer(t, server)
-	client := &http.Client{Timeout: 2 * time.Second}
+type agentAPITestRequest struct {
+	method string
+	path   string
+	body   string
+}
 
-	resp, err := client.Get("http://" + server.Addr + "/api/agents")
-	if err != nil {
-		t.Fatalf("GET /api/agents: %v", err)
-	}
-	assertStatus(t, resp, http.StatusOK)
-	var initial agentsResponse
-	decodeJSON(t, resp, &initial)
-	_ = resp.Body.Close()
-	if len(initial.Agents) != 1 || initial.Agents[0].Name != agents.DefaultAgentName {
-		t.Fatalf("initial Agents = %#v, want default Agent", initial.Agents)
-	}
-	defaultID := initial.Agents[0].ID
+func TestListAgents(t *testing.T) {
+	t.Parallel()
 
-	created := createAgentViaAPI(t, client, server, "Build Agent", string(harness.TypeClaudeCode))
-	if id, parseErr := uuid.Parse(created.ID); parseErr != nil || id.Version() != 4 || created.ID == defaultID {
-		t.Fatalf("created Agent ID = %q, want a distinct UUID v4", created.ID)
+	manager, handler := newTestAgentAPI(t)
+	for _, name := range []string{"Zulu", "Alpha"} {
+		if _, err := manager.Create(name, harness.TypeClaudeCode); err != nil {
+			t.Fatalf("Create(%q) error = %v", name, err)
+		}
 	}
 
-	resp = doJSONRequest(t, client, http.MethodPost, "http://"+server.Addr+"/api/agents", map[string]string{
-		"name":    "build agent",
-		"harness": string(harness.TypeClaudeCode),
+	recorder := serveAgentAPI(t, handler, agentAPITestRequest{
+		method: http.MethodGet,
+		path:   "/api/agents",
 	})
-	assertStatus(t, resp, http.StatusConflict)
-	assertAPIError(t, resp, "agent name already exists")
+	assertAgentAPIStatus(t, recorder, http.StatusOK)
 
-	resp = doJSONRequest(t, client, http.MethodPost, "http://"+server.Addr+"/api/agents", map[string]string{
-		"name":    "Codex",
-		"harness": "codex",
-	})
-	assertStatus(t, resp, http.StatusBadRequest)
-	assertAPIError(t, resp, "unsupported agent harness")
-
-	resp = doJSONRequest(t, client, http.MethodPatch, "http://"+server.Addr+"/api/agents/"+created.ID, map[string]string{
-		"name": "Release Agent",
-	})
-	assertStatus(t, resp, http.StatusOK)
-	var renamed agents.Config
-	decodeJSON(t, resp, &renamed)
-	_ = resp.Body.Close()
-	if renamed.ID != created.ID || renamed.Name != "Release Agent" || renamed.Harness != created.Harness {
-		t.Fatalf("renamed Agent = %#v, want immutable ID/harness and updated name", renamed)
+	var response agentsResponse
+	decodeAgentAPIJSON(t, recorder, &response)
+	gotNames := make([]string, 0, len(response.Agents))
+	for _, agent := range response.Agents {
+		gotNames = append(gotNames, agent.Name)
 	}
-
-	resp = doJSONRequest(t, client, http.MethodPatch, "http://"+server.Addr+"/api/agents/missing", map[string]string{
-		"name": "Missing",
-	})
-	assertStatus(t, resp, http.StatusNotFound)
-	assertAPIError(t, resp, "agent not found")
-
-	resp = doJSONRequest(t, client, http.MethodPatch, "http://"+server.Addr+"/api/agents/"+created.ID, map[string]string{
-		"name": agents.DefaultAgentName,
-	})
-	assertStatus(t, resp, http.StatusConflict)
-	assertAPIError(t, resp, "agent name already exists")
-
-	resp = doJSONRequest(t, client, http.MethodPatch, "http://"+server.Addr+"/api/agents/"+created.ID, map[string]string{
-		"name":    "Ignored mutation",
-		"harness": "codex",
-	})
-	assertStatus(t, resp, http.StatusBadRequest)
-	assertAPIError(t, resp, "invalid agent request")
-
-	resp, err = client.Get("http://" + server.Addr + "/api/agents")
-	if err != nil {
-		t.Fatalf("GET /api/agents after changes: %v", err)
-	}
-	assertStatus(t, resp, http.StatusOK)
-	var listed agentsResponse
-	decodeJSON(t, resp, &listed)
-	_ = resp.Body.Close()
-	if len(listed.Agents) != 2 || listed.Agents[0].Name != agents.DefaultAgentName || listed.Agents[1].Name != "Release Agent" {
-		t.Fatalf("listed Agents = %#v, want name-sorted Agents", listed.Agents)
+	wantNames := []string{"Alpha", agents.DefaultAgentName, "Zulu"}
+	if !slices.Equal(gotNames, wantNames) {
+		t.Fatalf("Agent names = %q, want %q", gotNames, wantNames)
 	}
 }
 
-func TestAgentAPIRejectsInvalidRequestsAndDelete(t *testing.T) {
-	server := startTestServer(t)
-	defer shutdownTestServer(t, server)
-	client := &http.Client{Timeout: 2 * time.Second}
+func TestCreateAgent(t *testing.T) {
+	t.Parallel()
 
-	tests := []struct {
-		name   string
-		method string
-		path   string
-		body   string
-		status int
-	}{
-		{name: "malformed create", method: http.MethodPost, path: "/api/agents", body: "{", status: http.StatusBadRequest},
-		{name: "blank name", method: http.MethodPost, path: "/api/agents", body: `{"name":" ","harness":"claude-code"}`, status: http.StatusBadRequest},
-		{name: "missing harness", method: http.MethodPost, path: "/api/agents", body: `{"name":"Agent"}`, status: http.StatusBadRequest},
-		{name: "blank rename", method: http.MethodPatch, path: "/api/agents/claude-code", body: `{"name":" "}`, status: http.StatusBadRequest},
-		{name: "delete unsupported", method: http.MethodDelete, path: "/api/agents/claude-code", status: http.StatusMethodNotAllowed},
+	manager, handler := newTestAgentAPI(t)
+	recorder := serveAgentAPI(t, handler, agentAPITestRequest{
+		method: http.MethodPost,
+		path:   "/api/agents",
+		body: marshalAgentAPIJSON(t, map[string]string{
+			"name":    "  Build Agent  ",
+			"harness": "  claude-code  ",
+		}),
+	})
+	assertAgentAPIStatus(t, recorder, http.StatusCreated)
+
+	var created agents.Config
+	decodeAgentAPIJSON(t, recorder, &created)
+	id, err := uuid.Parse(created.ID)
+	if err != nil || id.Version() != 4 {
+		t.Fatalf("created Agent ID = %q, want UUID v4", created.ID)
 	}
+	if created.Name != "Build Agent" || created.Harness != harness.TypeClaudeCode {
+		t.Fatalf("created Agent = %#v, want normalized name and Claude Code harness", created)
+	}
+	persisted, ok := manager.Get(created.ID)
+	if !ok || persisted != created {
+		t.Fatalf("persisted Agent = %#v, %t, want %#v, true", persisted, ok, created)
+	}
+}
+
+func TestCreateAgentRejectsInvalidRequests(t *testing.T) {
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+		wantError  string
+	}{
+		{
+			name:       "malformed request",
+			body:       "{",
+			wantStatus: http.StatusBadRequest,
+			wantError:  "invalid agent request",
+		},
+		{
+			name:       "blank name",
+			body:       `{"name":" ","harness":"claude-code"}`,
+			wantStatus: http.StatusBadRequest,
+			wantError:  "agent name is required",
+		},
+		{
+			name:       "missing harness",
+			body:       `{"name":"Agent"}`,
+			wantStatus: http.StatusBadRequest,
+			wantError:  "agent harness is required",
+		},
+		{
+			name:       "unsupported harness",
+			body:       `{"name":"Codex","harness":"codex"}`,
+			wantStatus: http.StatusBadRequest,
+			wantError:  "unsupported agent harness",
+		},
+		{
+			name:       "duplicate name",
+			body:       `{"name":"DEFAULT","harness":"claude-code"}`,
+			wantStatus: http.StatusConflict,
+			wantError:  "agent name already exists",
+		},
+		{
+			name:       "unknown field",
+			body:       `{"name":"Agent","harness":"claude-code","extra":true}`,
+			wantStatus: http.StatusBadRequest,
+			wantError:  "invalid agent request",
+		},
+	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req, err := http.NewRequestWithContext(t.Context(), tt.method, "http://"+server.Addr+tt.path, strings.NewReader(tt.body))
-			if err != nil {
-				t.Fatalf("NewRequest() error = %v", err)
+			t.Parallel()
+
+			manager, handler := newTestAgentAPI(t)
+			recorder := serveAgentAPI(t, handler, agentAPITestRequest{
+				method: http.MethodPost,
+				path:   "/api/agents",
+				body:   tt.body,
+			})
+			assertAgentAPIError(t, recorder, tt.wantStatus, tt.wantError)
+			if got := manager.List(); len(got) != 1 || got[0].Name != agents.DefaultAgentName {
+				t.Fatalf("Agents after rejected create = %#v, want only default Agent", got)
 			}
-			req.Header.Set("Content-Type", "application/json")
-			resp, err := client.Do(req)
-			if err != nil {
-				t.Fatalf("Do() error = %v", err)
-			}
-			defer resp.Body.Close()
-			assertStatus(t, resp, tt.status)
 		})
 	}
 }
 
-func createAgentViaAPI(t *testing.T, client *http.Client, server *Server, name, harness string) agents.Config {
-	t.Helper()
-	resp := doJSONRequest(t, client, http.MethodPost, "http://"+server.Addr+"/api/agents", map[string]string{
-		"name": name, "harness": harness,
+func TestUpdateAgent(t *testing.T) {
+	t.Parallel()
+
+	manager, handler := newTestAgentAPI(t)
+	created, err := manager.Create("Build Agent", harness.TypeClaudeCode)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	recorder := serveAgentAPI(t, handler, agentAPITestRequest{
+		method: http.MethodPatch,
+		path:   "/api/agents/" + created.ID,
+		body:   `{"name":"  Release Agent  "}`,
 	})
-	assertStatus(t, resp, http.StatusCreated)
-	defer resp.Body.Close()
-	var agent agents.Config
-	decodeJSON(t, resp, &agent)
-	return agent
+	assertAgentAPIStatus(t, recorder, http.StatusOK)
+
+	var updated agents.Config
+	decodeAgentAPIJSON(t, recorder, &updated)
+	if updated.ID != created.ID || updated.Name != "Release Agent" || updated.Harness != created.Harness {
+		t.Fatalf("updated Agent = %#v, want immutable ID/harness and normalized name", updated)
+	}
+	persisted, ok := manager.Get(created.ID)
+	if !ok || persisted != updated {
+		t.Fatalf("persisted Agent = %#v, %t, want %#v, true", persisted, ok, updated)
+	}
 }
 
-func doJSONRequest(t *testing.T, client *http.Client, method, url string, value any) *http.Response {
+func TestUpdateAgentRejectsInvalidRequests(t *testing.T) {
+	tests := []struct {
+		name       string
+		body       string
+		missing    bool
+		wantStatus int
+		wantError  string
+	}{
+		{
+			name:       "malformed request",
+			body:       "{",
+			wantStatus: http.StatusBadRequest,
+			wantError:  "invalid agent request",
+		},
+		{
+			name:       "blank name",
+			body:       `{"name":" "}`,
+			wantStatus: http.StatusBadRequest,
+			wantError:  "agent name is required",
+		},
+		{
+			name:       "missing agent",
+			body:       `{"name":"Missing"}`,
+			missing:    true,
+			wantStatus: http.StatusNotFound,
+			wantError:  "agent not found",
+		},
+		{
+			name:       "duplicate name",
+			body:       `{"name":"default"}`,
+			wantStatus: http.StatusConflict,
+			wantError:  "agent name already exists",
+		},
+		{
+			name:       "immutable field",
+			body:       `{"name":"Ignored mutation","harness":"codex"}`,
+			wantStatus: http.StatusBadRequest,
+			wantError:  "invalid agent request",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			manager, handler := newTestAgentAPI(t)
+			created, err := manager.Create("Build Agent", harness.TypeClaudeCode)
+			if err != nil {
+				t.Fatalf("Create() error = %v", err)
+			}
+			targetID := created.ID
+			if tt.missing {
+				targetID = uuid.NewString()
+			}
+
+			recorder := serveAgentAPI(t, handler, agentAPITestRequest{
+				method: http.MethodPatch,
+				path:   "/api/agents/" + targetID,
+				body:   tt.body,
+			})
+			assertAgentAPIError(t, recorder, tt.wantStatus, tt.wantError)
+			persisted, ok := manager.Get(created.ID)
+			if !ok || persisted != created {
+				t.Fatalf("Agent after rejected update = %#v, %t, want %#v, true", persisted, ok, created)
+			}
+		})
+	}
+}
+
+func TestDeleteAgentIsUnsupported(t *testing.T) {
+	t.Parallel()
+
+	manager, handler := newTestAgentAPI(t)
+	defaultID := manager.List()[0].ID
+	recorder := serveAgentAPI(t, handler, agentAPITestRequest{
+		method: http.MethodDelete,
+		path:   "/api/agents/" + defaultID,
+	})
+	assertAgentAPIStatus(t, recorder, http.StatusMethodNotAllowed)
+	if _, ok := manager.Get(defaultID); !ok {
+		t.Fatal("default Agent was removed by unsupported delete")
+	}
+}
+
+func newTestAgentAPI(t *testing.T) (*agents.Manager, http.Handler) {
 	t.Helper()
+
+	manager, err := agents.NewManager(t.TempDir())
+	if err != nil {
+		t.Fatalf("agents.NewManager() error = %v", err)
+	}
+	server := &Server{agents: manager}
+	handler := http.StripPrefix("/api", server.serveAPI())
+
+	return manager, handler
+}
+
+func serveAgentAPI(
+	t *testing.T,
+	handler http.Handler,
+	request agentAPITestRequest,
+) *httptest.ResponseRecorder {
+	t.Helper()
+
+	req := httptest.NewRequest(request.method, request.path, strings.NewReader(request.body))
+	req.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+
+	return recorder
+}
+
+func marshalAgentAPIJSON(t *testing.T, value any) string {
+	t.Helper()
+
 	data, err := json.Marshal(value)
 	if err != nil {
 		t.Fatalf("Marshal() error = %v", err)
 	}
-	req, err := http.NewRequestWithContext(t.Context(), method, url, bytes.NewReader(data))
-	if err != nil {
-		t.Fatalf("NewRequest() error = %v", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := client.Do(req)
-	if err != nil {
-		t.Fatalf("%s %s: %v", method, url, err)
-	}
-	return resp
+
+	return string(data)
 }
 
-func assertAPIError(t *testing.T, resp *http.Response, want string) {
+func assertAgentAPIStatus(t *testing.T, recorder *httptest.ResponseRecorder, want int) {
 	t.Helper()
-	defer resp.Body.Close()
-	var apiErr errorResponse
-	decodeJSON(t, resp, &apiErr)
-	if apiErr.Error != want {
-		t.Fatalf("API error = %q, want %q (status %d)", apiErr.Error, want, resp.StatusCode)
+
+	if recorder.Code != want {
+		t.Fatalf("status = %d, want %d, body = %q", recorder.Code, want, recorder.Body.String())
+	}
+}
+
+func assertAgentAPIError(
+	t *testing.T,
+	recorder *httptest.ResponseRecorder,
+	wantStatus int,
+	wantError string,
+) {
+	t.Helper()
+	assertAgentAPIStatus(t, recorder, wantStatus)
+
+	var response errorResponse
+	decodeAgentAPIJSON(t, recorder, &response)
+	if response.Error != wantError {
+		t.Fatalf("API error = %q, want %q", response.Error, wantError)
+	}
+}
+
+func decodeAgentAPIJSON(t *testing.T, recorder *httptest.ResponseRecorder, value any) {
+	t.Helper()
+
+	if got := recorder.Header().Get("Content-Type"); got != "application/json" {
+		t.Fatalf("Content-Type = %q, want application/json", got)
+	}
+	if err := json.NewDecoder(recorder.Body).Decode(value); err != nil {
+		t.Fatalf("decode JSON response: %v", err)
 	}
 }
