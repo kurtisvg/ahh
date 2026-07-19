@@ -2,9 +2,11 @@ package harness
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/creack/pty"
@@ -18,16 +20,16 @@ const (
 var claudeCommand = "claude"
 
 type options struct {
-	resume bool
+	configDir string
 }
 
 // Option configures a Claude Code harness process.
 type Option func(*options)
 
-// WithResume configures Claude Code to resume the requested session.
-func WithResume() Option {
+// WithConfigDir isolates Claude Code configuration and history in dir.
+func WithConfigDir(dir string) Option {
 	return func(opts *options) {
-		opts.resume = true
+		opts.configDir = strings.TrimSpace(dir)
 	}
 }
 
@@ -50,10 +52,14 @@ func Start(ctx context.Context, sessionID string, startOpts ...Option) (Harness,
 	for _, opt := range startOpts {
 		opt(&opts)
 	}
+	args, err := claudeArguments(sessionID, opts)
+	if err != nil {
+		return nil, fmt.Errorf("resolve claude-code session: %w", err)
+	}
 
 	ctx, cancel := context.WithCancel(ctx)
-	cmd := exec.CommandContext(ctx, claudeCommand, claudeArguments(sessionID, opts)...)
-	cmd.Env = claudeEnvironment(os.Environ())
+	cmd := exec.CommandContext(ctx, claudeCommand, args...)
+	cmd.Env = claudeEnvironment(os.Environ(), opts.configDir)
 
 	ptyFile, err := pty.StartWithSize(cmd, &pty.Winsize{
 		Rows: defaultRows,
@@ -89,12 +95,50 @@ func Start(ctx context.Context, sessionID string, startOpts ...Option) (Harness,
 	return h, nil
 }
 
-func claudeArguments(sessionID string, opts options) []string {
-	if opts.resume {
-		return []string{"--resume", sessionID}
+func claudeArguments(sessionID string, opts options) ([]string, error) {
+	transcriptExists, err := claudeTranscriptExists(opts.configDir, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if transcriptExists {
+		return []string{"--resume", sessionID}, nil
 	}
 
-	return []string{"--session-id", sessionID}
+	return []string{"--session-id", sessionID}, nil
+}
+
+func claudeTranscriptExists(configDir, sessionID string) (bool, error) {
+	if configDir == "" {
+		return false, nil
+	}
+	projectsDir := filepath.Join(configDir, "projects")
+	projects, err := os.ReadDir(projectsDir)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("read claude projects directory %q: %w", projectsDir, err)
+	}
+	for _, project := range projects {
+		if !project.IsDir() {
+			continue
+		}
+		transcriptPath := filepath.Join(projectsDir, project.Name(), sessionID+".jsonl")
+		info, err := os.Stat(transcriptPath)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return false, fmt.Errorf("stat claude transcript %q: %w", transcriptPath, err)
+		}
+		if info.IsDir() {
+			return false, fmt.Errorf("claude transcript %q is not a file", transcriptPath)
+		}
+
+		return true, nil
+	}
+
+	return false, nil
 }
 
 func (h *ClaudeCodeHarness) Wait(ctx context.Context) error {
@@ -140,13 +184,16 @@ func (h *ClaudeCodeHarness) Close() {
 	_ = h.pty.Close()
 }
 
-func claudeEnvironment(env []string) []string {
+func claudeEnvironment(env []string, configDir string) []string {
 	skip := map[string]struct{}{
 		"CLICOLOR":    {},
 		"COLORTERM":   {},
 		"FORCE_COLOR": {},
 		"NO_COLOR":    {},
 		"TERM":        {},
+	}
+	if configDir != "" {
+		skip["CLAUDE_CONFIG_DIR"] = struct{}{}
 	}
 
 	next := make([]string, 0, len(env)+4)
@@ -162,11 +209,15 @@ func claudeEnvironment(env []string) []string {
 		next = append(next, value)
 	}
 
-	return append(
+	next = append(
 		next,
 		"TERM=xterm-256color",
 		"COLORTERM=truecolor",
 		"CLICOLOR=1",
 		"FORCE_COLOR=1",
 	)
+	if configDir != "" {
+		next = append(next, "CLAUDE_CONFIG_DIR="+configDir)
+	}
+	return next
 }

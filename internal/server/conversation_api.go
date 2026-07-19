@@ -13,7 +13,8 @@ import (
 )
 
 type createConversationRequest struct {
-	Name string `json:"name"`
+	Name    string `json:"name"`
+	AgentID string `json:"agent_id"`
 }
 
 type conversationsResponse struct {
@@ -42,9 +43,18 @@ func (s *Server) createConversation(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, "conversation name is required")
 		return
 	}
+	agentID := strings.TrimSpace(req.AgentID)
+	if agentID == "" {
+		writeAPIError(w, http.StatusBadRequest, "conversation agent_id is required")
+		return
+	}
 
-	conversation, err := s.conversations.Create(r.Context(), name)
+	conversation, err := s.conversations.Create(r.Context(), name, agentID)
 	if err != nil {
+		if errors.Is(err, conversations.ErrAgentRequired) || errors.Is(err, conversations.ErrAgentNotFound) {
+			writeAPIError(w, http.StatusBadRequest, "conversation agent is invalid")
+			return
+		}
 		writeAPIError(w, http.StatusInternalServerError, "create conversation failed")
 		return
 	}
@@ -121,7 +131,7 @@ func (s *Server) serveTTY(w http.ResponseWriter, r *http.Request) {
 
 	errCh := make(chan error, 2)
 	go func() {
-		errCh <- copyBrowserToWrapper(ctx, wrapperConn, browserConn, conversation)
+		errCh <- copyBrowserToWrapper(ctx, wrapperConn, browserConn)
 	}()
 	go func() {
 		errCh <- copyWrapperToBrowser(ctx, browserConn, wrapperConn)
@@ -146,7 +156,6 @@ func copyBrowserToWrapper(
 	ctx context.Context,
 	dst *websocket.Conn,
 	src *websocket.Conn,
-	conversation *conversations.Conversation,
 ) error {
 	for {
 		messageType, data, err := src.Read(ctx)
@@ -156,28 +165,7 @@ func copyBrowserToWrapper(
 		if err := dst.Write(ctx, messageType, data); err != nil {
 			return err
 		}
-		if submittedTerminalInput(messageType, data) {
-			if err := conversation.MarkResumable(); err != nil {
-				return err
-			}
-		}
 	}
-}
-
-func submittedTerminalInput(messageType websocket.MessageType, data []byte) bool {
-	if messageType != websocket.MessageText {
-		return false
-	}
-
-	var msg struct {
-		Type string `json:"type"`
-		Data string `json:"data"`
-	}
-	if err := json.Unmarshal(data, &msg); err != nil {
-		return false
-	}
-
-	return msg.Type == "input" && strings.ContainsAny(msg.Data, "\r\n")
 }
 
 // copyWrapperToBrowser forwards wrapper PTY output to the browser until one side closes.

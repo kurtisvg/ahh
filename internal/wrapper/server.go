@@ -22,16 +22,16 @@ type Wrapper interface {
 }
 
 type options struct {
-	resume bool
+	configDir string
 }
 
 // Option configures a wrapper and its harness process.
 type Option func(*options)
 
-// WithResume configures the harness to resume the requested session.
-func WithResume() Option {
+// WithConfigDir configures the harness to use an isolated configuration directory.
+func WithConfigDir(dir string) Option {
 	return func(opts *options) {
-		opts.resume = true
+		opts.configDir = dir
 	}
 }
 
@@ -69,7 +69,7 @@ func Start(
 		opt(&cfg)
 	}
 
-	h, err := startHarness(ctx, harnessType, sessionID, cfg.resume)
+	h, err := startHarness(ctx, harnessType, sessionID, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -87,7 +87,7 @@ func startHarness(
 	ctx context.Context,
 	harnessType harness.Type,
 	sessionID string,
-	resume bool,
+	cfg options,
 ) (harness.Harness, error) {
 	harnessType, err := harness.ParseType(string(harnessType))
 	if err != nil {
@@ -97,8 +97,8 @@ func startHarness(
 	switch harnessType {
 	case harness.TypeClaudeCode:
 		var opts []harness.Option
-		if resume {
-			opts = append(opts, harness.WithResume())
+		if cfg.configDir != "" {
+			opts = append(opts, harness.WithConfigDir(cfg.configDir))
 		}
 		h, err := harness.Start(ctx, sessionID, opts...)
 		if err != nil {

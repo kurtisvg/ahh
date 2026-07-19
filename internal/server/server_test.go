@@ -18,6 +18,8 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/kurtisvg/ahh/internal/harness"
+	"github.com/kurtisvg/ahh/internal/server/agents"
 	"github.com/kurtisvg/ahh/internal/server/conversations"
 	"github.com/kurtisvg/ahh/internal/wrapper"
 )
@@ -186,6 +188,7 @@ func TestStartRejectsInvalidOptions(t *testing.T) {
 
 func TestServerConversationsAPI(t *testing.T) {
 	factory := &fakeWrapperFactory{}
+	agentManager := newTestAgentManager(t)
 	base := time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC)
 	times := []time.Time{
 		base,
@@ -193,6 +196,7 @@ func TestServerConversationsAPI(t *testing.T) {
 	}
 	manager, err := conversations.NewManager(
 		t.Context(),
+		agentManager,
 		conversations.WithStartWrapper(factory.start),
 		conversations.WithClock(func() time.Time {
 			if len(times) == 0 {
@@ -208,7 +212,7 @@ func TestServerConversationsAPI(t *testing.T) {
 		t.Fatalf("conversations.NewManager() error = %v", err)
 	}
 
-	server := startTestServer(t, WithConversationManager(manager))
+	server := startTestServer(t, WithAgentManager(agentManager), WithConversationManager(manager))
 	defer shutdownTestServer(t, server)
 
 	client := &http.Client{
@@ -238,6 +242,20 @@ func TestServerConversationsAPI(t *testing.T) {
 	if apiErr.Error != "conversation name is required" {
 		t.Fatalf("blank conversation error = %q, want conversation name is required", apiErr.Error)
 	}
+
+	resp, err = client.Post("http://"+server.Addr+"/api/conversations", "application/json", strings.NewReader(`{"name":"No agent"}`))
+	if err != nil {
+		t.Fatalf("POST conversation without Agent: %v", err)
+	}
+	assertStatus(t, resp, http.StatusBadRequest)
+	assertAPIError(t, resp, "conversation agent_id is required")
+
+	resp, err = client.Post("http://"+server.Addr+"/api/conversations", "application/json", strings.NewReader(`{"name":"Missing agent","agent_id":"missing"}`))
+	if err != nil {
+		t.Fatalf("POST conversation with missing Agent: %v", err)
+	}
+	assertStatus(t, resp, http.StatusBadRequest)
+	assertAPIError(t, resp, "conversation agent is invalid")
 
 	first := createConversationViaAPI(t, client, server, "First")
 	second := createConversationViaAPI(t, client, server, "Second")
@@ -274,8 +292,8 @@ func TestServerConversationsAPI(t *testing.T) {
 
 func TestServerDeleteConversationAPI(t *testing.T) {
 	factory := &fakeWrapperFactory{}
-	manager := newTestConversationManager(t, factory.start)
-	server := startTestServer(t, WithConversationManager(manager))
+	manager, agentManager := newTestConversationManager(t, factory.start)
+	server := startTestServer(t, WithAgentManager(agentManager), WithConversationManager(manager))
 	defer shutdownTestServer(t, server)
 
 	client := &http.Client{
@@ -330,9 +348,14 @@ func TestServerDeleteConversationAPI(t *testing.T) {
 
 func TestServerPersistsConversationMetadata(t *testing.T) {
 	stateDir := t.TempDir()
+	agentManager, err := agents.NewManager(stateDir)
+	if err != nil {
+		t.Fatalf("agents.NewManager() error = %v", err)
+	}
 	factory := &fakeWrapperFactory{}
 	manager, err := conversations.NewManager(
 		t.Context(),
+		agentManager,
 		conversations.WithStartWrapper(factory.start),
 		conversations.WithStateDir(stateDir),
 	)
@@ -340,26 +363,32 @@ func TestServerPersistsConversationMetadata(t *testing.T) {
 		t.Fatalf("conversations.NewManager() error = %v", err)
 	}
 
-	server := startTestServer(t, WithConversationManager(manager))
+	server := startTestServer(t, WithAgentManager(agentManager), WithConversationManager(manager))
 	client := &http.Client{
 		Timeout: 2 * time.Second,
 	}
 	conversation := createConversationViaAPI(t, client, server, "persisted")
+	defaultAgentID := defaultAgentID(t, agentManager)
 	initialStart := factory.startRequest(0)
-	if initialStart.SessionID != conversation.ID || initialStart.Resume {
-		t.Fatalf("initial wrapper start = %+v, want id %q without resume", initialStart, conversation.ID)
+	if initialStart.SessionID != conversation.ID || initialStart.Harness != harness.TypeClaudeCode {
+		t.Fatalf("initial wrapper start = %+v, want id %q", initialStart, conversation.ID)
 	}
-	createdConversation, ok := manager.Get(conversation.ID)
-	if !ok {
-		t.Fatalf("created conversation %q not found", conversation.ID)
+	wantConfigDir := filepath.Join(stateDir, "agents", defaultAgentID, "config")
+	if initialStart.ConfigDir != wantConfigDir {
+		t.Fatalf("initial wrapper config dir = %q, want %q", initialStart.ConfigDir, wantConfigDir)
 	}
-	if err := createdConversation.MarkResumable(); err != nil {
-		t.Fatalf("MarkResumable() error = %v", err)
+	if conversation.AgentID != defaultAgentID {
+		t.Fatalf("created conversation AgentID = %q, want %q", conversation.AgentID, defaultAgentID)
 	}
 	shutdownTestServer(t, server)
 
-	if _, err := os.Stat(filepath.Join(stateDir, "conversations", conversation.ID+".json")); err != nil {
-		t.Fatalf("stat persisted conversation metadata: %v", err)
+	metadataPath := filepath.Join(stateDir, "conversations", conversation.ID+".json")
+	persistedMetadata, err := os.ReadFile(metadataPath)
+	if err != nil {
+		t.Fatalf("read persisted conversation metadata: %v", err)
+	}
+	if bytes.Contains(persistedMetadata, []byte(`"resumable"`)) {
+		t.Fatalf("persisted conversation metadata contains obsolete resumable state: %s", persistedMetadata)
 	}
 
 	restartedFactory := &fakeWrapperFactory{
@@ -379,13 +408,14 @@ func TestServerPersistsConversationMetadata(t *testing.T) {
 	}
 	restartedManager, err := conversations.NewManager(
 		t.Context(),
+		agentManager,
 		conversations.WithStartWrapper(restartedFactory.start),
 		conversations.WithStateDir(stateDir),
 	)
 	if err != nil {
 		t.Fatalf("reload conversations.NewManager() error = %v", err)
 	}
-	restartedServer := startTestServer(t, WithConversationManager(restartedManager))
+	restartedServer := startTestServer(t, WithAgentManager(agentManager), WithConversationManager(restartedManager))
 	defer shutdownTestServer(t, restartedServer)
 
 	resp, err := client.Get("http://" + restartedServer.Addr + "/api/conversations")
@@ -425,8 +455,8 @@ func TestServerPersistsConversationMetadata(t *testing.T) {
 		t.Fatalf("wrappers started after persisted tty connection = %d, want 1", got)
 	}
 	restoredStart := restartedFactory.startRequest(0)
-	if restoredStart.SessionID != conversation.ID || !restoredStart.Resume {
-		t.Fatalf("restored wrapper start = %+v, want id %q with resume", restoredStart, conversation.ID)
+	if restoredStart.SessionID != conversation.ID || restoredStart.ConfigDir != wantConfigDir {
+		t.Fatalf("restored wrapper start = %+v, want id %q", restoredStart, conversation.ID)
 	}
 
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodDelete, "http://"+restartedServer.Addr+"/api/conversations/"+conversation.ID, nil)
@@ -439,16 +469,16 @@ func TestServerPersistsConversationMetadata(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	assertStatus(t, resp, http.StatusNoContent)
-	if _, err := os.Stat(filepath.Join(stateDir, "conversations", conversation.ID+".json")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(metadataPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("stat deleted conversation metadata error = %v, want not exist", err)
 	}
 }
 
 func TestServerTTYMissingConversation(t *testing.T) {
 	factory := &fakeWrapperFactory{}
-	manager := newTestConversationManager(t, factory.start)
+	manager, agentManager := newTestConversationManager(t, factory.start)
 
-	server := startTestServer(t, WithConversationManager(manager))
+	server := startTestServer(t, WithAgentManager(agentManager), WithConversationManager(manager))
 	defer shutdownTestServer(t, server)
 
 	client := &http.Client{
@@ -460,45 +490,6 @@ func TestServerTTYMissingConversation(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	assertStatus(t, resp, http.StatusNotFound)
-}
-
-func TestSubmittedTerminalInput(t *testing.T) {
-	tests := []struct {
-		name        string
-		messageType websocket.MessageType
-		data        string
-		want        bool
-	}{
-		{
-			name:        "submitted input",
-			messageType: websocket.MessageText,
-			data:        `{"type":"input","data":"prompt\r"}`,
-			want:        true,
-		},
-		{
-			name:        "typing without submission",
-			messageType: websocket.MessageText,
-			data:        `{"type":"input","data":"prompt"}`,
-		},
-		{
-			name:        "terminal resize",
-			messageType: websocket.MessageText,
-			data:        `{"type":"resize","rows":24,"cols":80}`,
-		},
-		{
-			name:        "binary message",
-			messageType: websocket.MessageBinary,
-			data:        `{"type":"input","data":"prompt\r"}`,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := submittedTerminalInput(tt.messageType, []byte(tt.data)); got != tt.want {
-				t.Fatalf("submittedTerminalInput() = %t, want %t", got, tt.want)
-			}
-		})
-	}
 }
 
 func TestTerminalPageUsesProxySafePaths(t *testing.T) {
@@ -588,15 +579,15 @@ func TestServerTTYWebSocketProxy(t *testing.T) {
 		}
 	}))
 
-	manager := newTestConversationManager(t, func(context.Context, conversations.WrapperStart) (wrapper.Wrapper, error) {
+	manager, agentManager := newTestConversationManager(t, func(context.Context, conversations.WrapperStart) (wrapper.Wrapper, error) {
 		return fake, nil
 	})
-	conversation, err := manager.Create(ctx, "terminal")
+	conversation, err := manager.Create(ctx, "terminal", defaultAgentID(t, agentManager))
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
 
-	server := startTestServer(t, WithConversationManager(manager))
+	server := startTestServer(t, WithAgentManager(agentManager), WithConversationManager(manager))
 	defer shutdownTestServer(t, server)
 
 	conn, _, err := websocket.Dial(ctx, "ws://"+server.Addr+"/api/conversations/"+conversation.ID()+"/tty", nil)
@@ -724,15 +715,20 @@ func startTestServer(t *testing.T, opts ...Option) *Server {
 func newTestConversationManager(
 	t *testing.T,
 	startWrapper func(context.Context, conversations.WrapperStart) (wrapper.Wrapper, error),
-) *conversations.Manager {
+) (*conversations.Manager, *agents.Manager) {
 	t.Helper()
 
-	manager, err := conversations.NewManager(t.Context(), conversations.WithStartWrapper(startWrapper))
+	agentManager := newTestAgentManager(t)
+	manager, err := conversations.NewManager(
+		t.Context(),
+		agentManager,
+		conversations.WithStartWrapper(startWrapper),
+	)
 	if err != nil {
 		t.Fatalf("conversations.NewManager() error = %v", err)
 	}
 
-	return manager
+	return manager, agentManager
 }
 
 func shutdownTestServer(t *testing.T, server *Server) {
@@ -760,7 +756,11 @@ func readAsset(t *testing.T, name string) []byte {
 func createConversationViaAPI(t *testing.T, client *http.Client, server *Server, name string) conversations.Metadata {
 	t.Helper()
 
-	requestBody := bytes.NewBufferString(fmt.Sprintf(`{"name":%q}`, name))
+	requestBody := bytes.NewBufferString(fmt.Sprintf(
+		`{"name":%q,"agent_id":%q}`,
+		name,
+		defaultAgentID(t, server.agents),
+	))
 	resp, err := client.Post("http://"+server.Addr+"/api/conversations", "application/json", requestBody)
 	if err != nil {
 		t.Fatalf("POST /api/conversations: %v", err)
@@ -777,12 +777,43 @@ func createConversationViaAPI(t *testing.T, client *http.Client, server *Server,
 	return conversation
 }
 
+func newTestAgentManager(t *testing.T) *agents.Manager {
+	t.Helper()
+
+	manager, err := agents.NewManager(t.TempDir())
+	if err != nil {
+		t.Fatalf("agents.NewManager() error = %v", err)
+	}
+	return manager
+}
+
+func defaultAgentID(t *testing.T, manager *agents.Manager) string {
+	t.Helper()
+
+	listed := manager.List()
+	if len(listed) != 1 || listed[0].Name != agents.DefaultAgentName {
+		t.Fatalf("Agents = %#v, want one default Agent", listed)
+	}
+	return listed[0].ID
+}
+
 func assertStatus(t *testing.T, resp *http.Response, want int) {
 	t.Helper()
 
 	if resp.StatusCode != want {
 		body, _ := io.ReadAll(resp.Body)
 		t.Fatalf("status = %d, want %d, body = %q", resp.StatusCode, want, body)
+	}
+}
+
+func assertAPIError(t *testing.T, resp *http.Response, want string) {
+	t.Helper()
+	defer resp.Body.Close()
+
+	var apiErr errorResponse
+	decodeJSON(t, resp, &apiErr)
+	if apiErr.Error != want {
+		t.Fatalf("API error = %q, want %q (status %d)", apiErr.Error, want, resp.StatusCode)
 	}
 }
 

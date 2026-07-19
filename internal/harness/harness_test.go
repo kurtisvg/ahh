@@ -134,7 +134,7 @@ func TestClaudeEnvironmentEnablesColor(t *testing.T) {
 		"CLICOLOR=0",
 		"FORCE_COLOR=0",
 		"VSCODE_IPC_HOOK_CLI=/tmp/vscode.sock",
-	})
+	}, "")
 	got := envMap(env)
 
 	if got["NO_COLOR"] != "" {
@@ -157,6 +157,27 @@ func TestClaudeEnvironmentEnablesColor(t *testing.T) {
 	}
 }
 
+func TestClaudeEnvironmentUsesManagedConfigDirectory(t *testing.T) {
+	env := claudeEnvironment([]string{
+		"PATH=/bin",
+		"CLAUDE_CONFIG_DIR=/inherited",
+	}, "/managed/agent/config")
+	got := envMap(env)
+
+	if got["CLAUDE_CONFIG_DIR"] != "/managed/agent/config" {
+		t.Fatalf("CLAUDE_CONFIG_DIR = %q, want managed Agent directory", got["CLAUDE_CONFIG_DIR"])
+	}
+}
+
+func TestWithConfigDirTrimsSpace(t *testing.T) {
+	opts := options{}
+	WithConfigDir("  /managed/agent/config  ")(&opts)
+
+	if opts.configDir != "/managed/agent/config" {
+		t.Fatalf("configDir = %q, want trimmed managed Agent directory", opts.configDir)
+	}
+}
+
 // fakeHarness points Start at a temporary executable so tests exercise
 // the real PTY subprocess lifecycle without requiring Claude Code to be installed.
 func fakeHarness(t *testing.T, ctx context.Context, mode string) (Harness, error) {
@@ -169,32 +190,78 @@ func fakeHarness(t *testing.T, ctx context.Context, mode string) (Harness, error
 }
 
 func TestClaudeArguments(t *testing.T) {
+	const sessionID = "fbce6273-3e75-4288-a89a-38f36f0cc0d1"
+	writeTranscript := func(data []byte) func(*testing.T, string) {
+		return func(t *testing.T, configDir string) {
+			t.Helper()
+
+			projectDir := filepath.Join(configDir, "projects", "test-project")
+			if err := os.MkdirAll(projectDir, 0o700); err != nil {
+				t.Fatalf("MkdirAll() error = %v", err)
+			}
+			transcriptPath := filepath.Join(projectDir, sessionID+".jsonl")
+			if err := os.WriteFile(transcriptPath, data, 0o600); err != nil {
+				t.Fatalf("WriteFile() error = %v", err)
+			}
+		}
+	}
 	tests := []struct {
-		name string
-		id   string
-		opts []Option
-		want []string
+		name            string
+		useConfigDir    bool
+		configure       func(*testing.T, string)
+		want            []string
+		wantErrContains string
 	}{
 		{
 			name: "starts conversation",
-			id:   "session-id",
-			want: []string{"--session-id", "session-id"},
+			want: []string{"--session-id", sessionID},
 		},
 		{
-			name: "resumes identified conversation",
-			id:   "session-id",
-			opts: []Option{WithResume()},
-			want: []string{"--resume", "session-id"},
+			name:         "starts conversation when transcript is absent",
+			useConfigDir: true,
+			want:         []string{"--session-id", sessionID},
+		},
+		{
+			name:         "reports unreadable transcript state",
+			useConfigDir: true,
+			configure: func(t *testing.T, configDir string) {
+				t.Helper()
+
+				if err := os.WriteFile(filepath.Join(configDir, "projects"), nil, 0o600); err != nil {
+					t.Fatalf("WriteFile() error = %v", err)
+				}
+			},
+			wantErrContains: "read claude projects directory",
+		},
+		{
+			name:         "resumes conversation when transcript is present",
+			useConfigDir: true,
+			configure:    writeTranscript([]byte("{}\n")),
+			want:         []string{"--resume", sessionID},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg := options{}
-			for _, opt := range tt.opts {
-				opt(&cfg)
+			configDir := ""
+			if tt.useConfigDir {
+				configDir = t.TempDir()
 			}
-			got := claudeArguments(tt.id, cfg)
+			if tt.configure != nil {
+				tt.configure(t, configDir)
+			}
+			got, err := claudeArguments(sessionID, options{
+				configDir: configDir,
+			})
+			if tt.wantErrContains != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErrContains) {
+					t.Fatalf("claudeArguments() error = %v, want containing %q", err, tt.wantErrContains)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("claudeArguments() error = %v", err)
+			}
 			if !slices.Equal(got, tt.want) {
 				t.Fatalf("claudeArguments() = %q, want %q", got, tt.want)
 			}

@@ -37,11 +37,11 @@ func TestStartRejectsInvalidSessionID(t *testing.T) {
 	}
 }
 
-func TestWithResume(t *testing.T) {
+func TestWithConfigDir(t *testing.T) {
 	cfg := options{}
-	WithResume()(&cfg)
-	if !cfg.resume {
-		t.Fatal("resume = false, want true")
+	WithConfigDir("/agent/config")(&cfg)
+	if cfg.configDir != "/agent/config" {
+		t.Fatalf("configDir = %q, want /agent/config", cfg.configDir)
 	}
 }
 

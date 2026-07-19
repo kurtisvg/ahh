@@ -50,7 +50,7 @@ func TestFileMetadataStoreMigratesLegacySessionsDirectory(t *testing.T) {
 	}
 	if err := os.WriteFile(
 		filepath.Join(legacyDir, "persisted.json"),
-		[]byte(`{"id":"persisted","name":"terminal"}`),
+		[]byte(`{"id":"persisted","agent_id":"claude-code","name":"terminal"}`),
 		0o644,
 	); err != nil {
 		t.Fatalf("write legacy metadata: %v", err)
@@ -68,5 +68,28 @@ func TestFileMetadataStoreMigratesLegacySessionsDirectory(t *testing.T) {
 	}
 	if _, err := os.Stat(legacyDir); !os.IsNotExist(err) {
 		t.Fatalf("stat legacy sessions directory error = %v, want not exist", err)
+	}
+}
+
+func TestFileMetadataStoreRejectsPreAgentMetadata(t *testing.T) {
+	stateDir := t.TempDir()
+	conversationsDir := filepath.Join(stateDir, "conversations")
+	if err := os.MkdirAll(conversationsDir, 0o755); err != nil {
+		t.Fatalf("create conversations directory: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(conversationsDir, "persisted.json"),
+		[]byte(`{"id":"persisted","name":"terminal"}`),
+		0o644,
+	); err != nil {
+		t.Fatalf("write conversation metadata: %v", err)
+	}
+
+	_, err := newFileMetadataStore(stateDir).Load()
+	if err == nil {
+		t.Fatal("Load() error = nil, want missing agent_id error")
+	}
+	if !strings.Contains(err.Error(), "pre-Agent metadata is not supported") {
+		t.Fatalf("Load() error = %q, want clear pre-Agent schema error", err)
 	}
 }
