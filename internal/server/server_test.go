@@ -556,6 +556,8 @@ func TestAppScriptUsesConnectionLifecycleStates(t *testing.T) {
 		"stopAutomaticReconnect",
 		"activeSocket.addEventListener('close', (event)",
 		"Automatic retries paused after",
+		"Cannot reach the Ahh server",
+		"connectionBanner.dataset.source === 'data'",
 	}
 	for _, want := range wants {
 		if !strings.Contains(app, want) {

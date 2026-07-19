@@ -194,8 +194,14 @@ function updateTerminalState() {
   terminalStateText.textContent = message || '';
 }
 
-function showBanner(state, message, { canRetry = false, canStop = false, detail = '' } = {}) {
+function showBanner(state, message, {
+  canRetry = false,
+  canStop = false,
+  detail = '',
+  source = 'connection'
+} = {}) {
   connectionBanner.dataset.state = state;
+  connectionBanner.dataset.source = source;
   connectionBannerText.textContent = message;
   retryConnectionButton.hidden = !canRetry;
   stopRetryingButton.hidden = !canStop;
@@ -208,6 +214,7 @@ function showBanner(state, message, { canRetry = false, canStop = false, detail 
 
 function hideBanner() {
   connectionBanner.hidden = true;
+  delete connectionBanner.dataset.source;
   retryConnectionButton.hidden = true;
   stopRetryingButton.hidden = true;
   connectionDetailsButton.hidden = true;
@@ -393,7 +400,7 @@ function selectAgent(agentId) {
 async function loadAgents({ preserveActive = true } = {}) {
   const response = await fetch(appURL('api/agents'), { cache: 'no-store' });
   if (!response.ok) {
-    throw new Error(`list Agents failed: ${response.status}`);
+    throw new Error(`Agents could not be loaded (server returned ${response.status}).`);
   }
   const payload = await response.json();
   agents = payload.agents || [];
@@ -412,7 +419,7 @@ async function loadAgents({ preserveActive = true } = {}) {
 async function loadConversations({ preserveActive = true, syncConnection = true } = {}) {
   const response = await fetch(appURL('api/conversations'), { cache: 'no-store' });
   if (!response.ok) {
-    throw new Error(`list conversations failed: ${response.status}`);
+    throw new Error(`Conversations could not be loaded (server returned ${response.status}).`);
   }
   const payload = await response.json();
   conversations = payload.conversations || [];
@@ -772,12 +779,16 @@ function closeSidebar() {
 async function refreshAll() {
   try {
     await Promise.all([loadAgents(), loadConversations({ syncConnection: false })]);
+    if (connectionBanner.dataset.source === 'data') hideBanner();
     renderConversations();
     renderMode();
     if (currentMode === 'conversations') syncActiveConversation();
     updateSelectionURL();
-  } catch {
-    showBanner('error', 'Ahh data is unavailable.');
+  } catch (error) {
+    const message = error instanceof TypeError
+      ? 'Cannot reach the Ahh server. Check that it is running, then refresh this page.'
+      : error?.message || 'Agents and Conversations could not be loaded.';
+    showBanner('error', message, { source: 'data' });
   }
 }
 
