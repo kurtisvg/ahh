@@ -12,7 +12,7 @@ import (
 
 const (
 	ClaudeCodeHarness = "claude-code"
-	DefaultAgentName  = "Default"
+	DefaultAgentName  = "default"
 )
 
 var (
