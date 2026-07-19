@@ -504,7 +504,7 @@ func TestServerTTYMissingConversation(t *testing.T) {
 	assertStatus(t, resp, http.StatusNotFound)
 }
 
-func TestTerminalPageUsesProxySafePaths(t *testing.T) {
+func TestAppPageUsesProxySafePaths(t *testing.T) {
 	page := string(readAsset(t, "assets/index.html"))
 	app := string(readAsset(t, "assets/app.js"))
 	wants := []string{

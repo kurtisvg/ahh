@@ -81,9 +81,9 @@ func Start(ctx context.Context, addr string, opts ...Option) (*Server, error) {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", server.serveTerminal)
-	mux.HandleFunc("GET /conversations/{id}", server.serveTerminal)
-	mux.HandleFunc("GET /agents/{id}", server.serveTerminal)
+	mux.HandleFunc("/", server.serveApp)
+	mux.HandleFunc("GET /conversations/{id}", server.serveApp)
+	mux.HandleFunc("GET /agents/{id}", server.serveApp)
 	mux.Handle("/assets/", serveAssets())
 	// Relative asset URLs on /conversations/{id} resolve beneath
 	// /conversations while preserving any reverse-proxy mount prefix.
@@ -160,8 +160,8 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-// serveTerminal serves the embedded browser terminal entrypoint.
-func (s *Server) serveTerminal(w http.ResponseWriter, r *http.Request) {
+// serveApp serves the embedded browser application entrypoint.
+func (s *Server) serveApp(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
