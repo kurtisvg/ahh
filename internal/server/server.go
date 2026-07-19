@@ -9,18 +9,18 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/kurtisvg/ahh/internal/server/sessions"
+	"github.com/kurtisvg/ahh/internal/server/conversations"
 )
 
 const (
 	shutdownTimeout = 5 * time.Second
 )
 
-// Server exposes the Ahh browser surface and proxies live terminal traffic to session wrappers.
+// Server exposes the Ahh browser surface and proxies live terminal traffic to conversation wrappers.
 type Server struct {
-	Addr       string
-	httpServer *http.Server
-	sessions   *sessions.Manager
+	Addr          string
+	httpServer    *http.Server
+	conversations *conversations.Manager
 
 	// done is closed after err is set, so Wait can safely read err after
 	// receiving from done.
@@ -46,21 +46,21 @@ func Start(ctx context.Context, addr string, opts ...Option) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("listen on %s: %w", addr, err)
 	}
-	if cfg.sessions == nil {
-		manager, err := sessions.NewManager(ctx, sessions.WithStateDir(cfg.stateDir))
+	if cfg.conversations == nil {
+		manager, err := conversations.NewManager(ctx, conversations.WithStateDir(cfg.stateDir))
 		if err != nil {
 			if closeErr := listener.Close(); closeErr != nil {
 				return nil, errors.Join(err, fmt.Errorf("close listener: %w", closeErr))
 			}
 			return nil, err
 		}
-		cfg.sessions = manager
+		cfg.conversations = manager
 	}
 
 	server := &Server{
-		Addr:     listener.Addr().String(),
-		sessions: cfg.sessions,
-		done:     make(chan struct{}),
+		Addr:          listener.Addr().String(),
+		conversations: cfg.conversations,
+		done:          make(chan struct{}),
 	}
 
 	mux := http.NewServeMux()
@@ -107,10 +107,10 @@ func Start(ctx context.Context, addr string, opts ...Option) (*Server, error) {
 // serveAPI owns routes under /api after the server strips that prefix.
 func (s *Server) serveAPI() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /sessions", s.listSessions)
-	mux.HandleFunc("POST /sessions", s.createSession)
-	mux.HandleFunc("DELETE /sessions/{id}", s.deleteSession)
-	mux.HandleFunc("GET /sessions/{id}/tty", s.serveTTY)
+	mux.HandleFunc("GET /conversations", s.listConversations)
+	mux.HandleFunc("POST /conversations", s.createConversation)
+	mux.HandleFunc("DELETE /conversations/{id}", s.deleteConversation)
+	mux.HandleFunc("GET /conversations/{id}/tty", s.serveTTY)
 
 	return mux
 }
@@ -122,13 +122,13 @@ func (s *Server) Wait() error {
 	return s.err
 }
 
-// Shutdown stops session wrappers and the HTTP server.
+// Shutdown stops conversation wrappers and the HTTP server.
 func (s *Server) Shutdown(ctx context.Context) error {
 	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 	defer cancel()
 
-	if err := s.sessions.Shutdown(shutdownCtx); err != nil {
-		return fmt.Errorf("shutdown sessions: %w", err)
+	if err := s.conversations.Shutdown(shutdownCtx); err != nil {
+		return fmt.Errorf("shutdown conversations: %w", err)
 	}
 
 	if err := s.httpServer.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {

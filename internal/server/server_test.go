@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-	"github.com/kurtisvg/ahh/internal/server/sessions"
+	"github.com/kurtisvg/ahh/internal/server/conversations"
 	"github.com/kurtisvg/ahh/internal/wrapper"
 )
 
@@ -83,9 +83,9 @@ func TestServerHTTP(t *testing.T) {
 			wantStatus: http.StatusNotFound,
 		},
 		{
-			name:       "rejects wrong session tty method",
+			name:       "rejects wrong conversation tty method",
 			method:     http.MethodPost,
-			path:       "/api/sessions/not-a-session/tty",
+			path:       "/api/conversations/not-a-conversation/tty",
 			wantStatus: http.StatusMethodNotAllowed,
 		},
 	}
@@ -137,16 +137,16 @@ func TestServerHTTP(t *testing.T) {
 	}
 }
 
-func TestStartRejectsNilSessionManager(t *testing.T) {
-	server, err := Start(t.Context(), "127.0.0.1:0", WithSessionManager(nil))
+func TestStartRejectsNilConversationManager(t *testing.T) {
+	server, err := Start(t.Context(), "127.0.0.1:0", WithConversationManager(nil))
 	if err == nil {
 		if server != nil {
 			shutdownTestServer(t, server)
 		}
 		t.Fatal("Start() error = nil, want error")
 	}
-	if !strings.Contains(err.Error(), "session manager is required") {
-		t.Fatalf("Start() error = %q, want containing session manager is required", err.Error())
+	if !strings.Contains(err.Error(), "conversation manager is required") {
+		t.Fatalf("Start() error = %q, want containing conversation manager is required", err.Error())
 	}
 }
 
@@ -160,17 +160,17 @@ func TestStartRejectsEmptyStateDir(t *testing.T) {
 	}
 }
 
-func TestServerSessionsAPI(t *testing.T) {
+func TestServerConversationsAPI(t *testing.T) {
 	factory := &fakeWrapperFactory{}
 	base := time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC)
 	times := []time.Time{
 		base,
 		base.Add(time.Minute),
 	}
-	manager, err := sessions.NewManager(
+	manager, err := conversations.NewManager(
 		t.Context(),
-		sessions.WithStartWrapper(factory.start),
-		sessions.WithClock(func() time.Time {
+		conversations.WithStartWrapper(factory.start),
+		conversations.WithClock(func() time.Time {
 			if len(times) == 0 {
 				return base.Add(2 * time.Minute)
 			}
@@ -181,83 +181,83 @@ func TestServerSessionsAPI(t *testing.T) {
 		}),
 	)
 	if err != nil {
-		t.Fatalf("sessions.NewManager() error = %v", err)
+		t.Fatalf("conversations.NewManager() error = %v", err)
 	}
 
-	server := startTestServer(t, WithSessionManager(manager))
+	server := startTestServer(t, WithConversationManager(manager))
 	defer shutdownTestServer(t, server)
 
 	client := &http.Client{
 		Timeout: 2 * time.Second,
 	}
 
-	resp, err := client.Get("http://" + server.Addr + "/api/sessions")
+	resp, err := client.Get("http://" + server.Addr + "/api/conversations")
 	if err != nil {
-		t.Fatalf("GET /api/sessions: %v", err)
+		t.Fatalf("GET /api/conversations: %v", err)
 	}
 	defer resp.Body.Close()
 	assertStatus(t, resp, http.StatusOK)
-	var initial sessionsResponse
+	var initial conversationsResponse
 	decodeJSON(t, resp, &initial)
-	if len(initial.Sessions) != 0 {
-		t.Fatalf("initial sessions = %d, want 0", len(initial.Sessions))
+	if len(initial.Conversations) != 0 {
+		t.Fatalf("initial conversations = %d, want 0", len(initial.Conversations))
 	}
 
-	resp, err = client.Post("http://"+server.Addr+"/api/sessions", "application/json", strings.NewReader(`{"name":"   "}`))
+	resp, err = client.Post("http://"+server.Addr+"/api/conversations", "application/json", strings.NewReader(`{"name":"   "}`))
 	if err != nil {
-		t.Fatalf("POST blank session: %v", err)
+		t.Fatalf("POST blank conversation: %v", err)
 	}
 	defer resp.Body.Close()
 	assertStatus(t, resp, http.StatusBadRequest)
 	var apiErr errorResponse
 	decodeJSON(t, resp, &apiErr)
-	if apiErr.Error != "session name is required" {
-		t.Fatalf("blank session error = %q, want session name is required", apiErr.Error)
+	if apiErr.Error != "conversation name is required" {
+		t.Fatalf("blank conversation error = %q, want conversation name is required", apiErr.Error)
 	}
 
-	first := createSessionViaAPI(t, client, server, "First")
-	second := createSessionViaAPI(t, client, server, "Second")
+	first := createConversationViaAPI(t, client, server, "First")
+	second := createConversationViaAPI(t, client, server, "Second")
 	uuidPattern := regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
-	for _, session := range []sessions.Metadata{first, second} {
-		if !uuidPattern.MatchString(session.ID) {
-			t.Fatalf("session id %q is not a UUID v4", session.ID)
+	for _, conversation := range []conversations.Metadata{first, second} {
+		if !uuidPattern.MatchString(conversation.ID) {
+			t.Fatalf("conversation id %q is not a UUID v4", conversation.ID)
 		}
-		if session.Status != sessions.StatusRunning {
-			t.Fatalf("session %q status = %q, want %q", session.Name, session.Status, sessions.StatusRunning)
+		if conversation.Status != conversations.StatusRunning {
+			t.Fatalf("conversation %q status = %q, want %q", conversation.Name, conversation.Status, conversations.StatusRunning)
 		}
 	}
 
-	resp, err = client.Get("http://" + server.Addr + "/api/sessions")
+	resp, err = client.Get("http://" + server.Addr + "/api/conversations")
 	if err != nil {
-		t.Fatalf("GET /api/sessions after create: %v", err)
+		t.Fatalf("GET /api/conversations after create: %v", err)
 	}
 	defer resp.Body.Close()
 	assertStatus(t, resp, http.StatusOK)
-	var listed sessionsResponse
+	var listed conversationsResponse
 	decodeJSON(t, resp, &listed)
-	if len(listed.Sessions) != 2 {
-		t.Fatalf("listed sessions = %d, want 2", len(listed.Sessions))
+	if len(listed.Conversations) != 2 {
+		t.Fatalf("listed conversations = %d, want 2", len(listed.Conversations))
 	}
-	if listed.Sessions[0].ID != second.ID || listed.Sessions[1].ID != first.ID {
-		t.Fatalf("session order = [%q, %q], want newest-first [%q, %q]",
-			listed.Sessions[0].Name,
-			listed.Sessions[1].Name,
+	if listed.Conversations[0].ID != second.ID || listed.Conversations[1].ID != first.ID {
+		t.Fatalf("conversation order = [%q, %q], want newest-first [%q, %q]",
+			listed.Conversations[0].Name,
+			listed.Conversations[1].Name,
 			second.Name,
 			first.Name,
 		)
 	}
 }
 
-func TestServerDeleteSessionAPI(t *testing.T) {
+func TestServerDeleteConversationAPI(t *testing.T) {
 	factory := &fakeWrapperFactory{}
-	manager := newTestSessionManager(t, factory.start)
-	server := startTestServer(t, WithSessionManager(manager))
+	manager := newTestConversationManager(t, factory.start)
+	server := startTestServer(t, WithConversationManager(manager))
 	defer shutdownTestServer(t, server)
 
 	client := &http.Client{
 		Timeout: 2 * time.Second,
 	}
-	session := createSessionViaAPI(t, client, server, "delete me")
+	conversation := createConversationViaAPI(t, client, server, "delete me")
 	if got := factory.wrapperCount(); got != 1 {
 		t.Fatalf("started wrappers = %d, want 1", got)
 	}
@@ -265,7 +265,7 @@ func TestServerDeleteSessionAPI(t *testing.T) {
 	req, err := http.NewRequestWithContext(
 		t.Context(),
 		http.MethodDelete,
-		"http://"+server.Addr+"/api/sessions/"+session.ID,
+		"http://"+server.Addr+"/api/conversations/"+conversation.ID,
 		nil,
 	)
 	if err != nil {
@@ -273,7 +273,7 @@ func TestServerDeleteSessionAPI(t *testing.T) {
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		t.Fatalf("DELETE /api/sessions/%s: %v", session.ID, err)
+		t.Fatalf("DELETE /api/conversations/%s: %v", conversation.ID, err)
 	}
 	defer resp.Body.Close()
 	assertStatus(t, resp, http.StatusNoContent)
@@ -281,61 +281,61 @@ func TestServerDeleteSessionAPI(t *testing.T) {
 	select {
 	case <-factory.wrapper(0).done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("deleted session wrapper was not shut down")
+		t.Fatal("deleted conversation wrapper was not shut down")
 	}
 
-	resp, err = client.Get("http://" + server.Addr + "/api/sessions")
+	resp, err = client.Get("http://" + server.Addr + "/api/conversations")
 	if err != nil {
-		t.Fatalf("GET /api/sessions after delete: %v", err)
+		t.Fatalf("GET /api/conversations after delete: %v", err)
 	}
 	defer resp.Body.Close()
 	assertStatus(t, resp, http.StatusOK)
-	var listed sessionsResponse
+	var listed conversationsResponse
 	decodeJSON(t, resp, &listed)
-	if len(listed.Sessions) != 0 {
-		t.Fatalf("listed sessions after delete = %d, want 0", len(listed.Sessions))
+	if len(listed.Conversations) != 0 {
+		t.Fatalf("listed conversations after delete = %d, want 0", len(listed.Conversations))
 	}
 
 	resp, err = client.Do(req)
 	if err != nil {
-		t.Fatalf("second DELETE /api/sessions/%s: %v", session.ID, err)
+		t.Fatalf("second DELETE /api/conversations/%s: %v", conversation.ID, err)
 	}
 	defer resp.Body.Close()
 	assertStatus(t, resp, http.StatusNotFound)
 }
 
-func TestServerPersistsSessionMetadata(t *testing.T) {
+func TestServerPersistsConversationMetadata(t *testing.T) {
 	stateDir := t.TempDir()
 	factory := &fakeWrapperFactory{}
-	manager, err := sessions.NewManager(
+	manager, err := conversations.NewManager(
 		t.Context(),
-		sessions.WithStartWrapper(factory.start),
-		sessions.WithStateDir(stateDir),
+		conversations.WithStartWrapper(factory.start),
+		conversations.WithStateDir(stateDir),
 	)
 	if err != nil {
-		t.Fatalf("sessions.NewManager() error = %v", err)
+		t.Fatalf("conversations.NewManager() error = %v", err)
 	}
 
-	server := startTestServer(t, WithSessionManager(manager))
+	server := startTestServer(t, WithConversationManager(manager))
 	client := &http.Client{
 		Timeout: 2 * time.Second,
 	}
-	session := createSessionViaAPI(t, client, server, "persisted")
+	conversation := createConversationViaAPI(t, client, server, "persisted")
 	initialStart := factory.startRequest(0)
-	if initialStart.SessionID != session.ID || initialStart.Resume {
-		t.Fatalf("initial wrapper start = %+v, want id %q without resume", initialStart, session.ID)
+	if initialStart.SessionID != conversation.ID || initialStart.Resume {
+		t.Fatalf("initial wrapper start = %+v, want id %q without resume", initialStart, conversation.ID)
 	}
-	createdSession, ok := manager.Get(session.ID)
+	createdConversation, ok := manager.Get(conversation.ID)
 	if !ok {
-		t.Fatalf("created session %q not found", session.ID)
+		t.Fatalf("created conversation %q not found", conversation.ID)
 	}
-	if err := createdSession.MarkResumable(); err != nil {
+	if err := createdConversation.MarkResumable(); err != nil {
 		t.Fatalf("MarkResumable() error = %v", err)
 	}
 	shutdownTestServer(t, server)
 
-	if _, err := os.Stat(filepath.Join(stateDir, "sessions", session.ID+".json")); err != nil {
-		t.Fatalf("stat persisted session metadata: %v", err)
+	if _, err := os.Stat(filepath.Join(stateDir, "conversations", conversation.ID+".json")); err != nil {
+		t.Fatalf("stat persisted conversation metadata: %v", err)
 	}
 
 	restartedFactory := &fakeWrapperFactory{
@@ -353,33 +353,33 @@ func TestServerPersistsSessionMetadata(t *testing.T) {
 			_, _, _ = conn.Read(r.Context())
 		}),
 	}
-	restartedManager, err := sessions.NewManager(
+	restartedManager, err := conversations.NewManager(
 		t.Context(),
-		sessions.WithStartWrapper(restartedFactory.start),
-		sessions.WithStateDir(stateDir),
+		conversations.WithStartWrapper(restartedFactory.start),
+		conversations.WithStateDir(stateDir),
 	)
 	if err != nil {
-		t.Fatalf("reload sessions.NewManager() error = %v", err)
+		t.Fatalf("reload conversations.NewManager() error = %v", err)
 	}
-	restartedServer := startTestServer(t, WithSessionManager(restartedManager))
+	restartedServer := startTestServer(t, WithConversationManager(restartedManager))
 	defer shutdownTestServer(t, restartedServer)
 
-	resp, err := client.Get("http://" + restartedServer.Addr + "/api/sessions")
+	resp, err := client.Get("http://" + restartedServer.Addr + "/api/conversations")
 	if err != nil {
-		t.Fatalf("GET /api/sessions after restart: %v", err)
+		t.Fatalf("GET /api/conversations after restart: %v", err)
 	}
 	defer resp.Body.Close()
 	assertStatus(t, resp, http.StatusOK)
-	var listed sessionsResponse
+	var listed conversationsResponse
 	decodeJSON(t, resp, &listed)
-	if len(listed.Sessions) != 1 {
-		t.Fatalf("restarted sessions = %d, want 1", len(listed.Sessions))
+	if len(listed.Conversations) != 1 {
+		t.Fatalf("restarted conversations = %d, want 1", len(listed.Conversations))
 	}
-	if listed.Sessions[0].ID != session.ID || listed.Sessions[0].Name != "persisted" {
-		t.Fatalf("restarted session = %+v, want id %q name persisted", listed.Sessions[0], session.ID)
+	if listed.Conversations[0].ID != conversation.ID || listed.Conversations[0].Name != "persisted" {
+		t.Fatalf("restarted conversation = %+v, want id %q name persisted", listed.Conversations[0], conversation.ID)
 	}
-	if listed.Sessions[0].Status != sessions.StatusExited {
-		t.Fatalf("restarted session status = %q, want %q", listed.Sessions[0].Status, sessions.StatusExited)
+	if listed.Conversations[0].Status != conversations.StatusExited {
+		t.Fatalf("restarted conversation status = %q, want %q", listed.Conversations[0].Status, conversations.StatusExited)
 	}
 	if got := restartedFactory.wrapperCount(); got != 0 {
 		t.Fatalf("wrappers started on metadata reload = %d, want 0", got)
@@ -387,50 +387,50 @@ func TestServerPersistsSessionMetadata(t *testing.T) {
 
 	conn, _, err := websocket.Dial(
 		t.Context(),
-		"ws://"+restartedServer.Addr+"/api/sessions/"+session.ID+"/tty",
+		"ws://"+restartedServer.Addr+"/api/conversations/"+conversation.ID+"/tty",
 		nil,
 	)
 	if err != nil {
-		t.Fatalf("dial persisted session tty: %v", err)
+		t.Fatalf("dial persisted conversation tty: %v", err)
 	}
 	if err := conn.Close(websocket.StatusNormalClosure, ""); err != nil {
-		t.Fatalf("close persisted session tty: %v", err)
+		t.Fatalf("close persisted conversation tty: %v", err)
 	}
-	waitForSessionStatus(t, restartedManager, session.ID, sessions.StatusRunning)
+	waitForConversationStatus(t, restartedManager, conversation.ID, conversations.StatusRunning)
 	if got := restartedFactory.wrapperCount(); got != 1 {
 		t.Fatalf("wrappers started after persisted tty connection = %d, want 1", got)
 	}
 	restoredStart := restartedFactory.startRequest(0)
-	if restoredStart.SessionID != session.ID || !restoredStart.Resume {
-		t.Fatalf("restored wrapper start = %+v, want id %q with resume", restoredStart, session.ID)
+	if restoredStart.SessionID != conversation.ID || !restoredStart.Resume {
+		t.Fatalf("restored wrapper start = %+v, want id %q with resume", restoredStart, conversation.ID)
 	}
 
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodDelete, "http://"+restartedServer.Addr+"/api/sessions/"+session.ID, nil)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodDelete, "http://"+restartedServer.Addr+"/api/conversations/"+conversation.ID, nil)
 	if err != nil {
 		t.Fatalf("new delete request: %v", err)
 	}
 	resp, err = client.Do(req)
 	if err != nil {
-		t.Fatalf("DELETE persisted session: %v", err)
+		t.Fatalf("DELETE persisted conversation: %v", err)
 	}
 	defer resp.Body.Close()
 	assertStatus(t, resp, http.StatusNoContent)
-	if _, err := os.Stat(filepath.Join(stateDir, "sessions", session.ID+".json")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("stat deleted session metadata error = %v, want not exist", err)
+	if _, err := os.Stat(filepath.Join(stateDir, "conversations", conversation.ID+".json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("stat deleted conversation metadata error = %v, want not exist", err)
 	}
 }
 
-func TestServerTTYMissingSession(t *testing.T) {
+func TestServerTTYMissingConversation(t *testing.T) {
 	factory := &fakeWrapperFactory{}
-	manager := newTestSessionManager(t, factory.start)
+	manager := newTestConversationManager(t, factory.start)
 
-	server := startTestServer(t, WithSessionManager(manager))
+	server := startTestServer(t, WithConversationManager(manager))
 	defer shutdownTestServer(t, server)
 
 	client := &http.Client{
 		Timeout: 2 * time.Second,
 	}
-	resp, err := client.Get("http://" + server.Addr + "/api/sessions/missing/tty")
+	resp, err := client.Get("http://" + server.Addr + "/api/conversations/missing/tty")
 	if err != nil {
 		t.Fatalf("GET missing tty: %v", err)
 	}
@@ -564,18 +564,18 @@ func TestServerTTYWebSocketProxy(t *testing.T) {
 		}
 	}))
 
-	manager := newTestSessionManager(t, func(context.Context, sessions.WrapperStart) (wrapper.Wrapper, error) {
+	manager := newTestConversationManager(t, func(context.Context, conversations.WrapperStart) (wrapper.Wrapper, error) {
 		return fake, nil
 	})
-	session, err := manager.Create(ctx, "terminal")
+	conversation, err := manager.Create(ctx, "terminal")
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
 
-	server := startTestServer(t, WithSessionManager(manager))
+	server := startTestServer(t, WithConversationManager(manager))
 	defer shutdownTestServer(t, server)
 
-	conn, _, err := websocket.Dial(ctx, "ws://"+server.Addr+"/api/sessions/"+session.ID()+"/tty", nil)
+	conn, _, err := websocket.Dial(ctx, "ws://"+server.Addr+"/api/conversations/"+conversation.ID()+"/tty", nil)
 	if err != nil {
 		t.Fatalf("dial server websocket: %v", err)
 	}
@@ -615,13 +615,13 @@ type fakeWrapperServer struct {
 type fakeWrapperFactory struct {
 	mu       sync.Mutex
 	wrappers []*fakeWrapperServer
-	starts   []sessions.WrapperStart
+	starts   []conversations.WrapperStart
 	handler  http.Handler
 }
 
 func (f *fakeWrapperFactory) start(
 	_ context.Context,
-	start sessions.WrapperStart,
+	start conversations.WrapperStart,
 ) (wrapper.Wrapper, error) {
 	handler := f.handler
 	if handler == nil {
@@ -651,7 +651,7 @@ func (f *fakeWrapperFactory) wrapper(index int) *fakeWrapperServer {
 	return f.wrappers[index]
 }
 
-func (f *fakeWrapperFactory) startRequest(index int) sessions.WrapperStart {
+func (f *fakeWrapperFactory) startRequest(index int) conversations.WrapperStart {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -695,15 +695,15 @@ func startTestServer(t *testing.T, opts ...Option) *Server {
 	return server
 }
 
-func newTestSessionManager(
+func newTestConversationManager(
 	t *testing.T,
-	startWrapper func(context.Context, sessions.WrapperStart) (wrapper.Wrapper, error),
-) *sessions.Manager {
+	startWrapper func(context.Context, conversations.WrapperStart) (wrapper.Wrapper, error),
+) *conversations.Manager {
 	t.Helper()
 
-	manager, err := sessions.NewManager(t.Context(), sessions.WithStartWrapper(startWrapper))
+	manager, err := conversations.NewManager(t.Context(), conversations.WithStartWrapper(startWrapper))
 	if err != nil {
-		t.Fatalf("sessions.NewManager() error = %v", err)
+		t.Fatalf("conversations.NewManager() error = %v", err)
 	}
 
 	return manager
@@ -731,24 +731,24 @@ func readAsset(t *testing.T, name string) []byte {
 	return data
 }
 
-func createSessionViaAPI(t *testing.T, client *http.Client, server *Server, name string) sessions.Metadata {
+func createConversationViaAPI(t *testing.T, client *http.Client, server *Server, name string) conversations.Metadata {
 	t.Helper()
 
 	requestBody := bytes.NewBufferString(fmt.Sprintf(`{"name":%q}`, name))
-	resp, err := client.Post("http://"+server.Addr+"/api/sessions", "application/json", requestBody)
+	resp, err := client.Post("http://"+server.Addr+"/api/conversations", "application/json", requestBody)
 	if err != nil {
-		t.Fatalf("POST /api/sessions: %v", err)
+		t.Fatalf("POST /api/conversations: %v", err)
 	}
 	defer resp.Body.Close()
 	assertStatus(t, resp, http.StatusCreated)
 
-	var session sessions.Metadata
-	decodeJSON(t, resp, &session)
-	if session.Name != name {
-		t.Fatalf("created session name = %q, want %q", session.Name, name)
+	var conversation conversations.Metadata
+	decodeJSON(t, resp, &conversation)
+	if conversation.Name != name {
+		t.Fatalf("created conversation name = %q, want %q", conversation.Name, name)
 	}
 
-	return session
+	return conversation
 }
 
 func assertStatus(t *testing.T, resp *http.Response, want int) {
@@ -768,18 +768,18 @@ func decodeJSON(t *testing.T, resp *http.Response, value any) {
 	}
 }
 
-func waitForSessionStatus(t *testing.T, manager *sessions.Manager, id string, want sessions.Status) {
+func waitForConversationStatus(t *testing.T, manager *conversations.Manager, id string, want conversations.Status) {
 	t.Helper()
 
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		for _, session := range manager.List() {
-			if session.ID == id && session.Status == want {
+		for _, conversation := range manager.List() {
+			if conversation.ID == id && conversation.Status == want {
 				return
 			}
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	t.Fatalf("session %q did not reach status %q", id, want)
+	t.Fatalf("conversation %q did not reach status %q", id, want)
 }
