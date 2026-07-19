@@ -89,6 +89,12 @@ func startHarness(
 	sessionID string,
 	resume bool,
 ) (harness.Harness, error) {
+	parsedHarness, err := harness.ParseType(string(harnessType))
+	if err != nil {
+		return nil, err
+	}
+	harnessType = parsedHarness
+
 	switch harnessType {
 	case harness.ClaudeCode:
 		var opts []harness.Option

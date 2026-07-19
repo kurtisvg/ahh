@@ -29,7 +29,10 @@ func newWrapCommand() *cobra.Command {
 
 func runWrapCommand(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
-	harnessType := harness.Type(args[0])
+	harnessType, err := harness.ParseType(args[0])
+	if err != nil {
+		return err
+	}
 
 	server, err := wrapper.Start(ctx, harnessType, defaultWrapperAddr, uuid.NewString())
 	if err != nil {

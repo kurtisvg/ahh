@@ -82,13 +82,14 @@ func (m *Manager) Create(name string, harnessType harness.Type) (Config, error) 
 	defer m.mu.Unlock()
 
 	name = strings.TrimSpace(name)
-	harnessType = harness.Type(strings.TrimSpace(string(harnessType)))
 	if name == "" {
 		return Config{}, fmt.Errorf("agent name is required")
 	}
-	if harnessType != harness.ClaudeCode {
+	parsedHarness, err := harness.ParseType(strings.TrimSpace(string(harnessType)))
+	if err != nil {
 		return Config{}, fmt.Errorf("%w: %q", ErrUnsupportedHarness, harnessType)
 	}
+	harnessType = parsedHarness
 	if m.nameExists(name, "") {
 		return Config{}, ErrNameConflict
 	}
@@ -196,7 +197,7 @@ func validateConfig(agent Config) error {
 	if strings.TrimSpace(agent.Name) == "" {
 		return fmt.Errorf("agent name is required")
 	}
-	if agent.Harness != harness.ClaudeCode {
+	if _, err := harness.ParseType(string(agent.Harness)); err != nil {
 		return fmt.Errorf("%w: %q", ErrUnsupportedHarness, agent.Harness)
 	}
 	return nil
