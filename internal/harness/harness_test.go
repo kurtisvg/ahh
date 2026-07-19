@@ -214,6 +214,28 @@ func TestClaudeArguments(t *testing.T) {
 	}
 }
 
+func TestClaudeArgumentsValidatesIsolatedSessionBeforeResume(t *testing.T) {
+	const sessionID = "fbce6273-3e75-4288-a89a-38f36f0cc0d1"
+	configDir := t.TempDir()
+	opts := options{configDir: configDir, resume: true}
+
+	if got := claudeArguments(sessionID, opts); !slices.Equal(got, []string{"--session-id", sessionID}) {
+		t.Fatalf("claudeArguments() without transcript = %q, want a new session", got)
+	}
+
+	projectDir := filepath.Join(configDir, "projects", "test-project")
+	if err := os.MkdirAll(projectDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, sessionID+".jsonl"), nil, 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	if got := claudeArguments(sessionID, opts); !slices.Equal(got, []string{"--resume", sessionID}) {
+		t.Fatalf("claudeArguments() with transcript = %q, want resume", got)
+	}
+}
+
 func TestStartRequiresSessionID(t *testing.T) {
 	if _, err := Start(t.Context(), ""); err == nil {
 		t.Fatal("Start() error = nil, want session ID error")

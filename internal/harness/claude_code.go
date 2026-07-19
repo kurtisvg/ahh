@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/creack/pty"
@@ -98,11 +99,31 @@ func Start(ctx context.Context, sessionID string, startOpts ...Option) (Harness,
 }
 
 func claudeArguments(sessionID string, opts options) []string {
-	if opts.resume {
+	if opts.resume && (opts.configDir == "" || claudeSessionExists(opts.configDir, sessionID)) {
 		return []string{"--resume", sessionID}
 	}
 
 	return []string{"--session-id", sessionID}
+}
+
+// claudeSessionExists verifies the optimistic resumable hint against Claude's
+// persisted transcript. Setup prompts can submit terminal input before Claude
+// has created a conversation, so the hint alone is not sufficient.
+func claudeSessionExists(configDir, sessionID string) bool {
+	projects, err := os.ReadDir(filepath.Join(configDir, "projects"))
+	if err != nil {
+		return false
+	}
+	for _, project := range projects {
+		if !project.IsDir() {
+			continue
+		}
+		info, err := os.Stat(filepath.Join(configDir, "projects", project.Name(), sessionID+".jsonl"))
+		if err == nil && !info.IsDir() {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *ClaudeCodeHarness) Wait(ctx context.Context) error {
