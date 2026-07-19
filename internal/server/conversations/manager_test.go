@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/kurtisvg/ahh/internal/harness"
 	"github.com/kurtisvg/ahh/internal/server/agents"
 	"github.com/kurtisvg/ahh/internal/wrapper"
 )
@@ -51,7 +52,7 @@ func TestManagerCreateTrimsName(t *testing.T) {
 	if got := conversation.Metadata().AgentID; got != testAgentID {
 		t.Fatalf("Create() AgentID = %q, want %q", got, testAgentID)
 	}
-	if gotStart.Harness != agents.ClaudeCodeHarness || gotStart.ConfigDir != "/test/agents/claude-code/config" {
+	if gotStart.Harness != harness.TypeClaudeCode || gotStart.ConfigDir != "/test/agents/claude-code/config" {
 		t.Fatalf("wrapper start = %+v, want resolved Claude harness and config directory", gotStart)
 	}
 }
@@ -538,7 +539,7 @@ func newTestAgentResolver() *testAgentResolver {
 			testAgentID: {
 				ID:      testAgentID,
 				Name:    "Claude Code",
-				Harness: agents.ClaudeCodeHarness,
+				Harness: harness.TypeClaudeCode,
 			},
 		},
 		configDir: "/test/agents/claude-code/config",

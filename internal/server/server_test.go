@@ -18,6 +18,8 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/kurtisvg/ahh/internal/harness"
+	"github.com/kurtisvg/ahh/internal/server/agents"
 	"github.com/kurtisvg/ahh/internal/server/conversations"
 	"github.com/kurtisvg/ahh/internal/wrapper"
 )
@@ -368,7 +370,7 @@ func TestServerPersistsConversationMetadata(t *testing.T) {
 	conversation := createConversationViaAPI(t, client, server, "persisted")
 	defaultAgentID := defaultAgentID(t, agentManager)
 	initialStart := factory.startRequest(0)
-	if initialStart.SessionID != conversation.ID || initialStart.Resume || initialStart.Harness != agents.ClaudeCodeHarness {
+	if initialStart.SessionID != conversation.ID || initialStart.Resume || initialStart.Harness != harness.TypeClaudeCode {
 		t.Fatalf("initial wrapper start = %+v, want id %q without resume", initialStart, conversation.ID)
 	}
 	wantConfigDir := filepath.Join(stateDir, "agents", defaultAgentID, "config")
@@ -842,6 +844,17 @@ func assertStatus(t *testing.T, resp *http.Response, want int) {
 	if resp.StatusCode != want {
 		body, _ := io.ReadAll(resp.Body)
 		t.Fatalf("status = %d, want %d, body = %q", resp.StatusCode, want, body)
+	}
+}
+
+func assertAPIError(t *testing.T, resp *http.Response, want string) {
+	t.Helper()
+	defer resp.Body.Close()
+
+	var apiErr errorResponse
+	decodeJSON(t, resp, &apiErr)
+	if apiErr.Error != want {
+		t.Fatalf("API error = %q, want %q (status %d)", apiErr.Error, want, resp.StatusCode)
 	}
 }
 
