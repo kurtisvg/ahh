@@ -26,6 +26,7 @@ func TestServeCommand(t *testing.T) {
 		},
 		{
 			name:    "starts server",
+			setup:   isolateServerState,
 			args:    []string{"serve"},
 			timeout: 100 * time.Millisecond,
 			wantErr: context.DeadlineExceeded,
@@ -35,6 +36,7 @@ func TestServeCommand(t *testing.T) {
 		},
 		{
 			name:    "returns context error when canceled",
+			setup:   isolateServerState,
 			args:    []string{"serve"},
 			timeout: 100 * time.Millisecond,
 			wantErr: context.DeadlineExceeded,
@@ -47,4 +49,11 @@ func TestServeCommand(t *testing.T) {
 	for _, tt := range tests {
 		runCommandTest(t, tt)
 	}
+}
+
+func isolateServerState(t *testing.T) {
+	t.Helper()
+	// Keep exercising the default ~/.ahh path without reading or modifying the
+	// developer's real state directory.
+	t.Setenv("HOME", t.TempDir())
 }
