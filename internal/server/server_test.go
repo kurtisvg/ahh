@@ -45,6 +45,12 @@ func TestServerHTTP(t *testing.T) {
 			wantBodyContains: "New conversation",
 		},
 		{
+			name:             "serves bookmarked Agent",
+			path:             "/agents/9e065f6f-3342-4ee3-9443-3c74ec64012d",
+			wantStatus:       http.StatusOK,
+			wantBodyContains: "New Agent",
+		},
+		{
 			name:             "serves terminal assets",
 			path:             "/assets/xterm.css",
 			wantStatus:       http.StatusOK,
@@ -67,6 +73,12 @@ func TestServerHTTP(t *testing.T) {
 			path:             "/conversations/assets/app.js",
 			wantStatus:       http.StatusOK,
 			wantBodyContains: "terminalSocketURL",
+		},
+		{
+			name:             "serves assets from bookmarked Agent",
+			path:             "/agents/assets/app.js",
+			wantStatus:       http.StatusOK,
+			wantBodyContains: "activeAgentId",
 		},
 		{
 			name:             "reports server readiness",
@@ -492,7 +504,7 @@ func TestServerTTYMissingConversation(t *testing.T) {
 	assertStatus(t, resp, http.StatusNotFound)
 }
 
-func TestTerminalPageUsesProxySafePaths(t *testing.T) {
+func TestAppPageUsesProxySafePaths(t *testing.T) {
 	page := string(readAsset(t, "assets/index.html"))
 	app := string(readAsset(t, "assets/app.js"))
 	wants := []string{
@@ -536,15 +548,105 @@ func TestAppScriptUsesConnectionLifecycleStates(t *testing.T) {
 		"setStatus('connected')",
 		"setStatus('reconnecting')",
 		"setStatus('disconnected')",
+		"const reconnectDelays = [1000, 2000, 4000, 8000, 15000]",
+		"markConnectionStable",
+		"describeSocketClose",
+		"pauseAutomaticReconnect",
+		"retryConnectionNow",
+		"stopAutomaticReconnect",
+		"activeSocket.addEventListener('close', (event)",
+		"Automatic retries paused after",
+		"Cannot reach the Ahh server",
+		"connectionBanner.dataset.source === 'data'",
 	}
 	for _, want := range wants {
 		if !strings.Contains(app, want) {
 			t.Fatalf("app script does not contain %q", want)
 		}
 	}
-	for _, unwanted := range []string{"conversation-exited", "conversation.status"} {
+	for _, unwanted := range []string{
+		"conversation-exited",
+		"conversation.status",
+		"const reconnectBaseDelay",
+		"const reconnectMaxDelay",
+	} {
 		if strings.Contains(app, unwanted) {
 			t.Fatalf("app script contains backend lifecycle state %q", unwanted)
+		}
+	}
+}
+
+func TestAppScriptResetsTerminalWhenHistoryChangesConversations(t *testing.T) {
+	app := string(readAsset(t, "assets/app.js"))
+	for _, want := range []string{
+		"const conversationChanged = conversationExists && activeConversationId !== route.id;",
+		"if (conversationChanged && currentMode === 'conversations') resetTerminalForActiveConversation();",
+	} {
+		if !strings.Contains(app, want) {
+			t.Fatalf("app script does not contain %q", want)
+		}
+	}
+}
+
+func TestAppScriptRestoresPausedReconnectAfterDataRecovery(t *testing.T) {
+	app := string(readAsset(t, "assets/app.js"))
+	for _, want := range []string{
+		"pausedReconnectMessage = message;",
+		"const terminalRetryPaused = currentMode === 'conversations' &&",
+		"showPausedReconnect();",
+	} {
+		if !strings.Contains(app, want) {
+			t.Fatalf("app script does not contain %q", want)
+		}
+	}
+}
+
+func TestAgentUIUsesIndependentSelectionAndAgentBackedConversationCreation(t *testing.T) {
+	page := string(readAsset(t, "assets/index.html"))
+	app := string(readAsset(t, "assets/app.js"))
+	styles := string(readAsset(t, "assets/app.css"))
+
+	for _, want := range []string{
+		`id="conversations-mode-button"`,
+		`id="agents-mode-button"`,
+		`id="conversation-agent-select"`,
+		`id="agent-editor-form"`,
+		`id="agent-editor-harness" class="form-control" type="text" readonly`,
+		`id="menu-button"`,
+		`id="retry-connection-button"`,
+		`id="stop-retrying-button"`,
+		`id="connection-details-button"`,
+		`Start with a name. This Agent will use Claude Code`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Fatalf("terminal page does not contain %q", want)
+		}
+	}
+
+	for _, want := range []string{
+		"activeConversationId",
+		"activeAgentId",
+		"'/agents/'",
+		"agent_id: agentId",
+		"method: 'PATCH'",
+		"agentName(conversation.agent_id)",
+		"closeSocket();",
+		"option.textContent = agent.name",
+		"body: JSON.stringify({ name, harness: 'claude-code' })",
+	} {
+		if !strings.Contains(app, want) {
+			t.Fatalf("app script does not contain %q", want)
+		}
+	}
+
+	for _, want := range []string{".mode-switch", ".agent-editor", ".menu-button"} {
+		if !strings.Contains(styles, want) {
+			t.Fatalf("app styles do not contain %q", want)
+		}
+	}
+	for _, unwanted := range []string{"agent config directory", "agent-id-input", "agent-harness-select"} {
+		if strings.Contains(strings.ToLower(page), unwanted) {
+			t.Fatalf("Agent editor exposes internal field %q", unwanted)
 		}
 	}
 }

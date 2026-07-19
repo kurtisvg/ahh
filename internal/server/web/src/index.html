@@ -8,46 +8,60 @@
   <link rel="stylesheet" href="assets/app.css">
 </head>
 <body>
-  <div class="app-shell">
-    <aside id="sidebar" class="sidebar" aria-label="Conversations">
+  <div id="app-shell" class="app-shell" data-mode="conversations">
+    <aside id="sidebar" class="sidebar" aria-label="Ahh navigation">
       <div class="sidebar-header">
         <div class="brand">Ahh</div>
-        <button id="new-conversation-button" class="icon-button" type="button" aria-label="New conversation">+</button>
+        <button id="new-item-button" class="icon-button" type="button" aria-label="New conversation">+</button>
       </div>
-      <nav class="sidebar-section" aria-labelledby="conversation-heading">
+      <div class="mode-switch" role="tablist" aria-label="Workspace">
+        <button id="conversations-mode-button" class="mode-button is-active" type="button" role="tab" aria-selected="true">Conversations</button>
+        <button id="agents-mode-button" class="mode-button" type="button" role="tab" aria-selected="false">Agents</button>
+      </div>
+      <nav id="conversation-sidebar" class="sidebar-section" aria-labelledby="conversation-heading">
         <h2 id="conversation-heading" class="section-label">Conversations</h2>
-        <div id="conversation-list" class="conversation-list"></div>
-        <div id="conversation-empty" class="conversation-empty">No conversations</div>
+        <div id="conversation-list" class="item-list"></div>
+        <div id="conversation-empty" class="list-empty">No conversations</div>
+      </nav>
+      <nav id="agent-sidebar" class="sidebar-section" aria-labelledby="agent-heading" hidden>
+        <h2 id="agent-heading" class="section-label">Agents</h2>
+        <div id="agent-list" class="item-list"></div>
+        <div id="agent-empty" class="list-empty">No Agents</div>
       </nav>
       <div class="sidebar-footer">Localhost control plane</div>
     </aside>
+    <button id="sidebar-backdrop" class="sidebar-backdrop" type="button" aria-label="Close navigation" hidden></button>
 
     <div class="workspace">
       <header class="topbar">
+        <button id="menu-button" class="icon-button menu-button" type="button" aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false">&#9776;</button>
         <div class="view-heading">
           <div id="view-title" class="view-title">Ahh</div>
           <div id="view-subtitle" class="view-subtitle">No conversation selected</div>
         </div>
-        <div class="status-surface" aria-live="polite">
+        <div id="status-surface" class="status-surface" aria-live="polite">
           <div id="status" class="status" data-state="disconnected">
             <span class="dot"></span>
             <span id="status-text">disconnected</span>
           </div>
         </div>
       </header>
-      <main class="terminal-region">
+
+      <main class="main-region">
         <div id="connection-banner" class="connection-banner" data-state="reconnecting" hidden>
-          <span id="connection-banner-text">Connecting to terminal</span>
+          <div class="connection-message-row">
+            <span id="connection-banner-text">Connecting to terminal</span>
+            <div class="connection-actions">
+              <button id="retry-connection-button" class="connection-button" type="button" hidden>Retry now</button>
+              <button id="stop-retrying-button" class="connection-button" type="button" hidden>Stop retrying</button>
+              <button id="connection-details-button" class="connection-button" type="button" aria-expanded="false" hidden>Details</button>
+            </div>
+          </div>
+          <div id="connection-details" class="connection-details" hidden></div>
         </div>
-        <section class="terminal-shell" aria-label="Conversation terminal">
+        <section id="terminal-shell" class="terminal-shell" aria-label="Conversation terminal">
           <div class="terminal-tabs" role="tablist" aria-label="Workspace views">
-            <button
-              class="terminal-tab is-active"
-              type="button"
-              role="tab"
-              aria-selected="true"
-              aria-label="Shell"
-            >
+            <button class="terminal-tab is-active" type="button" role="tab" aria-selected="true" aria-label="Shell">
               <span class="tab-icon" aria-hidden="true">&gt;_</span>
             </button>
           </div>
@@ -57,6 +71,24 @@
             </div>
             <div id="terminal"></div>
           </div>
+        </section>
+
+        <section id="agent-editor" class="agent-editor" aria-label="Agent configuration" hidden>
+          <div id="agent-editor-empty" class="editor-empty">Select an Agent to edit its configuration.</div>
+          <form id="agent-editor-form" class="editor-card" hidden>
+            <div>
+              <h2 class="editor-title">Agent configuration</h2>
+              <p class="editor-description">Rename this Agent. Its identity and harness stay fixed.</p>
+            </div>
+            <label class="field-label" for="agent-editor-name">Name</label>
+            <input id="agent-editor-name" class="form-control" name="name" type="text" autocomplete="off" required>
+            <label class="field-label" for="agent-editor-harness">Harness</label>
+            <input id="agent-editor-harness" class="form-control" type="text" readonly>
+            <div class="editor-actions">
+              <span id="agent-save-message" class="save-message" aria-live="polite"></span>
+              <button class="primary-button" type="submit">Save</button>
+            </div>
+          </form>
         </section>
       </main>
     </div>
@@ -69,9 +101,27 @@
         <button id="conversation-dialog-close" class="icon-button" type="button" aria-label="Close">&times;</button>
       </div>
       <label class="field-label" for="conversation-name-input">Name</label>
-      <input id="conversation-name-input" class="conversation-input" name="name" type="text" autocomplete="off" required>
+      <input id="conversation-name-input" class="form-control" name="name" type="text" autocomplete="off" required>
+      <label class="field-label" for="conversation-agent-select">Agent</label>
+      <select id="conversation-agent-select" class="form-control" name="agent_id" required></select>
       <div class="modal-actions">
         <button id="conversation-cancel-button" class="secondary-button" type="button">Cancel</button>
+        <button class="primary-button" type="submit">Create</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="agent-dialog" class="modal">
+    <form id="create-agent-form" class="modal-surface" method="dialog">
+      <div class="modal-header">
+        <h2 class="modal-title">New Agent</h2>
+        <button id="agent-dialog-close" class="icon-button" type="button" aria-label="Close">&times;</button>
+      </div>
+      <p class="modal-description">Start with a name. This Agent will use Claude Code and open in the configuration editor after creation.</p>
+      <label class="field-label" for="agent-name-input">Name</label>
+      <input id="agent-name-input" class="form-control" name="name" type="text" autocomplete="off" required>
+      <div class="modal-actions">
+        <button id="agent-cancel-button" class="secondary-button" type="button">Cancel</button>
         <button class="primary-button" type="submit">Create</button>
       </div>
     </form>
