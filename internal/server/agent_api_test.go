@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/kurtisvg/ahh/internal/server/agents"
 )
 
@@ -28,13 +29,14 @@ func TestServerAgentsAPI(t *testing.T) {
 	var initial agentsResponse
 	decodeJSON(t, resp, &initial)
 	_ = resp.Body.Close()
-	if len(initial.Agents) != 1 || initial.Agents[0].ID != agents.ClaudeCodeHarness {
-		t.Fatalf("initial Agents = %#v, want default Claude Code Agent", initial.Agents)
+	if len(initial.Agents) != 1 || initial.Agents[0].Name != agents.DefaultAgentName {
+		t.Fatalf("initial Agents = %#v, want default Agent", initial.Agents)
 	}
+	defaultID := initial.Agents[0].ID
 
 	created := createAgentViaAPI(t, client, server, "Build Agent", agents.ClaudeCodeHarness)
-	if created.ID != "build-agent" {
-		t.Fatalf("created Agent ID = %q, want build-agent", created.ID)
+	if id, parseErr := uuid.Parse(created.ID); parseErr != nil || id.Version() != 4 || created.ID == defaultID {
+		t.Fatalf("created Agent ID = %q, want a distinct UUID v4", created.ID)
 	}
 
 	resp = doJSONRequest(t, client, http.MethodPost, "http://"+server.Addr+"/api/agents", map[string]string{
@@ -69,7 +71,7 @@ func TestServerAgentsAPI(t *testing.T) {
 	assertAPIError(t, resp, "agent not found")
 
 	resp = doJSONRequest(t, client, http.MethodPatch, "http://"+server.Addr+"/api/agents/"+created.ID, map[string]string{
-		"name": "Claude Code",
+		"name": agents.DefaultAgentName,
 	})
 	assertStatus(t, resp, http.StatusConflict)
 	assertAPIError(t, resp, "agent name already exists")
@@ -89,7 +91,7 @@ func TestServerAgentsAPI(t *testing.T) {
 	var listed agentsResponse
 	decodeJSON(t, resp, &listed)
 	_ = resp.Body.Close()
-	if len(listed.Agents) != 2 || listed.Agents[0].Name != "Claude Code" || listed.Agents[1].Name != "Release Agent" {
+	if len(listed.Agents) != 2 || listed.Agents[0].Name != agents.DefaultAgentName || listed.Agents[1].Name != "Release Agent" {
 		t.Fatalf("listed Agents = %#v, want name-sorted Agents", listed.Agents)
 	}
 }
