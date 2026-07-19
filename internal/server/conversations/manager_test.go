@@ -307,32 +307,6 @@ func TestConversationDeletePreventsRestartAndMetadataWrites(t *testing.T) {
 	}
 }
 
-func TestRestoredConversationRequestsResumeIfPresent(t *testing.T) {
-	fake := newTestWrapper()
-	var gotStart WrapperStart
-	agentManager, agentID := newTestAgentManager(t)
-	conversation := restoreConversation(
-		Metadata{ID: "persisted", AgentID: agentID, Name: "persisted"},
-		agentManager,
-		time.Now,
-		nil,
-		func(start WrapperStart) (wrapper.Wrapper, error) {
-			gotStart = start
-			return fake, nil
-		},
-	)
-
-	if _, err := conversation.Start(t.Context()); err != nil {
-		t.Fatalf("Start() error = %v", err)
-	}
-	if !gotStart.ResumeIfPresent {
-		t.Fatalf("wrapper start = %+v, want resume if present", gotStart)
-	}
-	if err := conversation.Shutdown(t.Context()); err != nil {
-		t.Fatalf("Shutdown() error = %v", err)
-	}
-}
-
 func TestRestoredConversationUsesAgentLaunchConfigAtStart(t *testing.T) {
 	fake := newTestWrapper()
 	agentManager, agentID := newTestAgentManager(t)

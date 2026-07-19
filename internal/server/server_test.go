@@ -370,11 +370,8 @@ func TestServerPersistsConversationMetadata(t *testing.T) {
 	conversation := createConversationViaAPI(t, client, server, "persisted")
 	defaultAgentID := defaultAgentID(t, agentManager)
 	initialStart := factory.startRequest(0)
-	initialStartMatches := initialStart.SessionID == conversation.ID &&
-		!initialStart.ResumeIfPresent &&
-		initialStart.Harness == harness.TypeClaudeCode
-	if !initialStartMatches {
-		t.Fatalf("initial wrapper start = %+v, want id %q without resume", initialStart, conversation.ID)
+	if initialStart.SessionID != conversation.ID || initialStart.Harness != harness.TypeClaudeCode {
+		t.Fatalf("initial wrapper start = %+v, want id %q", initialStart, conversation.ID)
 	}
 	wantConfigDir := filepath.Join(stateDir, "agents", defaultAgentID, "config")
 	if initialStart.ConfigDir != wantConfigDir {
@@ -458,11 +455,8 @@ func TestServerPersistsConversationMetadata(t *testing.T) {
 		t.Fatalf("wrappers started after persisted tty connection = %d, want 1", got)
 	}
 	restoredStart := restartedFactory.startRequest(0)
-	restoredStartMatches := restoredStart.SessionID == conversation.ID &&
-		restoredStart.ResumeIfPresent &&
-		restoredStart.ConfigDir == wantConfigDir
-	if !restoredStartMatches {
-		t.Fatalf("restored wrapper start = %+v, want id %q with resume if present", restoredStart, conversation.ID)
+	if restoredStart.SessionID != conversation.ID || restoredStart.ConfigDir != wantConfigDir {
+		t.Fatalf("restored wrapper start = %+v, want id %q", restoredStart, conversation.ID)
 	}
 
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodDelete, "http://"+restartedServer.Addr+"/api/conversations/"+conversation.ID, nil)

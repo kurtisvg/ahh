@@ -198,7 +198,6 @@ func TestClaudeArguments(t *testing.T) {
 	}
 	tests := []struct {
 		name            string
-		resumeIfPresent bool
 		useConfigDir    bool
 		configure       func(*testing.T, string)
 		want            []string
@@ -209,20 +208,13 @@ func TestClaudeArguments(t *testing.T) {
 			want: []string{"--session-id", sessionID},
 		},
 		{
-			name:            "requires config directory to find transcript",
-			resumeIfPresent: true,
-			wantErrContains: "claude config directory is required",
+			name:         "starts conversation when transcript is absent",
+			useConfigDir: true,
+			want:         []string{"--session-id", sessionID},
 		},
 		{
-			name:            "starts conversation when transcript is absent",
-			resumeIfPresent: true,
-			useConfigDir:    true,
-			want:            []string{"--session-id", sessionID},
-		},
-		{
-			name:            "reports unreadable transcript state",
-			resumeIfPresent: true,
-			useConfigDir:    true,
+			name:         "reports unreadable transcript state",
+			useConfigDir: true,
 			configure: func(t *testing.T, configDir string) {
 				t.Helper()
 
@@ -233,11 +225,10 @@ func TestClaudeArguments(t *testing.T) {
 			wantErrContains: "read claude projects directory",
 		},
 		{
-			name:            "resumes conversation when transcript is present",
-			resumeIfPresent: true,
-			useConfigDir:    true,
-			configure:       writeTranscript([]byte("{}\n")),
-			want:            []string{"--resume", sessionID},
+			name:         "resumes conversation when transcript is present",
+			useConfigDir: true,
+			configure:    writeTranscript([]byte("{}\n")),
+			want:         []string{"--resume", sessionID},
 		},
 	}
 
@@ -251,8 +242,7 @@ func TestClaudeArguments(t *testing.T) {
 				tt.configure(t, configDir)
 			}
 			got, err := claudeArguments(sessionID, options{
-				configDir:       configDir,
-				resumeIfPresent: tt.resumeIfPresent,
+				configDir: configDir,
 			})
 			if tt.wantErrContains != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErrContains) {

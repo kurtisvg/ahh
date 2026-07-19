@@ -20,20 +20,11 @@ const (
 var claudeCommand = "claude"
 
 type options struct {
-	configDir       string
-	resumeIfPresent bool
+	configDir string
 }
 
 // Option configures a Claude Code harness process.
 type Option func(*options)
-
-// WithResumeIfPresent configures Claude Code to resume the requested session
-// when its persisted transcript exists.
-func WithResumeIfPresent() Option {
-	return func(opts *options) {
-		opts.resumeIfPresent = true
-	}
-}
 
 // WithConfigDir isolates Claude Code configuration and history in dir.
 func WithConfigDir(dir string) Option {
@@ -105,7 +96,7 @@ func Start(ctx context.Context, sessionID string, startOpts ...Option) (Harness,
 }
 
 func claudeArguments(sessionID string, opts options) ([]string, error) {
-	if !opts.resumeIfPresent {
+	if strings.TrimSpace(opts.configDir) == "" {
 		return []string{"--session-id", sessionID}, nil
 	}
 	transcriptExists, err := claudeTranscriptExists(opts.configDir, sessionID)

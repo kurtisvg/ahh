@@ -47,9 +47,6 @@ type WrapperStart struct {
 	SessionID string
 	Harness   harness.Type
 	ConfigDir string
-	// ResumeIfPresent asks the harness to resume existing state for SessionID,
-	// while allowing a new session when the harness has not persisted one.
-	ResumeIfPresent bool
 }
 
 // Conversation manages the mutable runtime state for one terminal conversation.
@@ -476,10 +473,9 @@ func (s *Conversation) Start(ctx context.Context) (wrapper.Wrapper, error) {
 		return nil, err
 	}
 	w, err := s.startWrapper(WrapperStart{
-		SessionID:       metadata.ID,
-		Harness:         launchConfig.Harness,
-		ConfigDir:       launchConfig.ConfigDir,
-		ResumeIfPresent: true,
+		SessionID: metadata.ID,
+		Harness:   launchConfig.Harness,
+		ConfigDir: launchConfig.ConfigDir,
 	})
 	if err != nil {
 		s.stateMu.Lock()
@@ -579,9 +575,6 @@ func (s *Conversation) watchWrapper(w wrapper.Wrapper) {
 // startWrapperConversation starts the configured wrapper backing a conversation.
 func startWrapperConversation(ctx context.Context, start WrapperStart) (wrapper.Wrapper, error) {
 	opts := []wrapper.Option{wrapper.WithConfigDir(start.ConfigDir)}
-	if start.ResumeIfPresent {
-		opts = append(opts, wrapper.WithResumeIfPresent())
-	}
 	w, err := wrapper.Start(
 		ctx,
 		start.Harness,

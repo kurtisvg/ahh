@@ -37,14 +37,6 @@ func TestStartRejectsInvalidSessionID(t *testing.T) {
 	}
 }
 
-func TestWithResumeIfPresent(t *testing.T) {
-	cfg := options{}
-	WithResumeIfPresent()(&cfg)
-	if !cfg.resumeIfPresent {
-		t.Fatal("resumeIfPresent = false, want true")
-	}
-}
-
 func TestWithConfigDir(t *testing.T) {
 	cfg := options{}
 	WithConfigDir("/agent/config")(&cfg)
