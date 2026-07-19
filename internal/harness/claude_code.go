@@ -2,6 +2,7 @@ package harness
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -19,17 +20,18 @@ const (
 var claudeCommand = "claude"
 
 type options struct {
-	configDir string
-	resume    bool
+	configDir       string
+	resumeIfPresent bool
 }
 
 // Option configures a Claude Code harness process.
 type Option func(*options)
 
-// WithResume configures Claude Code to resume the requested session.
-func WithResume() Option {
+// WithResumeIfPresent configures Claude Code to resume the requested session
+// when its persisted transcript exists.
+func WithResumeIfPresent() Option {
 	return func(opts *options) {
-		opts.resume = true
+		opts.resumeIfPresent = true
 	}
 }
 
@@ -59,9 +61,13 @@ func Start(ctx context.Context, sessionID string, startOpts ...Option) (Harness,
 	for _, opt := range startOpts {
 		opt(&opts)
 	}
+	args, err := claudeArguments(sessionID, opts)
+	if err != nil {
+		return nil, fmt.Errorf("resolve claude-code session: %w", err)
+	}
 
 	ctx, cancel := context.WithCancel(ctx)
-	cmd := exec.CommandContext(ctx, claudeCommand, claudeArguments(sessionID, opts)...)
+	cmd := exec.CommandContext(ctx, claudeCommand, args...)
 	cmd.Env = claudeEnvironment(os.Environ(), opts.configDir)
 
 	ptyFile, err := pty.StartWithSize(cmd, &pty.Winsize{
@@ -98,32 +104,53 @@ func Start(ctx context.Context, sessionID string, startOpts ...Option) (Harness,
 	return h, nil
 }
 
-func claudeArguments(sessionID string, opts options) []string {
-	if opts.resume && (opts.configDir == "" || claudeSessionExists(opts.configDir, sessionID)) {
-		return []string{"--resume", sessionID}
+func claudeArguments(sessionID string, opts options) ([]string, error) {
+	if !opts.resumeIfPresent {
+		return []string{"--session-id", sessionID}, nil
+	}
+	transcriptExists, err := claudeTranscriptExists(opts.configDir, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if transcriptExists {
+		return []string{"--resume", sessionID}, nil
 	}
 
-	return []string{"--session-id", sessionID}
+	return []string{"--session-id", sessionID}, nil
 }
 
-// claudeSessionExists verifies the optimistic resumable hint against Claude's
-// persisted transcript. Setup prompts can submit terminal input before Claude
-// has created a conversation, so the hint alone is not sufficient.
-func claudeSessionExists(configDir, sessionID string) bool {
-	projects, err := os.ReadDir(filepath.Join(configDir, "projects"))
+func claudeTranscriptExists(configDir, sessionID string) (bool, error) {
+	if strings.TrimSpace(configDir) == "" {
+		return false, fmt.Errorf("claude config directory is required to find a transcript")
+	}
+	projectsDir := filepath.Join(configDir, "projects")
+	projects, err := os.ReadDir(projectsDir)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
 	if err != nil {
-		return false
+		return false, fmt.Errorf("read claude projects directory %q: %w", projectsDir, err)
 	}
 	for _, project := range projects {
 		if !project.IsDir() {
 			continue
 		}
-		info, err := os.Stat(filepath.Join(configDir, "projects", project.Name(), sessionID+".jsonl"))
-		if err == nil && !info.IsDir() {
-			return true
+		transcriptPath := filepath.Join(projectsDir, project.Name(), sessionID+".jsonl")
+		info, err := os.Stat(transcriptPath)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
 		}
+		if err != nil {
+			return false, fmt.Errorf("stat claude transcript %q: %w", transcriptPath, err)
+		}
+		if info.IsDir() {
+			return false, fmt.Errorf("claude transcript %q is not a file", transcriptPath)
+		}
+
+		return true, nil
 	}
-	return false
+
+	return false, nil
 }
 
 func (h *ClaudeCodeHarness) Wait(ctx context.Context) error {

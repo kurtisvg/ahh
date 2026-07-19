@@ -181,58 +181,92 @@ func fakeHarness(t *testing.T, ctx context.Context, mode string) (Harness, error
 }
 
 func TestClaudeArguments(t *testing.T) {
+	const sessionID = "fbce6273-3e75-4288-a89a-38f36f0cc0d1"
+	writeTranscript := func(data []byte) func(*testing.T, string) {
+		return func(t *testing.T, configDir string) {
+			t.Helper()
+
+			projectDir := filepath.Join(configDir, "projects", "test-project")
+			if err := os.MkdirAll(projectDir, 0o700); err != nil {
+				t.Fatalf("MkdirAll() error = %v", err)
+			}
+			transcriptPath := filepath.Join(projectDir, sessionID+".jsonl")
+			if err := os.WriteFile(transcriptPath, data, 0o600); err != nil {
+				t.Fatalf("WriteFile() error = %v", err)
+			}
+		}
+	}
 	tests := []struct {
-		name string
-		id   string
-		opts []Option
-		want []string
+		name            string
+		resumeIfPresent bool
+		useConfigDir    bool
+		configure       func(*testing.T, string)
+		want            []string
+		wantErrContains string
 	}{
 		{
 			name: "starts conversation",
-			id:   "session-id",
-			want: []string{"--session-id", "session-id"},
+			want: []string{"--session-id", sessionID},
 		},
 		{
-			name: "resumes identified conversation",
-			id:   "session-id",
-			opts: []Option{WithResume()},
-			want: []string{"--resume", "session-id"},
+			name:            "requires config directory to find transcript",
+			resumeIfPresent: true,
+			wantErrContains: "claude config directory is required",
+		},
+		{
+			name:            "starts conversation when transcript is absent",
+			resumeIfPresent: true,
+			useConfigDir:    true,
+			want:            []string{"--session-id", sessionID},
+		},
+		{
+			name:            "reports unreadable transcript state",
+			resumeIfPresent: true,
+			useConfigDir:    true,
+			configure: func(t *testing.T, configDir string) {
+				t.Helper()
+
+				if err := os.WriteFile(filepath.Join(configDir, "projects"), nil, 0o600); err != nil {
+					t.Fatalf("WriteFile() error = %v", err)
+				}
+			},
+			wantErrContains: "read claude projects directory",
+		},
+		{
+			name:            "resumes conversation when transcript is present",
+			resumeIfPresent: true,
+			useConfigDir:    true,
+			configure:       writeTranscript([]byte("{}\n")),
+			want:            []string{"--resume", sessionID},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg := options{}
-			for _, opt := range tt.opts {
-				opt(&cfg)
+			configDir := ""
+			if tt.useConfigDir {
+				configDir = t.TempDir()
 			}
-			got := claudeArguments(tt.id, cfg)
+			if tt.configure != nil {
+				tt.configure(t, configDir)
+			}
+			got, err := claudeArguments(sessionID, options{
+				configDir:       configDir,
+				resumeIfPresent: tt.resumeIfPresent,
+			})
+			if tt.wantErrContains != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErrContains) {
+					t.Fatalf("claudeArguments() error = %v, want containing %q", err, tt.wantErrContains)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("claudeArguments() error = %v", err)
+			}
 			if !slices.Equal(got, tt.want) {
 				t.Fatalf("claudeArguments() = %q, want %q", got, tt.want)
 			}
 		})
-	}
-}
-
-func TestClaudeArgumentsValidatesIsolatedSessionBeforeResume(t *testing.T) {
-	const sessionID = "fbce6273-3e75-4288-a89a-38f36f0cc0d1"
-	configDir := t.TempDir()
-	opts := options{configDir: configDir, resume: true}
-
-	if got := claudeArguments(sessionID, opts); !slices.Equal(got, []string{"--session-id", sessionID}) {
-		t.Fatalf("claudeArguments() without transcript = %q, want a new session", got)
-	}
-
-	projectDir := filepath.Join(configDir, "projects", "test-project")
-	if err := os.MkdirAll(projectDir, 0o700); err != nil {
-		t.Fatalf("MkdirAll() error = %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(projectDir, sessionID+".jsonl"), nil, 0o600); err != nil {
-		t.Fatalf("WriteFile() error = %v", err)
-	}
-
-	if got := claudeArguments(sessionID, opts); !slices.Equal(got, []string{"--resume", sessionID}) {
-		t.Fatalf("claudeArguments() with transcript = %q, want resume", got)
 	}
 }
 

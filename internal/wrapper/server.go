@@ -22,17 +22,18 @@ type Wrapper interface {
 }
 
 type options struct {
-	configDir string
-	resume    bool
+	configDir       string
+	resumeIfPresent bool
 }
 
 // Option configures a wrapper and its harness process.
 type Option func(*options)
 
-// WithResume configures the harness to resume the requested session.
-func WithResume() Option {
+// WithResumeIfPresent configures the harness to resume the requested session
+// when the harness has persisted it.
+func WithResumeIfPresent() Option {
 	return func(opts *options) {
-		opts.resume = true
+		opts.resumeIfPresent = true
 	}
 }
 
@@ -105,8 +106,8 @@ func startHarness(
 	switch harnessType {
 	case harness.TypeClaudeCode:
 		var opts []harness.Option
-		if cfg.resume {
-			opts = append(opts, harness.WithResume())
+		if cfg.resumeIfPresent {
+			opts = append(opts, harness.WithResumeIfPresent())
 		}
 		if cfg.configDir != "" {
 			opts = append(opts, harness.WithConfigDir(cfg.configDir))

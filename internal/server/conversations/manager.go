@@ -37,7 +37,6 @@ type Metadata struct {
 	AgentID      string    `json:"agent_id"`
 	Name         string    `json:"name"`
 	Status       Status    `json:"status"`
-	Resumable    bool      `json:"resumable,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`
 	LastActiveAt time.Time `json:"last_active_at"`
 }
@@ -48,7 +47,9 @@ type WrapperStart struct {
 	SessionID string
 	Harness   harness.Type
 	ConfigDir string
-	Resume    bool
+	// ResumeIfPresent asks the harness to resume existing state for SessionID,
+	// while allowing a new session when the harness has not persisted one.
+	ResumeIfPresent bool
 }
 
 // Conversation manages the mutable runtime state for one terminal conversation.
@@ -440,41 +441,6 @@ func (s *Conversation) Touch() error {
 	return nil
 }
 
-// MarkResumable records that Claude has received input for this conversation.
-func (s *Conversation) MarkResumable() error {
-	s.operationMu.Lock()
-	defer s.operationMu.Unlock()
-
-	if s.deleted {
-		return fmt.Errorf("conversation is deleted")
-	}
-
-	s.stateMu.Lock()
-	if s.metadata.Resumable {
-		s.stateMu.Unlock()
-		return nil
-	}
-	metadata := s.metadata
-	metadata.Resumable = true
-	store := s.store
-	if store == nil {
-		s.metadata.Resumable = true
-	}
-	s.stateMu.Unlock()
-
-	if store == nil {
-		return nil
-	}
-	if err := store.Save(metadata); err != nil {
-		return fmt.Errorf("persist resumable conversation: %w", err)
-	}
-	s.stateMu.Lock()
-	s.metadata.Resumable = true
-	s.stateMu.Unlock()
-
-	return nil
-}
-
 // Wrapper returns the current wrapper and lifecycle status for this conversation.
 func (s *Conversation) Wrapper() (wrapper.Wrapper, Status) {
 	s.stateMu.Lock()
@@ -510,10 +476,10 @@ func (s *Conversation) Start(ctx context.Context) (wrapper.Wrapper, error) {
 		return nil, err
 	}
 	w, err := s.startWrapper(WrapperStart{
-		SessionID: metadata.ID,
-		Harness:   launchConfig.Harness,
-		ConfigDir: launchConfig.ConfigDir,
-		Resume:    metadata.Resumable,
+		SessionID:       metadata.ID,
+		Harness:         launchConfig.Harness,
+		ConfigDir:       launchConfig.ConfigDir,
+		ResumeIfPresent: true,
 	})
 	if err != nil {
 		s.stateMu.Lock()
@@ -613,8 +579,8 @@ func (s *Conversation) watchWrapper(w wrapper.Wrapper) {
 // startWrapperConversation starts the configured wrapper backing a conversation.
 func startWrapperConversation(ctx context.Context, start WrapperStart) (wrapper.Wrapper, error) {
 	opts := []wrapper.Option{wrapper.WithConfigDir(start.ConfigDir)}
-	if start.Resume {
-		opts = append(opts, wrapper.WithResume())
+	if start.ResumeIfPresent {
+		opts = append(opts, wrapper.WithResumeIfPresent())
 	}
 	w, err := wrapper.Start(
 		ctx,

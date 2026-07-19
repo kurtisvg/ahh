@@ -37,11 +37,11 @@ func TestStartRejectsInvalidSessionID(t *testing.T) {
 	}
 }
 
-func TestWithResume(t *testing.T) {
+func TestWithResumeIfPresent(t *testing.T) {
 	cfg := options{}
-	WithResume()(&cfg)
-	if !cfg.resume {
-		t.Fatal("resume = false, want true")
+	WithResumeIfPresent()(&cfg)
+	if !cfg.resumeIfPresent {
+		t.Fatal("resumeIfPresent = false, want true")
 	}
 }
 

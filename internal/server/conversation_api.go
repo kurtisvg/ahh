@@ -131,7 +131,7 @@ func (s *Server) serveTTY(w http.ResponseWriter, r *http.Request) {
 
 	errCh := make(chan error, 2)
 	go func() {
-		errCh <- copyBrowserToWrapper(ctx, wrapperConn, browserConn, conversation)
+		errCh <- copyBrowserToWrapper(ctx, wrapperConn, browserConn)
 	}()
 	go func() {
 		errCh <- copyWrapperToBrowser(ctx, browserConn, wrapperConn)
@@ -156,7 +156,6 @@ func copyBrowserToWrapper(
 	ctx context.Context,
 	dst *websocket.Conn,
 	src *websocket.Conn,
-	conversation *conversations.Conversation,
 ) error {
 	for {
 		messageType, data, err := src.Read(ctx)
@@ -166,28 +165,7 @@ func copyBrowserToWrapper(
 		if err := dst.Write(ctx, messageType, data); err != nil {
 			return err
 		}
-		if submittedTerminalInput(messageType, data) {
-			if err := conversation.MarkResumable(); err != nil {
-				return err
-			}
-		}
 	}
-}
-
-func submittedTerminalInput(messageType websocket.MessageType, data []byte) bool {
-	if messageType != websocket.MessageText {
-		return false
-	}
-
-	var msg struct {
-		Type string `json:"type"`
-		Data string `json:"data"`
-	}
-	if err := json.Unmarshal(data, &msg); err != nil {
-		return false
-	}
-
-	return msg.Type == "input" && strings.ContainsAny(msg.Data, "\r\n")
 }
 
 // copyWrapperToBrowser forwards wrapper PTY output to the browser until one side closes.

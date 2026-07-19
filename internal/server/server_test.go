@@ -370,7 +370,10 @@ func TestServerPersistsConversationMetadata(t *testing.T) {
 	conversation := createConversationViaAPI(t, client, server, "persisted")
 	defaultAgentID := defaultAgentID(t, agentManager)
 	initialStart := factory.startRequest(0)
-	if initialStart.SessionID != conversation.ID || initialStart.Resume || initialStart.Harness != harness.TypeClaudeCode {
+	initialStartMatches := initialStart.SessionID == conversation.ID &&
+		!initialStart.ResumeIfPresent &&
+		initialStart.Harness == harness.TypeClaudeCode
+	if !initialStartMatches {
 		t.Fatalf("initial wrapper start = %+v, want id %q without resume", initialStart, conversation.ID)
 	}
 	wantConfigDir := filepath.Join(stateDir, "agents", defaultAgentID, "config")
@@ -380,17 +383,15 @@ func TestServerPersistsConversationMetadata(t *testing.T) {
 	if conversation.AgentID != defaultAgentID {
 		t.Fatalf("created conversation AgentID = %q, want %q", conversation.AgentID, defaultAgentID)
 	}
-	createdConversation, ok := manager.Get(conversation.ID)
-	if !ok {
-		t.Fatalf("created conversation %q not found", conversation.ID)
-	}
-	if err := createdConversation.MarkResumable(); err != nil {
-		t.Fatalf("MarkResumable() error = %v", err)
-	}
 	shutdownTestServer(t, server)
 
-	if _, err := os.Stat(filepath.Join(stateDir, "conversations", conversation.ID+".json")); err != nil {
-		t.Fatalf("stat persisted conversation metadata: %v", err)
+	metadataPath := filepath.Join(stateDir, "conversations", conversation.ID+".json")
+	persistedMetadata, err := os.ReadFile(metadataPath)
+	if err != nil {
+		t.Fatalf("read persisted conversation metadata: %v", err)
+	}
+	if bytes.Contains(persistedMetadata, []byte(`"resumable"`)) {
+		t.Fatalf("persisted conversation metadata contains obsolete resumable state: %s", persistedMetadata)
 	}
 
 	restartedFactory := &fakeWrapperFactory{
@@ -457,8 +458,11 @@ func TestServerPersistsConversationMetadata(t *testing.T) {
 		t.Fatalf("wrappers started after persisted tty connection = %d, want 1", got)
 	}
 	restoredStart := restartedFactory.startRequest(0)
-	if restoredStart.SessionID != conversation.ID || !restoredStart.Resume || restoredStart.ConfigDir != wantConfigDir {
-		t.Fatalf("restored wrapper start = %+v, want id %q with resume", restoredStart, conversation.ID)
+	restoredStartMatches := restoredStart.SessionID == conversation.ID &&
+		restoredStart.ResumeIfPresent &&
+		restoredStart.ConfigDir == wantConfigDir
+	if !restoredStartMatches {
+		t.Fatalf("restored wrapper start = %+v, want id %q with resume if present", restoredStart, conversation.ID)
 	}
 
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodDelete, "http://"+restartedServer.Addr+"/api/conversations/"+conversation.ID, nil)
@@ -471,7 +475,7 @@ func TestServerPersistsConversationMetadata(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	assertStatus(t, resp, http.StatusNoContent)
-	if _, err := os.Stat(filepath.Join(stateDir, "conversations", conversation.ID+".json")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(metadataPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("stat deleted conversation metadata error = %v, want not exist", err)
 	}
 }
@@ -492,45 +496,6 @@ func TestServerTTYMissingConversation(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	assertStatus(t, resp, http.StatusNotFound)
-}
-
-func TestSubmittedTerminalInput(t *testing.T) {
-	tests := []struct {
-		name        string
-		messageType websocket.MessageType
-		data        string
-		want        bool
-	}{
-		{
-			name:        "submitted input",
-			messageType: websocket.MessageText,
-			data:        `{"type":"input","data":"prompt\r"}`,
-			want:        true,
-		},
-		{
-			name:        "typing without submission",
-			messageType: websocket.MessageText,
-			data:        `{"type":"input","data":"prompt"}`,
-		},
-		{
-			name:        "terminal resize",
-			messageType: websocket.MessageText,
-			data:        `{"type":"resize","rows":24,"cols":80}`,
-		},
-		{
-			name:        "binary message",
-			messageType: websocket.MessageBinary,
-			data:        `{"type":"input","data":"prompt\r"}`,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := submittedTerminalInput(tt.messageType, []byte(tt.data)); got != tt.want {
-				t.Fatalf("submittedTerminalInput() = %t, want %t", got, tt.want)
-			}
-		})
-	}
 }
 
 func TestTerminalPageUsesProxySafePaths(t *testing.T) {

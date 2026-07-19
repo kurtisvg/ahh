@@ -307,34 +307,7 @@ func TestConversationDeletePreventsRestartAndMetadataWrites(t *testing.T) {
 	}
 }
 
-func TestConversationMarkResumablePersistsOnce(t *testing.T) {
-	store := &testMetadataStore{}
-	agentManager, agentID := newTestAgentManager(t)
-	conversation := restoreConversation(
-		Metadata{ID: "persisted", AgentID: agentID, Name: "persisted"},
-		agentManager,
-		time.Now,
-		store,
-		func(WrapperStart) (wrapper.Wrapper, error) {
-			return newTestWrapper(), nil
-		},
-	)
-
-	if err := conversation.MarkResumable(); err != nil {
-		t.Fatalf("MarkResumable() error = %v", err)
-	}
-	if err := conversation.MarkResumable(); err != nil {
-		t.Fatalf("second MarkResumable() error = %v", err)
-	}
-	if !conversation.Metadata().Resumable {
-		t.Fatal("conversation resumable = false, want true")
-	}
-	if store.saveCalls != 1 {
-		t.Fatalf("metadata saves = %d, want 1", store.saveCalls)
-	}
-}
-
-func TestUntouchedRestoredConversationStartsWithoutResume(t *testing.T) {
+func TestRestoredConversationRequestsResumeIfPresent(t *testing.T) {
 	fake := newTestWrapper()
 	var gotStart WrapperStart
 	agentManager, agentID := newTestAgentManager(t)
@@ -352,8 +325,8 @@ func TestUntouchedRestoredConversationStartsWithoutResume(t *testing.T) {
 	if _, err := conversation.Start(t.Context()); err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
-	if gotStart.Resume {
-		t.Fatalf("wrapper start = %+v, want new conversation", gotStart)
+	if !gotStart.ResumeIfPresent {
+		t.Fatalf("wrapper start = %+v, want resume if present", gotStart)
 	}
 	if err := conversation.Shutdown(t.Context()); err != nil {
 		t.Fatalf("Shutdown() error = %v", err)
