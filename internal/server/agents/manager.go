@@ -6,10 +6,14 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"unicode"
+
+	"github.com/google/uuid"
 )
 
-const ClaudeCodeHarness = "claude-code"
+const (
+	ClaudeCodeHarness = "claude-code"
+	DefaultAgentName  = "Default"
+)
 
 var (
 	ErrNotFound           = errors.New("agent not found")
@@ -60,8 +64,8 @@ func NewManager(stateDir string) (*Manager, error) {
 
 	if len(manager.agents) == 0 {
 		defaultAgent := Config{
-			ID:      ClaudeCodeHarness,
-			Name:    "Claude Code",
+			ID:      uuid.NewString(),
+			Name:    DefaultAgentName,
 			Harness: ClaudeCodeHarness,
 		}
 		if err := manager.store.Save(defaultAgent); err != nil {
@@ -90,13 +94,12 @@ func (m *Manager) Create(name, harness string) (Config, error) {
 		return Config{}, ErrNameConflict
 	}
 
-	idBase := normalizeID(name)
-	id := idBase
-	for suffix := 2; ; suffix++ {
+	id := uuid.NewString()
+	for {
 		if _, exists := m.agents[id]; !exists {
 			break
 		}
-		id = fmt.Sprintf("%s-%d", idBase, suffix)
+		id = uuid.NewString()
 	}
 
 	agent := Config{ID: id, Name: name, Harness: harness}
@@ -185,7 +188,8 @@ func (m *Manager) nameExists(name, exceptID string) bool {
 }
 
 func validateConfig(agent Config) error {
-	if agent.ID == "" || normalizeID(agent.ID) != agent.ID {
+	id, err := uuid.Parse(agent.ID)
+	if err != nil || id.Version() != 4 || id.String() != agent.ID {
 		return fmt.Errorf("invalid agent id %q", agent.ID)
 	}
 	if strings.TrimSpace(agent.Name) == "" {
@@ -195,27 +199,4 @@ func validateConfig(agent Config) error {
 		return fmt.Errorf("%w: %q", ErrUnsupportedHarness, agent.Harness)
 	}
 	return nil
-}
-
-func normalizeID(name string) string {
-	var id strings.Builder
-	separatorPending := false
-	for _, r := range strings.ToLower(strings.TrimSpace(name)) {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
-			if separatorPending && id.Len() > 0 {
-				id.WriteByte('-')
-			}
-			id.WriteRune(r)
-			separatorPending = false
-		case unicode.IsSpace(r), unicode.IsPunct(r), unicode.IsSymbol(r):
-			separatorPending = true
-		default:
-			separatorPending = true
-		}
-	}
-	if id.Len() == 0 {
-		return "agent"
-	}
-	return id.String()
 }

@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/google/uuid"
 )
 
 func TestNewManagerCreatesAndReloadsDefaultAgent(t *testing.T) {
@@ -17,13 +19,12 @@ func TestNewManagerCreatesAndReloadsDefaultAgent(t *testing.T) {
 		t.Fatalf("NewManager() error = %v", err)
 	}
 
-	want := []Config{{
-		ID:      "claude-code",
-		Name:    "Claude Code",
-		Harness: "claude-code",
-	}}
-	if got := manager.List(); !reflect.DeepEqual(got, want) {
-		t.Fatalf("List() = %#v, want %#v", got, want)
+	want := manager.List()
+	if len(want) != 1 || want[0].Name != DefaultAgentName || want[0].Harness != ClaudeCodeHarness {
+		t.Fatalf("List() = %#v, want one default Claude Code Agent", want)
+	}
+	if id, err := uuid.Parse(want[0].ID); err != nil || id.Version() != 4 {
+		t.Fatalf("default Agent ID = %q, want UUID v4", want[0].ID)
 	}
 
 	reloaded, err := NewManager(stateDir)
@@ -35,7 +36,7 @@ func TestNewManagerCreatesAndReloadsDefaultAgent(t *testing.T) {
 	}
 }
 
-func TestManagerCreateGeneratesStableUniqueIDsAndSortsByName(t *testing.T) {
+func TestManagerCreateGeneratesStableUUIDsAndSortsByName(t *testing.T) {
 	manager, err := NewManager(t.TempDir())
 	if err != nil {
 		t.Fatalf("NewManager() error = %v", err)
@@ -54,18 +55,18 @@ func TestManagerCreateGeneratesStableUniqueIDsAndSortsByName(t *testing.T) {
 		t.Fatalf("Create(fallback) error = %v", err)
 	}
 
-	if first.ID != "build-test" {
-		t.Errorf("first ID = %q, want build-test", first.ID)
+	for _, agent := range []Config{first, second, fallback} {
+		id, parseErr := uuid.Parse(agent.ID)
+		if parseErr != nil || id.Version() != 4 {
+			t.Errorf("Agent ID = %q, want UUID v4", agent.ID)
+		}
 	}
-	if second.ID != "build-test-2" {
-		t.Errorf("second ID = %q, want build-test-2", second.ID)
-	}
-	if fallback.ID != "agent" {
-		t.Errorf("fallback ID = %q, want agent", fallback.ID)
+	if first.ID == second.ID || first.ID == fallback.ID || second.ID == fallback.ID {
+		t.Fatalf("created Agent IDs are not unique: %q, %q, %q", first.ID, second.ID, fallback.ID)
 	}
 
 	agents := manager.List()
-	wantNames := []string{"Build & Test", "Build Test!", "Claude Code", "開発"}
+	wantNames := []string{"Build & Test", "Build Test!", DefaultAgentName, "開発"}
 	for i, want := range wantNames {
 		if agents[i].Name != want {
 			t.Fatalf("List()[%d].Name = %q, want %q; full list: %#v", i, agents[i].Name, want, agents)
@@ -79,7 +80,7 @@ func TestManagerRejectsDuplicateNamesAndUnsupportedHarnesses(t *testing.T) {
 		t.Fatalf("NewManager() error = %v", err)
 	}
 
-	if _, err := manager.Create(" claude code ", ClaudeCodeHarness); !errors.Is(err, ErrNameConflict) {
+	if _, err := manager.Create(" default ", ClaudeCodeHarness); !errors.Is(err, ErrNameConflict) {
 		t.Fatalf("Create(duplicate) error = %v, want ErrNameConflict", err)
 	}
 	if _, err := manager.Create("Codex", "codex"); !errors.Is(err, ErrUnsupportedHarness) {
@@ -94,7 +95,11 @@ func TestManagerRenamePreservesIDHarnessAndConfigDirectory(t *testing.T) {
 		t.Fatalf("NewManager() error = %v", err)
 	}
 
-	before, ok := manager.Get(ClaudeCodeHarness)
+	listed := manager.List()
+	if len(listed) != 1 {
+		t.Fatalf("List() = %#v, want one default Agent", listed)
+	}
+	before, ok := manager.Get(listed[0].ID)
 	if !ok {
 		t.Fatal("default Agent was not found")
 	}
@@ -120,18 +125,24 @@ func TestManagerRenamePreservesIDHarnessAndConfigDirectory(t *testing.T) {
 
 func TestAgentFilesAndDirectoriesUsePrivatePermissions(t *testing.T) {
 	stateDir := t.TempDir()
-	if _, err := NewManager(stateDir); err != nil {
+	manager, err := NewManager(stateDir)
+	if err != nil {
 		t.Fatalf("NewManager() error = %v", err)
 	}
 
+	listed := manager.List()
+	if len(listed) != 1 {
+		t.Fatalf("List() = %#v, want one default Agent", listed)
+	}
+	agentID := listed[0].ID
 	paths := []struct {
 		path string
 		mode os.FileMode
 	}{
 		{filepath.Join(stateDir, "agents"), 0o700},
-		{filepath.Join(stateDir, "agents", ClaudeCodeHarness), 0o700},
-		{filepath.Join(stateDir, "agents", ClaudeCodeHarness, "config"), 0o700},
-		{filepath.Join(stateDir, "agents", ClaudeCodeHarness, "agent.json"), 0o600},
+		{filepath.Join(stateDir, "agents", agentID), 0o700},
+		{filepath.Join(stateDir, "agents", agentID, "config"), 0o700},
+		{filepath.Join(stateDir, "agents", agentID, "agent.json"), 0o600},
 	}
 	for _, item := range paths {
 		info, err := os.Stat(item.path)
@@ -146,11 +157,13 @@ func TestAgentFilesAndDirectoriesUsePrivatePermissions(t *testing.T) {
 
 func TestNewManagerRejectsDirectoryAndConfigIDMismatch(t *testing.T) {
 	stateDir := t.TempDir()
-	dir := filepath.Join(stateDir, "agents", "expected")
+	const expectedID = "9e065f6f-3342-4ee3-9443-3c74ec64012d"
+	const differentID = "92ec4ca3-1a21-4c50-97c4-a78169ca568f"
+	dir := filepath.Join(stateDir, "agents", expectedID)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
-	data, err := json.Marshal(Config{ID: "different", Name: "Different", Harness: ClaudeCodeHarness})
+	data, err := json.Marshal(Config{ID: differentID, Name: "Different", Harness: ClaudeCodeHarness})
 	if err != nil {
 		t.Fatalf("Marshal() error = %v", err)
 	}
@@ -160,5 +173,24 @@ func TestNewManagerRejectsDirectoryAndConfigIDMismatch(t *testing.T) {
 
 	if _, err := NewManager(stateDir); err == nil {
 		t.Fatal("NewManager() error = nil, want ID mismatch")
+	}
+}
+
+func TestNewManagerRejectsLegacyNonUUIDAgentIDs(t *testing.T) {
+	stateDir := t.TempDir()
+	dir := filepath.Join(stateDir, "agents", "claude-code")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	data, err := json.Marshal(Config{ID: "claude-code", Name: DefaultAgentName, Harness: ClaudeCodeHarness})
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "agent.json"), data, 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	if _, err := NewManager(stateDir); err == nil {
+		t.Fatal("NewManager() error = nil, want invalid legacy Agent ID")
 	}
 }
