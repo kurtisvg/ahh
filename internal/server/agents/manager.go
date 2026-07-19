@@ -65,7 +65,7 @@ func NewManager(stateDir string) (*Manager, error) {
 		defaultAgent := Config{
 			ID:      uuid.NewString(),
 			Name:    DefaultAgentName,
-			Harness: harness.ClaudeCode,
+			Harness: harness.TypeClaudeCode,
 		}
 		if err := manager.store.Save(defaultAgent); err != nil {
 			return nil, fmt.Errorf("create default agent: %w", err)

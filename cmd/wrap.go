@@ -20,7 +20,7 @@ func newWrapCommand() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Args:          cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
-		ValidArgs:     []string{string(harness.ClaudeCode)},
+		ValidArgs:     []string{string(harness.TypeClaudeCode)},
 		RunE:          runWrapCommand,
 	}
 

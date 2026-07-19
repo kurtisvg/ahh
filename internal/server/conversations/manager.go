@@ -16,7 +16,7 @@ import (
 
 const (
 	defaultWrapperAddr    = "127.0.0.1:0"
-	defaultWrapperHarness = harness.ClaudeCode
+	defaultWrapperHarness = harness.TypeClaudeCode
 )
 
 // Status is the lifecycle state reported for a user-created conversation.

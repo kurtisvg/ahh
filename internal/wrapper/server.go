@@ -96,7 +96,7 @@ func startHarness(
 	harnessType = parsedHarness
 
 	switch harnessType {
-	case harness.ClaudeCode:
+	case harness.TypeClaudeCode:
 		var opts []harness.Option
 		if resume {
 			opts = append(opts, harness.WithResume())

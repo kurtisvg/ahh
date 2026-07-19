@@ -8,8 +8,8 @@ import (
 // Type identifies a harness implementation.
 type Type string
 
-// ClaudeCode identifies the Claude Code harness.
-const ClaudeCode Type = "claude-code"
+// TypeClaudeCode identifies the Claude Code harness.
+const TypeClaudeCode Type = "claude-code"
 
 // ErrUnsupportedType indicates that a string does not identify a supported harness.
 var ErrUnsupportedType = errors.New("unsupported harness type")
@@ -18,7 +18,7 @@ var ErrUnsupportedType = errors.New("unsupported harness type")
 func ParseType(value string) (Type, error) {
 	harnessType := Type(value)
 	switch harnessType {
-	case ClaudeCode:
+	case TypeClaudeCode:
 		return harnessType, nil
 	default:
 		return "", fmt.Errorf("%w: %q", ErrUnsupportedType, value)

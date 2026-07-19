@@ -12,7 +12,7 @@ func TestParseType(t *testing.T) {
 		want    Type
 		wantErr bool
 	}{
-		{name: "Claude Code", value: "claude-code", want: ClaudeCode},
+		{name: "claude code", value: "claude-code", want: TypeClaudeCode},
 		{name: "empty", value: "", wantErr: true},
 		{name: "unsupported", value: "codex", wantErr: true},
 		{name: "surrounding whitespace", value: " claude-code ", wantErr: true},

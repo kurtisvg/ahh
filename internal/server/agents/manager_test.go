@@ -21,7 +21,7 @@ func TestNewManagerCreatesAndReloadsDefaultAgent(t *testing.T) {
 	}
 
 	want := manager.List()
-	if len(want) != 1 || want[0].Name != DefaultAgentName || want[0].Harness != harness.ClaudeCode {
+	if len(want) != 1 || want[0].Name != DefaultAgentName || want[0].Harness != harness.TypeClaudeCode {
 		t.Fatalf("List() = %#v, want one default Claude Code Agent", want)
 	}
 	if id, err := uuid.Parse(want[0].ID); err != nil || id.Version() != 4 {
@@ -43,15 +43,15 @@ func TestManagerCreateGeneratesStableUUIDsAndSortsByName(t *testing.T) {
 		t.Fatalf("NewManager() error = %v", err)
 	}
 
-	first, err := manager.Create("  Build & Test  ", harness.ClaudeCode)
+	first, err := manager.Create("  Build & Test  ", harness.TypeClaudeCode)
 	if err != nil {
 		t.Fatalf("Create(first) error = %v", err)
 	}
-	second, err := manager.Create("Build Test!", harness.ClaudeCode)
+	second, err := manager.Create("Build Test!", harness.TypeClaudeCode)
 	if err != nil {
 		t.Fatalf("Create(second) error = %v", err)
 	}
-	fallback, err := manager.Create("開発", harness.ClaudeCode)
+	fallback, err := manager.Create("開発", harness.TypeClaudeCode)
 	if err != nil {
 		t.Fatalf("Create(fallback) error = %v", err)
 	}
@@ -85,12 +85,12 @@ func TestManagerCreateRejectsInvalidConfigs(t *testing.T) {
 		{
 			name:        "blank name",
 			agentName:   " \t ",
-			harnessType: harness.ClaudeCode,
+			harnessType: harness.TypeClaudeCode,
 		},
 		{
 			name:        "duplicate name",
 			agentName:   " default ",
-			harnessType: harness.ClaudeCode,
+			harnessType: harness.TypeClaudeCode,
 			wantErr:     ErrNameConflict,
 		},
 		{
@@ -192,7 +192,7 @@ func TestManagerUpdateRejectsInvalidConfigs(t *testing.T) {
 			name: "duplicate name",
 			prepare: func(t *testing.T, manager *Manager, current Config) (string, Config) {
 				t.Helper()
-				if _, err := manager.Create("Other", harness.ClaudeCode); err != nil {
+				if _, err := manager.Create("Other", harness.TypeClaudeCode); err != nil {
 					t.Fatalf("Create() error = %v", err)
 				}
 				current.Name = " other "
@@ -288,7 +288,7 @@ func TestNewManagerRejectsInvalidConfigs(t *testing.T) {
 		{
 			name:        "directory and config id mismatch",
 			directoryID: validID,
-			config:      Config{ID: otherID, Name: "Different", Harness: harness.ClaudeCode},
+			config:      Config{ID: otherID, Name: "Different", Harness: harness.TypeClaudeCode},
 		},
 		{
 			name:        "legacy non-uuid id",
@@ -296,13 +296,13 @@ func TestNewManagerRejectsInvalidConfigs(t *testing.T) {
 			config: Config{
 				ID:      "claude-code",
 				Name:    DefaultAgentName,
-				Harness: harness.ClaudeCode,
+				Harness: harness.TypeClaudeCode,
 			},
 		},
 		{
 			name:        "blank name",
 			directoryID: validID,
-			config:      Config{ID: validID, Name: " ", Harness: harness.ClaudeCode},
+			config:      Config{ID: validID, Name: " ", Harness: harness.TypeClaudeCode},
 		},
 		{
 			name:        "unsupported harness",
