@@ -66,6 +66,7 @@ let automaticReconnect = true;
 let connectionRecoveryActive = false;
 let lastDisconnectMessage = 'Connection interrupted.';
 let lastDisconnectDetail = '';
+let pausedReconnectMessage = '';
 let conversationTimer;
 let hasTerminalOutput = false;
 
@@ -464,6 +465,7 @@ function resetTerminalForActiveConversation() {
   automaticReconnect = true;
   lastDisconnectMessage = 'Connection interrupted.';
   lastDisconnectDetail = '';
+  pausedReconnectMessage = '';
   hideBanner();
   setStatus('disconnected');
 }
@@ -621,6 +623,7 @@ function markConnectionStable() {
   connectionRecoveryActive = false;
   lastDisconnectMessage = 'Connection interrupted.';
   lastDisconnectDetail = '';
+  pausedReconnectMessage = '';
   setStatus('connected');
   hideBanner();
 }
@@ -700,10 +703,15 @@ function scheduleReconnect() {
 function pauseAutomaticReconnect(message) {
   automaticReconnect = false;
   connectionRecoveryActive = false;
+  pausedReconnectMessage = message;
   window.clearTimeout(reconnectTimer);
   reconnectTimer = undefined;
   setStatus('disconnected');
-  showBanner('disconnected', message, {
+  showPausedReconnect();
+}
+
+function showPausedReconnect() {
+  showBanner('disconnected', pausedReconnectMessage || lastDisconnectMessage, {
     canRetry: true,
     detail: lastDisconnectDetail
   });
@@ -713,6 +721,7 @@ function retryConnectionNow() {
   closeSocket();
   reconnectAttempt = 0;
   automaticReconnect = true;
+  pausedReconnectMessage = '';
   connectSocket();
 }
 
@@ -779,7 +788,17 @@ function closeSidebar() {
 async function refreshAll() {
   try {
     await Promise.all([loadAgents(), loadConversations({ syncConnection: false })]);
-    if (connectionBanner.dataset.source === 'data') hideBanner();
+    if (connectionBanner.dataset.source === 'data') {
+      const terminalRetryPaused = currentMode === 'conversations' &&
+        activeConversation() &&
+        !socket &&
+        !automaticReconnect;
+      if (terminalRetryPaused) {
+        showPausedReconnect();
+      } else {
+        hideBanner();
+      }
+    }
     renderConversations();
     renderMode();
     if (currentMode === 'conversations') syncActiveConversation();
@@ -880,7 +899,11 @@ connectionDetailsButton.addEventListener('click', () => {
 window.addEventListener('popstate', () => {
   const route = routeFromPath();
   if (route.mode === 'agents' && agents.some((agent) => agent.id === route.id)) activeAgentId = route.id;
-  if (route.mode === 'conversations' && conversations.some((conversation) => conversation.id === route.id)) activeConversationId = route.id;
+  const conversationExists = route.mode === 'conversations' &&
+    conversations.some((conversation) => conversation.id === route.id);
+  const conversationChanged = conversationExists && activeConversationId !== route.id;
+  if (conversationExists) activeConversationId = route.id;
+  if (conversationChanged && currentMode === 'conversations') resetTerminalForActiveConversation();
   setMode(route.mode, { history: 'replace' });
   renderAgents();
   renderConversations();

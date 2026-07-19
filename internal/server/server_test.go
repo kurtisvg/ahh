@@ -576,6 +576,31 @@ func TestAppScriptUsesConnectionLifecycleStates(t *testing.T) {
 	}
 }
 
+func TestAppScriptResetsTerminalWhenHistoryChangesConversations(t *testing.T) {
+	app := string(readAsset(t, "assets/app.js"))
+	for _, want := range []string{
+		"const conversationChanged = conversationExists && activeConversationId !== route.id;",
+		"if (conversationChanged && currentMode === 'conversations') resetTerminalForActiveConversation();",
+	} {
+		if !strings.Contains(app, want) {
+			t.Fatalf("app script does not contain %q", want)
+		}
+	}
+}
+
+func TestAppScriptRestoresPausedReconnectAfterDataRecovery(t *testing.T) {
+	app := string(readAsset(t, "assets/app.js"))
+	for _, want := range []string{
+		"pausedReconnectMessage = message;",
+		"const terminalRetryPaused = currentMode === 'conversations' &&",
+		"showPausedReconnect();",
+	} {
+		if !strings.Contains(app, want) {
+			t.Fatalf("app script does not contain %q", want)
+		}
+	}
+}
+
 func TestAgentUIUsesIndependentSelectionAndAgentBackedConversationCreation(t *testing.T) {
 	page := string(readAsset(t, "assets/index.html"))
 	app := string(readAsset(t, "assets/app.js"))
