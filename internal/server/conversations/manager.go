@@ -22,13 +22,6 @@ var (
 	ErrAgentNotFound = errors.New("conversation agent not found")
 )
 
-// AgentConfigProvider supplies the runtime settings needed to launch an Agent.
-type AgentConfigProvider interface {
-	LaunchConfig(id string) (agents.LaunchConfig, error)
-}
-
-var _ AgentConfigProvider = (*agents.Manager)(nil)
-
 // Status is the lifecycle state reported for a user-created conversation.
 type Status string
 
@@ -61,7 +54,7 @@ type WrapperStart struct {
 // Conversation manages the mutable runtime state for one terminal conversation.
 type Conversation struct {
 	startWrapper func(WrapperStart) (wrapper.Wrapper, error)
-	agentConfigs AgentConfigProvider
+	agentManager *agents.Manager
 	now          func() time.Time
 	store        metadataStore
 
@@ -81,7 +74,7 @@ type Manager struct {
 	conversations map[string]*Conversation
 	closed        bool
 	startWrapper  func(WrapperStart) (wrapper.Wrapper, error)
-	agentConfigs  AgentConfigProvider
+	agentManager  *agents.Manager
 	cancel        context.CancelFunc
 	newID         func() (string, error)
 	now           func() time.Time
@@ -101,11 +94,11 @@ type Option func(*options) error
 // NewManager creates a conversation manager whose wrappers share the lifetime of ctx.
 func NewManager(
 	ctx context.Context,
-	agentConfigs AgentConfigProvider,
+	agentManager *agents.Manager,
 	opts ...Option,
 ) (*Manager, error) {
-	if agentConfigs == nil {
-		return nil, fmt.Errorf("agent config provider is required")
+	if agentManager == nil {
+		return nil, fmt.Errorf("agent manager is required")
 	}
 	cfg := options{
 		startWrapper: startWrapperConversation,
@@ -127,7 +120,7 @@ func NewManager(
 			}
 			return cfg.startWrapper(lifetimeCtx, start)
 		},
-		agentConfigs: agentConfigs,
+		agentManager: agentManager,
 		cancel:       cancel,
 		newID:        cfg.newID,
 		now:          cfg.now,
@@ -145,7 +138,7 @@ func NewManager(
 	for _, metadata := range stored {
 		manager.conversations[metadata.ID] = restoreConversation(
 			metadata,
-			agentConfigs,
+			agentManager,
 			cfg.now,
 			cfg.store,
 			manager.startWrapper,
@@ -215,7 +208,7 @@ func (m *Manager) Create(ctx context.Context, name, agentID string) (*Conversati
 	if agentID == "" {
 		return nil, ErrAgentRequired
 	}
-	launchConfig, err := loadAgentLaunchConfig(m.agentConfigs, agentID)
+	launchConfig, err := loadAgentLaunchConfig(m.agentManager, agentID)
 	if err != nil {
 		return nil, err
 	}
@@ -251,7 +244,7 @@ func (m *Manager) Create(ctx context.Context, name, agentID string) (*Conversati
 			LastActiveAt: createdAt,
 		},
 		startWrapper: m.startWrapper,
-		agentConfigs: m.agentConfigs,
+		agentManager: m.agentManager,
 		now:          m.now,
 		store:        m.store,
 	}
@@ -391,7 +384,7 @@ func (m *Manager) remove(id string, conversation *Conversation) {
 
 func restoreConversation(
 	metadata Metadata,
-	agentConfigs AgentConfigProvider,
+	agentManager *agents.Manager,
 	now func() time.Time,
 	store metadataStore,
 	startWrapper func(WrapperStart) (wrapper.Wrapper, error),
@@ -400,7 +393,7 @@ func restoreConversation(
 	return &Conversation{
 		metadata:     metadata,
 		startWrapper: startWrapper,
-		agentConfigs: agentConfigs,
+		agentManager: agentManager,
 		now:          now,
 		store:        store,
 	}
@@ -509,7 +502,7 @@ func (s *Conversation) Start(ctx context.Context) (wrapper.Wrapper, error) {
 	s.stateMu.Unlock()
 
 	metadata := s.Metadata()
-	launchConfig, err := loadAgentLaunchConfig(s.agentConfigs, metadata.AgentID)
+	launchConfig, err := loadAgentLaunchConfig(s.agentManager, metadata.AgentID)
 	if err != nil {
 		s.stateMu.Lock()
 		s.metadata.Status = StatusExited
@@ -637,8 +630,8 @@ func startWrapperConversation(ctx context.Context, start WrapperStart) (wrapper.
 	return w, nil
 }
 
-func loadAgentLaunchConfig(provider AgentConfigProvider, id string) (agents.LaunchConfig, error) {
-	launchConfig, err := provider.LaunchConfig(id)
+func loadAgentLaunchConfig(agentManager *agents.Manager, id string) (agents.LaunchConfig, error) {
+	launchConfig, err := agentManager.LaunchConfig(id)
 	if err != nil {
 		if errors.Is(err, agents.ErrNotFound) {
 			return agents.LaunchConfig{}, fmt.Errorf("%w: %q", ErrAgentNotFound, id)

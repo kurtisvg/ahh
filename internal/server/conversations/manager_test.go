@@ -10,20 +10,17 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/kurtisvg/ahh/internal/harness"
 	"github.com/kurtisvg/ahh/internal/server/agents"
 	"github.com/kurtisvg/ahh/internal/wrapper"
 )
 
-const testAgentID = "claude-code"
-
 func TestManagerCreateRequiresName(t *testing.T) {
-	manager := newTestManager(t, func(context.Context, WrapperStart) (wrapper.Wrapper, error) {
+	manager, agentID := newTestManager(t, func(context.Context, WrapperStart) (wrapper.Wrapper, error) {
 		t.Fatal("wrapper should not start without a conversation name")
 		return nil, nil
 	})
 
-	_, err := manager.Create(t.Context(), " \t\n ", testAgentID)
+	_, err := manager.Create(t.Context(), " \t\n ", agentID)
 	if err == nil {
 		t.Fatal("Create() error = nil, want error")
 	}
@@ -35,12 +32,12 @@ func TestManagerCreateRequiresName(t *testing.T) {
 func TestManagerCreateTrimsName(t *testing.T) {
 	fake := newTestWrapper()
 	var gotStart WrapperStart
-	manager := newTestManager(t, func(_ context.Context, start WrapperStart) (wrapper.Wrapper, error) {
+	manager, agentID := newTestManager(t, func(_ context.Context, start WrapperStart) (wrapper.Wrapper, error) {
 		gotStart = start
 		return fake, nil
 	})
 
-	conversation, err := manager.Create(t.Context(), "  terminal  ", testAgentID)
+	conversation, err := manager.Create(t.Context(), "  terminal  ", agentID)
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
@@ -49,22 +46,26 @@ func TestManagerCreateTrimsName(t *testing.T) {
 	if got := conversation.Metadata().Name; got != "terminal" {
 		t.Fatalf("Create() name = %q, want terminal", got)
 	}
-	if got := conversation.Metadata().AgentID; got != testAgentID {
-		t.Fatalf("Create() AgentID = %q, want %q", got, testAgentID)
+	if got := conversation.Metadata().AgentID; got != agentID {
+		t.Fatalf("Create() AgentID = %q, want %q", got, agentID)
 	}
-	if gotStart.Harness != harness.TypeClaudeCode || gotStart.ConfigDir != "/test/agents/claude-code/config" {
+	wantLaunchConfig, err := manager.agentManager.LaunchConfig(agentID)
+	if err != nil {
+		t.Fatalf("Agent LaunchConfig() error = %v", err)
+	}
+	if gotStart.Harness != wantLaunchConfig.Harness || gotStart.ConfigDir != wantLaunchConfig.ConfigDir {
 		t.Fatalf("wrapper start = %+v, want resolved Claude harness and config directory", gotStart)
 	}
 }
 
-func TestNewManagerRequiresAgentConfigProvider(t *testing.T) {
-	if _, err := NewManager(t.Context(), nil); err == nil || !strings.Contains(err.Error(), "agent config provider is required") {
-		t.Fatalf("NewManager() error = %v, want required Agent config provider", err)
+func TestNewManagerRequiresAgentManager(t *testing.T) {
+	if _, err := NewManager(t.Context(), nil); err == nil || !strings.Contains(err.Error(), "agent manager is required") {
+		t.Fatalf("NewManager() error = %v, want required Agent manager", err)
 	}
 }
 
 func TestManagerCreateRequiresExistingAgent(t *testing.T) {
-	manager := newTestManager(t, func(context.Context, WrapperStart) (wrapper.Wrapper, error) {
+	manager, _ := newTestManager(t, func(context.Context, WrapperStart) (wrapper.Wrapper, error) {
 		t.Fatal("wrapper should not start without an existing Agent")
 		return nil, nil
 	})
@@ -81,9 +82,10 @@ func TestManagerCreateUsesManagerLifecycleContext(t *testing.T) {
 	fake := newTestWrapper()
 	var wrapperCtx context.Context
 	lifecycleCtx, cancelLifecycle := context.WithCancel(t.Context())
+	agentManager, agentID := newTestAgentManager(t)
 	manager, err := NewManager(
 		lifecycleCtx,
-		newTestAgentConfigProvider(),
+		agentManager,
 		WithStartWrapper(func(ctx context.Context, _ WrapperStart) (wrapper.Wrapper, error) {
 			wrapperCtx = ctx
 			return fake, nil
@@ -95,7 +97,7 @@ func TestManagerCreateUsesManagerLifecycleContext(t *testing.T) {
 	defer fake.shutdown()
 
 	requestCtx, cancelRequest := context.WithCancel(t.Context())
-	if _, err := manager.Create(requestCtx, "terminal", testAgentID); err != nil {
+	if _, err := manager.Create(requestCtx, "terminal", agentID); err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
 	cancelRequest()
@@ -113,12 +115,12 @@ func TestManagerCreateUsesManagerLifecycleContext(t *testing.T) {
 func TestManagerShutdownCancelsLifecycleAndRejectsCreate(t *testing.T) {
 	fake := newTestWrapper()
 	var wrapperCtx context.Context
-	manager := newTestManager(t, func(ctx context.Context, _ WrapperStart) (wrapper.Wrapper, error) {
+	manager, agentID := newTestManager(t, func(ctx context.Context, _ WrapperStart) (wrapper.Wrapper, error) {
 		wrapperCtx = ctx
 		return fake, nil
 	})
 
-	if _, err := manager.Create(t.Context(), "terminal", testAgentID); err != nil {
+	if _, err := manager.Create(t.Context(), "terminal", agentID); err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
 	if err := manager.Shutdown(t.Context()); err != nil {
@@ -127,7 +129,7 @@ func TestManagerShutdownCancelsLifecycleAndRejectsCreate(t *testing.T) {
 	if err := wrapperCtx.Err(); !errors.Is(err, context.Canceled) {
 		t.Fatalf("wrapper context error after shutdown = %v, want context canceled", err)
 	}
-	if _, err := manager.Create(t.Context(), "another", testAgentID); err == nil {
+	if _, err := manager.Create(t.Context(), "another", agentID); err == nil {
 		t.Fatal("Create() error after shutdown = nil, want error")
 	}
 }
@@ -142,7 +144,7 @@ func TestManagerCreateListsOnlyStartedConversations(t *testing.T) {
 			close(release)
 		})
 	}
-	manager := newTestManager(t, func(context.Context, WrapperStart) (wrapper.Wrapper, error) {
+	manager, agentID := newTestManager(t, func(context.Context, WrapperStart) (wrapper.Wrapper, error) {
 		close(started)
 		<-release
 		return fake, nil
@@ -156,7 +158,7 @@ func TestManagerCreateListsOnlyStartedConversations(t *testing.T) {
 	}
 	result := make(chan createResult, 1)
 	go func() {
-		conversation, err := manager.Create(t.Context(), "terminal", testAgentID)
+		conversation, err := manager.Create(t.Context(), "terminal", agentID)
 		result <- createResult{conversation: conversation, err: err}
 	}()
 
@@ -185,7 +187,7 @@ func TestManagerCreateDoesNotRegisterAfterShutdown(t *testing.T) {
 			close(release)
 		})
 	}
-	manager := newTestManager(t, func(context.Context, WrapperStart) (wrapper.Wrapper, error) {
+	manager, agentID := newTestManager(t, func(context.Context, WrapperStart) (wrapper.Wrapper, error) {
 		close(started)
 		<-release
 		return fake, nil
@@ -194,7 +196,7 @@ func TestManagerCreateDoesNotRegisterAfterShutdown(t *testing.T) {
 
 	result := make(chan error, 1)
 	go func() {
-		_, err := manager.Create(t.Context(), "terminal", testAgentID)
+		_, err := manager.Create(t.Context(), "terminal", agentID)
 		result <- err
 	}()
 
@@ -223,9 +225,10 @@ func TestConversationStartDeduplicatesConcurrentCalls(t *testing.T) {
 	var calls int
 	var callsMu sync.Mutex
 	var startedOnce sync.Once
+	agentManager, agentID := newTestAgentManager(t)
 	conversation := restoreConversation(
-		Metadata{ID: "persisted", AgentID: testAgentID, Name: "persisted"},
-		newTestAgentConfigProvider(),
+		Metadata{ID: "persisted", AgentID: agentID, Name: "persisted"},
+		agentManager,
 		time.Now,
 		nil,
 		func(WrapperStart) (wrapper.Wrapper, error) {
@@ -272,9 +275,10 @@ func TestConversationStartDeduplicatesConcurrentCalls(t *testing.T) {
 func TestConversationDeletePreventsRestartAndMetadataWrites(t *testing.T) {
 	store := &testMetadataStore{}
 	startCalled := false
+	agentManager, agentID := newTestAgentManager(t)
 	conversation := restoreConversation(
-		Metadata{ID: "persisted", AgentID: testAgentID, Name: "persisted"},
-		newTestAgentConfigProvider(),
+		Metadata{ID: "persisted", AgentID: agentID, Name: "persisted"},
+		agentManager,
 		time.Now,
 		store,
 		func(WrapperStart) (wrapper.Wrapper, error) {
@@ -305,9 +309,10 @@ func TestConversationDeletePreventsRestartAndMetadataWrites(t *testing.T) {
 
 func TestConversationMarkResumablePersistsOnce(t *testing.T) {
 	store := &testMetadataStore{}
+	agentManager, agentID := newTestAgentManager(t)
 	conversation := restoreConversation(
-		Metadata{ID: "persisted", AgentID: testAgentID, Name: "persisted"},
-		newTestAgentConfigProvider(),
+		Metadata{ID: "persisted", AgentID: agentID, Name: "persisted"},
+		agentManager,
 		time.Now,
 		store,
 		func(WrapperStart) (wrapper.Wrapper, error) {
@@ -332,9 +337,10 @@ func TestConversationMarkResumablePersistsOnce(t *testing.T) {
 func TestUntouchedRestoredConversationStartsWithoutResume(t *testing.T) {
 	fake := newTestWrapper()
 	var gotStart WrapperStart
+	agentManager, agentID := newTestAgentManager(t)
 	conversation := restoreConversation(
-		Metadata{ID: "persisted", AgentID: testAgentID, Name: "persisted"},
-		newTestAgentConfigProvider(),
+		Metadata{ID: "persisted", AgentID: agentID, Name: "persisted"},
+		agentManager,
 		time.Now,
 		nil,
 		func(start WrapperStart) (wrapper.Wrapper, error) {
@@ -354,13 +360,17 @@ func TestUntouchedRestoredConversationStartsWithoutResume(t *testing.T) {
 	}
 }
 
-func TestRestoredConversationUsesCurrentAgentLaunchConfigAtStart(t *testing.T) {
+func TestRestoredConversationUsesAgentLaunchConfigAtStart(t *testing.T) {
 	fake := newTestWrapper()
-	provider := newTestAgentConfigProvider()
+	agentManager, agentID := newTestAgentManager(t)
+	wantLaunchConfig, err := agentManager.LaunchConfig(agentID)
+	if err != nil {
+		t.Fatalf("Agent LaunchConfig() error = %v", err)
+	}
 	var gotStart WrapperStart
 	conversation := restoreConversation(
-		Metadata{ID: "persisted", AgentID: testAgentID, Name: "persisted"},
-		provider,
+		Metadata{ID: "persisted", AgentID: agentID, Name: "persisted"},
+		agentManager,
 		time.Now,
 		nil,
 		func(start WrapperStart) (wrapper.Wrapper, error) {
@@ -368,13 +378,12 @@ func TestRestoredConversationUsesCurrentAgentLaunchConfigAtStart(t *testing.T) {
 			return fake, nil
 		},
 	)
-	provider.configDir = "/test/agents/claude-code/current-config"
 
 	if _, err := conversation.Start(t.Context()); err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
-	if gotStart.ConfigDir != provider.configDir {
-		t.Fatalf("Start() ConfigDir = %q, want current %q", gotStart.ConfigDir, provider.configDir)
+	if gotStart.Harness != wantLaunchConfig.Harness || gotStart.ConfigDir != wantLaunchConfig.ConfigDir {
+		t.Fatalf("wrapper start = %+v, want Agent launch config %+v", gotStart, wantLaunchConfig)
 	}
 	if err := conversation.Shutdown(t.Context()); err != nil {
 		t.Fatalf("Shutdown() error = %v", err)
@@ -382,10 +391,11 @@ func TestRestoredConversationUsesCurrentAgentLaunchConfigAtStart(t *testing.T) {
 }
 
 func TestRestoredConversationWithMissingAgentStaysExited(t *testing.T) {
-	provider := newTestAgentConfigProvider()
+	agentManager, _ := newTestAgentManager(t)
+	missingAgentID := uuid.NewString()
 	conversation := restoreConversation(
-		Metadata{ID: "persisted", AgentID: testAgentID, Name: "persisted"},
-		provider,
+		Metadata{ID: "persisted", AgentID: missingAgentID, Name: "persisted"},
+		agentManager,
 		time.Now,
 		nil,
 		func(WrapperStart) (wrapper.Wrapper, error) {
@@ -393,7 +403,6 @@ func TestRestoredConversationWithMissingAgentStaysExited(t *testing.T) {
 			return nil, nil
 		},
 	)
-	delete(provider.available, testAgentID)
 
 	if _, err := conversation.Start(t.Context()); !errors.Is(err, ErrAgentNotFound) {
 		t.Fatalf("Start() error = %v, want ErrAgentNotFound", err)
@@ -435,9 +444,10 @@ func TestManagerListSortsMostRecentFirst(t *testing.T) {
 		return fmt.Sprintf("conversation-%d", nextID), nil
 	}
 
+	agentManager, agentID := newTestAgentManager(t)
 	manager, err := NewManager(
 		t.Context(),
-		newTestAgentConfigProvider(),
+		agentManager,
 		WithStartWrapper(startWrapper),
 		WithClock(now),
 		WithIDGenerator(newID),
@@ -446,11 +456,11 @@ func TestManagerListSortsMostRecentFirst(t *testing.T) {
 		t.Fatalf("NewManager() error = %v", err)
 	}
 
-	first, err := manager.Create(t.Context(), "first", testAgentID)
+	first, err := manager.Create(t.Context(), "first", agentID)
 	if err != nil {
 		t.Fatalf("Create(first) error = %v", err)
 	}
-	second, err := manager.Create(t.Context(), "second", testAgentID)
+	second, err := manager.Create(t.Context(), "second", agentID)
 	if err != nil {
 		t.Fatalf("Create(second) error = %v", err)
 	}
@@ -476,11 +486,11 @@ func TestManagerListSortsMostRecentFirst(t *testing.T) {
 func TestManagerDeleteKeepsConversationWhenShutdownFails(t *testing.T) {
 	fake := newTestWrapper()
 	fake.shutdownErr = errors.New("boom")
-	manager := newTestManager(t, func(context.Context, WrapperStart) (wrapper.Wrapper, error) {
+	manager, agentID := newTestManager(t, func(context.Context, WrapperStart) (wrapper.Wrapper, error) {
 		return fake, nil
 	})
 
-	conversation, err := manager.Create(t.Context(), "terminal", testAgentID)
+	conversation, err := manager.Create(t.Context(), "terminal", agentID)
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
@@ -526,28 +536,6 @@ type testWrapper struct {
 type testMetadataStore struct {
 	saveCalls int
 	deletedID string
-}
-
-type testAgentConfigProvider struct {
-	available map[string]bool
-	configDir string
-}
-
-func newTestAgentConfigProvider() *testAgentConfigProvider {
-	return &testAgentConfigProvider{
-		available: map[string]bool{testAgentID: true},
-		configDir: "/test/agents/claude-code/config",
-	}
-}
-
-func (p *testAgentConfigProvider) LaunchConfig(id string) (agents.LaunchConfig, error) {
-	if !p.available[id] {
-		return agents.LaunchConfig{}, agents.ErrNotFound
-	}
-	return agents.LaunchConfig{
-		Harness:   harness.TypeClaudeCode,
-		ConfigDir: p.configDir,
-	}, nil
 }
 
 func (s *testMetadataStore) Load() ([]Metadata, error) {
@@ -599,17 +587,33 @@ func (w *testWrapper) shutdown() {
 func newTestManager(
 	t *testing.T,
 	startWrapper func(context.Context, WrapperStart) (wrapper.Wrapper, error),
-) *Manager {
+) (*Manager, string) {
 	t.Helper()
 
+	agentManager, agentID := newTestAgentManager(t)
 	manager, err := NewManager(
 		t.Context(),
-		newTestAgentConfigProvider(),
+		agentManager,
 		WithStartWrapper(startWrapper),
 	)
 	if err != nil {
 		t.Fatalf("NewManager() error = %v", err)
 	}
 
-	return manager
+	return manager, agentID
+}
+
+func newTestAgentManager(t *testing.T) (*agents.Manager, string) {
+	t.Helper()
+
+	manager, err := agents.NewManager(t.TempDir())
+	if err != nil {
+		t.Fatalf("agents.NewManager() error = %v", err)
+	}
+	agentConfigs := manager.List()
+	if len(agentConfigs) != 1 {
+		t.Fatalf("Agent List() length = %d, want 1", len(agentConfigs))
+	}
+
+	return manager, agentConfigs[0].ID
 }
