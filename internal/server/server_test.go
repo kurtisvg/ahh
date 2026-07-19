@@ -196,7 +196,7 @@ func TestServerConversationsAPI(t *testing.T) {
 	}
 	manager, err := conversations.NewManager(
 		t.Context(),
-		conversations.WithAgentResolver(agentManager),
+		agentManager,
 		conversations.WithStartWrapper(factory.start),
 		conversations.WithClock(func() time.Time {
 			if len(times) == 0 {
@@ -355,7 +355,7 @@ func TestServerPersistsConversationMetadata(t *testing.T) {
 	factory := &fakeWrapperFactory{}
 	manager, err := conversations.NewManager(
 		t.Context(),
-		conversations.WithAgentResolver(agentManager),
+		agentManager,
 		conversations.WithStartWrapper(factory.start),
 		conversations.WithStateDir(stateDir),
 	)
@@ -410,7 +410,7 @@ func TestServerPersistsConversationMetadata(t *testing.T) {
 	}
 	restartedManager, err := conversations.NewManager(
 		t.Context(),
-		conversations.WithAgentResolver(agentManager),
+		agentManager,
 		conversations.WithStartWrapper(restartedFactory.start),
 		conversations.WithStateDir(stateDir),
 	)
@@ -762,7 +762,7 @@ func newTestConversationManager(
 	agentManager := newTestAgentManager(t)
 	manager, err := conversations.NewManager(
 		t.Context(),
-		conversations.WithAgentResolver(agentManager),
+		agentManager,
 		conversations.WithStartWrapper(startWrapper),
 	)
 	if err != nil {

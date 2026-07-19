@@ -57,9 +57,9 @@ func TestManagerCreateTrimsName(t *testing.T) {
 	}
 }
 
-func TestNewManagerRequiresAgentResolver(t *testing.T) {
-	if _, err := NewManager(t.Context()); err == nil || !strings.Contains(err.Error(), "agent resolver is required") {
-		t.Fatalf("NewManager() error = %v, want required Agent resolver", err)
+func TestNewManagerRequiresAgentConfigProvider(t *testing.T) {
+	if _, err := NewManager(t.Context(), nil); err == nil || !strings.Contains(err.Error(), "agent config provider is required") {
+		t.Fatalf("NewManager() error = %v, want required Agent config provider", err)
 	}
 }
 
@@ -83,7 +83,7 @@ func TestManagerCreateUsesManagerLifecycleContext(t *testing.T) {
 	lifecycleCtx, cancelLifecycle := context.WithCancel(t.Context())
 	manager, err := NewManager(
 		lifecycleCtx,
-		WithAgentResolver(newTestAgentResolver()),
+		newTestAgentConfigProvider(),
 		WithStartWrapper(func(ctx context.Context, _ WrapperStart) (wrapper.Wrapper, error) {
 			wrapperCtx = ctx
 			return fake, nil
@@ -225,7 +225,7 @@ func TestConversationStartDeduplicatesConcurrentCalls(t *testing.T) {
 	var startedOnce sync.Once
 	conversation := restoreConversation(
 		Metadata{ID: "persisted", AgentID: testAgentID, Name: "persisted"},
-		newTestAgentResolver(),
+		newTestAgentConfigProvider(),
 		time.Now,
 		nil,
 		func(WrapperStart) (wrapper.Wrapper, error) {
@@ -274,7 +274,7 @@ func TestConversationDeletePreventsRestartAndMetadataWrites(t *testing.T) {
 	startCalled := false
 	conversation := restoreConversation(
 		Metadata{ID: "persisted", AgentID: testAgentID, Name: "persisted"},
-		newTestAgentResolver(),
+		newTestAgentConfigProvider(),
 		time.Now,
 		store,
 		func(WrapperStart) (wrapper.Wrapper, error) {
@@ -307,7 +307,7 @@ func TestConversationMarkResumablePersistsOnce(t *testing.T) {
 	store := &testMetadataStore{}
 	conversation := restoreConversation(
 		Metadata{ID: "persisted", AgentID: testAgentID, Name: "persisted"},
-		newTestAgentResolver(),
+		newTestAgentConfigProvider(),
 		time.Now,
 		store,
 		func(WrapperStart) (wrapper.Wrapper, error) {
@@ -334,7 +334,7 @@ func TestUntouchedRestoredConversationStartsWithoutResume(t *testing.T) {
 	var gotStart WrapperStart
 	conversation := restoreConversation(
 		Metadata{ID: "persisted", AgentID: testAgentID, Name: "persisted"},
-		newTestAgentResolver(),
+		newTestAgentConfigProvider(),
 		time.Now,
 		nil,
 		func(start WrapperStart) (wrapper.Wrapper, error) {
@@ -354,13 +354,13 @@ func TestUntouchedRestoredConversationStartsWithoutResume(t *testing.T) {
 	}
 }
 
-func TestRestoredConversationResolvesCurrentAgentAtStart(t *testing.T) {
+func TestRestoredConversationUsesCurrentAgentLaunchConfigAtStart(t *testing.T) {
 	fake := newTestWrapper()
-	resolver := newTestAgentResolver()
+	provider := newTestAgentConfigProvider()
 	var gotStart WrapperStart
 	conversation := restoreConversation(
 		Metadata{ID: "persisted", AgentID: testAgentID, Name: "persisted"},
-		resolver,
+		provider,
 		time.Now,
 		nil,
 		func(start WrapperStart) (wrapper.Wrapper, error) {
@@ -368,13 +368,13 @@ func TestRestoredConversationResolvesCurrentAgentAtStart(t *testing.T) {
 			return fake, nil
 		},
 	)
-	resolver.configDir = "/test/agents/claude-code/current-config"
+	provider.configDir = "/test/agents/claude-code/current-config"
 
 	if _, err := conversation.Start(t.Context()); err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
-	if gotStart.ConfigDir != resolver.configDir {
-		t.Fatalf("Start() ConfigDir = %q, want current %q", gotStart.ConfigDir, resolver.configDir)
+	if gotStart.ConfigDir != provider.configDir {
+		t.Fatalf("Start() ConfigDir = %q, want current %q", gotStart.ConfigDir, provider.configDir)
 	}
 	if err := conversation.Shutdown(t.Context()); err != nil {
 		t.Fatalf("Shutdown() error = %v", err)
@@ -382,10 +382,10 @@ func TestRestoredConversationResolvesCurrentAgentAtStart(t *testing.T) {
 }
 
 func TestRestoredConversationWithMissingAgentStaysExited(t *testing.T) {
-	resolver := newTestAgentResolver()
+	provider := newTestAgentConfigProvider()
 	conversation := restoreConversation(
 		Metadata{ID: "persisted", AgentID: testAgentID, Name: "persisted"},
-		resolver,
+		provider,
 		time.Now,
 		nil,
 		func(WrapperStart) (wrapper.Wrapper, error) {
@@ -393,7 +393,7 @@ func TestRestoredConversationWithMissingAgentStaysExited(t *testing.T) {
 			return nil, nil
 		},
 	)
-	delete(resolver.agents, testAgentID)
+	delete(provider.available, testAgentID)
 
 	if _, err := conversation.Start(t.Context()); !errors.Is(err, ErrAgentNotFound) {
 		t.Fatalf("Start() error = %v, want ErrAgentNotFound", err)
@@ -437,7 +437,7 @@ func TestManagerListSortsMostRecentFirst(t *testing.T) {
 
 	manager, err := NewManager(
 		t.Context(),
-		WithAgentResolver(newTestAgentResolver()),
+		newTestAgentConfigProvider(),
 		WithStartWrapper(startWrapper),
 		WithClock(now),
 		WithIDGenerator(newID),
@@ -528,34 +528,26 @@ type testMetadataStore struct {
 	deletedID string
 }
 
-type testAgentResolver struct {
-	agents    map[string]agents.Config
+type testAgentConfigProvider struct {
+	available map[string]bool
 	configDir string
 }
 
-func newTestAgentResolver() *testAgentResolver {
-	return &testAgentResolver{
-		agents: map[string]agents.Config{
-			testAgentID: {
-				ID:      testAgentID,
-				Name:    "Claude Code",
-				Harness: harness.TypeClaudeCode,
-			},
-		},
+func newTestAgentConfigProvider() *testAgentConfigProvider {
+	return &testAgentConfigProvider{
+		available: map[string]bool{testAgentID: true},
 		configDir: "/test/agents/claude-code/config",
 	}
 }
 
-func (r *testAgentResolver) Get(id string) (agents.Config, bool) {
-	agent, ok := r.agents[id]
-	return agent, ok
-}
-
-func (r *testAgentResolver) ConfigDir(id string) (string, error) {
-	if _, ok := r.agents[id]; !ok {
-		return "", agents.ErrNotFound
+func (p *testAgentConfigProvider) LaunchConfig(id string) (agents.LaunchConfig, error) {
+	if !p.available[id] {
+		return agents.LaunchConfig{}, agents.ErrNotFound
 	}
-	return r.configDir, nil
+	return agents.LaunchConfig{
+		Harness:   harness.TypeClaudeCode,
+		ConfigDir: p.configDir,
+	}, nil
 }
 
 func (s *testMetadataStore) Load() ([]Metadata, error) {
@@ -612,7 +604,7 @@ func newTestManager(
 
 	manager, err := NewManager(
 		t.Context(),
-		WithAgentResolver(newTestAgentResolver()),
+		newTestAgentConfigProvider(),
 		WithStartWrapper(startWrapper),
 	)
 	if err != nil {

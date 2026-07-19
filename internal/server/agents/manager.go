@@ -27,6 +27,12 @@ type Config struct {
 	Harness harness.Type `json:"harness"`
 }
 
+// LaunchConfig contains the runtime settings derived for an Agent.
+type LaunchConfig struct {
+	Harness   harness.Type
+	ConfigDir string
+}
+
 // Manager owns persisted Agent definitions.
 type Manager struct {
 	mu     sync.Mutex
@@ -169,15 +175,24 @@ func (m *Manager) Update(id string, next Config) (Config, error) {
 	return next, nil
 }
 
-// ConfigDir returns the managed harness configuration directory for an Agent.
-func (m *Manager) ConfigDir(id string) (string, error) {
+// LaunchConfig returns the settings needed to launch an Agent by ID.
+func (m *Manager) LaunchConfig(id string) (LaunchConfig, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if _, ok := m.agents[id]; !ok {
-		return "", ErrNotFound
+	agent, ok := m.agents[id]
+	if !ok {
+		return LaunchConfig{}, ErrNotFound
 	}
-	return m.store.ConfigDir(id)
+	configDir, err := m.store.ConfigDir(id)
+	if err != nil {
+		return LaunchConfig{}, err
+	}
+
+	return LaunchConfig{
+		Harness:   agent.Harness,
+		ConfigDir: configDir,
+	}, nil
 }
 
 func (m *Manager) nameExists(name, exceptID string) bool {

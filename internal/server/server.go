@@ -61,7 +61,7 @@ func Start(ctx context.Context, addr string, opts ...Option) (*Server, error) {
 	if cfg.conversations == nil {
 		manager, err := conversations.NewManager(
 			ctx,
-			conversations.WithAgentResolver(cfg.agents),
+			cfg.agents,
 			conversations.WithStateDir(cfg.stateDir),
 		)
 		if err != nil {

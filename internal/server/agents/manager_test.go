@@ -119,7 +119,7 @@ func TestManagerCreateRejectsInvalidConfigs(t *testing.T) {
 	}
 }
 
-func TestManagerUpdatePreservesImmutableFieldsAndConfigDirectory(t *testing.T) {
+func TestManagerUpdatePreservesImmutableFieldsAndLaunchConfig(t *testing.T) {
 	stateDir := t.TempDir()
 	manager, err := NewManager(stateDir)
 	if err != nil {
@@ -134,9 +134,16 @@ func TestManagerUpdatePreservesImmutableFieldsAndConfigDirectory(t *testing.T) {
 	if !ok {
 		t.Fatal("default Agent was not found")
 	}
-	configDir, err := manager.ConfigDir(before.ID)
+	launchConfig, err := manager.LaunchConfig(before.ID)
 	if err != nil {
-		t.Fatalf("ConfigDir() error = %v", err)
+		t.Fatalf("LaunchConfig() error = %v", err)
+	}
+	if launchConfig.Harness != before.Harness {
+		t.Fatalf("LaunchConfig().Harness = %q, want %q", launchConfig.Harness, before.Harness)
+	}
+	wantConfigDir := filepath.Join(stateDir, "agents", before.ID, "config")
+	if launchConfig.ConfigDir != wantConfigDir {
+		t.Fatalf("LaunchConfig().ConfigDir = %q, want %q", launchConfig.ConfigDir, wantConfigDir)
 	}
 	next := before
 	next.Name = "  Primary Claude  "
@@ -154,8 +161,8 @@ func TestManagerUpdatePreservesImmutableFieldsAndConfigDirectory(t *testing.T) {
 	if updated.Name != "Primary Claude" {
 		t.Errorf("updated name = %q, want Primary Claude", updated.Name)
 	}
-	if got, err := manager.ConfigDir(updated.ID); err != nil || got != configDir {
-		t.Errorf("ConfigDir() = %q, %v, want %q, nil", got, err, configDir)
+	if got, err := manager.LaunchConfig(updated.ID); err != nil || got != launchConfig {
+		t.Errorf("LaunchConfig() = %#v, %v, want %#v, nil", got, err, launchConfig)
 	}
 	reloaded, err := NewManager(stateDir)
 	if err != nil {
@@ -163,6 +170,16 @@ func TestManagerUpdatePreservesImmutableFieldsAndConfigDirectory(t *testing.T) {
 	}
 	if got, ok := reloaded.Get(updated.ID); !ok || !reflect.DeepEqual(got, updated) {
 		t.Errorf("reloaded Get() = %#v, %v, want %#v, true", got, ok, updated)
+	}
+}
+
+func TestManagerLaunchConfigRejectsMissingAgent(t *testing.T) {
+	manager, err := NewManager(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+	if _, err := manager.LaunchConfig(uuid.NewString()); !errors.Is(err, ErrNotFound) {
+		t.Errorf("LaunchConfig(missing) error = %v, want %v", err, ErrNotFound)
 	}
 }
 
