@@ -18,6 +18,10 @@ const statusEl = document.getElementById('status');
 const statusText = document.getElementById('status-text');
 const connectionBanner = document.getElementById('connection-banner');
 const connectionBannerText = document.getElementById('connection-banner-text');
+const retryConnectionButton = document.getElementById('retry-connection-button');
+const stopRetryingButton = document.getElementById('stop-retrying-button');
+const connectionDetailsButton = document.getElementById('connection-details-button');
+const connectionDetails = document.getElementById('connection-details');
 const terminalShell = document.getElementById('terminal-shell');
 const terminalEl = document.getElementById('terminal');
 const terminalState = document.getElementById('terminal-state');
@@ -39,10 +43,9 @@ const createAgentForm = document.getElementById('create-agent-form');
 const agentDialogClose = document.getElementById('agent-dialog-close');
 const agentCancelButton = document.getElementById('agent-cancel-button');
 const agentNameInput = document.getElementById('agent-name-input');
-const agentHarnessSelect = document.getElementById('agent-harness-select');
 
-const reconnectBaseDelay = 500;
-const reconnectMaxDelay = 5000;
+const reconnectDelays = [1000, 2000, 4000, 8000, 15000];
+const stableConnectionDelay = 3000;
 const conversationPollInterval = 3000;
 const terminalStateMessages = {
   disconnected: 'Terminal disconnected',
@@ -58,6 +61,11 @@ let socket;
 let connectionState = 'disconnected';
 let reconnectAttempt = 0;
 let reconnectTimer;
+let stableConnectionTimer;
+let automaticReconnect = true;
+let connectionRecoveryActive = false;
+let lastDisconnectMessage = 'Connection interrupted.';
+let lastDisconnectDetail = '';
 let conversationTimer;
 let hasTerminalOutput = false;
 
@@ -186,14 +194,25 @@ function updateTerminalState() {
   terminalStateText.textContent = message || '';
 }
 
-function showBanner(state, message) {
+function showBanner(state, message, { canRetry = false, canStop = false, detail = '' } = {}) {
   connectionBanner.dataset.state = state;
   connectionBannerText.textContent = message;
+  retryConnectionButton.hidden = !canRetry;
+  stopRetryingButton.hidden = !canStop;
+  connectionDetailsButton.hidden = !detail;
+  connectionDetailsButton.setAttribute('aria-expanded', 'false');
+  connectionDetails.textContent = detail;
+  connectionDetails.hidden = true;
   connectionBanner.hidden = false;
 }
 
 function hideBanner() {
   connectionBanner.hidden = true;
+  retryConnectionButton.hidden = true;
+  stopRetryingButton.hidden = true;
+  connectionDetailsButton.hidden = true;
+  connectionDetailsButton.setAttribute('aria-expanded', 'false');
+  connectionDetails.hidden = true;
 }
 
 function renderConversations() {
@@ -421,12 +440,12 @@ function populateAgentPicker() {
   for (const agent of agents) {
     const option = document.createElement('option');
     option.value = agent.id;
-    option.textContent = `${agent.name} (${agent.harness})`;
+    option.textContent = agent.name;
     conversationAgentSelect.append(option);
   }
   const preferred = agents.some((agent) => agent.id === prior)
     ? prior
-    : agents.find((agent) => agent.id === 'claude-code')?.id || agents[0]?.id || '';
+    : agents.find((agent) => agent.name.toLowerCase() === 'default')?.id || agents[0]?.id || '';
   conversationAgentSelect.value = preferred;
 }
 
@@ -435,6 +454,9 @@ function resetTerminalForActiveConversation() {
   terminal.reset();
   hasTerminalOutput = false;
   reconnectAttempt = 0;
+  automaticReconnect = true;
+  lastDisconnectMessage = 'Connection interrupted.';
+  lastDisconnectDetail = '';
   hideBanner();
   setStatus('disconnected');
 }
@@ -447,7 +469,7 @@ function syncActiveConversation() {
     return;
   }
   updateViewHeading();
-  if (!socket || socket.readyState === WebSocket.CLOSED) {
+  if (!socket && !reconnectTimer && !connectionRecoveryActive && automaticReconnect) {
     connectSocket();
   }
 }
@@ -489,11 +511,11 @@ async function deleteConversation(conversationId) {
   updateSelectionURL();
 }
 
-async function createAgent(name, harness) {
+async function createAgent(name) {
   const response = await fetch(appURL('api/agents'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, harness })
+    body: JSON.stringify({ name, harness: 'claude-code' })
   });
   if (!response.ok) {
     throw new Error(await readErrorPayload(response) || `create Agent failed: ${response.status}`);
@@ -540,41 +562,99 @@ async function readErrorPayload(response) {
 
 function connectSocket() {
   const conversation = activeConversation();
-  if (currentMode !== 'conversations' || !conversation) {
+  if (currentMode !== 'conversations' || !conversation || socket) {
     return;
   }
+
+  window.clearTimeout(reconnectTimer);
+  reconnectTimer = undefined;
   setStatus('reconnecting');
+  showBanner(
+    'reconnecting',
+    reconnectAttempt === 0 ? 'Connecting to terminal…' : 'Retrying terminal connection…',
+    { canStop: reconnectAttempt > 0, detail: lastDisconnectDetail }
+  );
   socket = new WebSocket(terminalSocketURL(conversation.id));
   socket.binaryType = 'arraybuffer';
   const activeSocket = socket;
   activeSocket.addEventListener('open', () => {
     if (activeSocket !== socket) return;
-    reconnectAttempt = 0;
     setStatus('connected');
-    hideBanner();
+    showBanner('reconnecting', 'Connected. Waiting for terminal…', { detail: lastDisconnectDetail });
+    window.clearTimeout(stableConnectionTimer);
+    stableConnectionTimer = window.setTimeout(markConnectionStable, stableConnectionDelay);
     fitTerminal();
     terminal.focus();
   });
   activeSocket.addEventListener('message', (event) => {
     if (activeSocket !== socket) return;
+    markConnectionStable();
     hasTerminalOutput = true;
     updateTerminalState();
     terminal.write(event.data instanceof ArrayBuffer ? decoder.decode(event.data, { stream: true }) : event.data);
   });
-  activeSocket.addEventListener('close', () => {
-    if (activeSocket === socket) void handleSocketClose();
+  activeSocket.addEventListener('close', (event) => {
+    if (activeSocket !== socket) return;
+    socket = null;
+    window.clearTimeout(stableConnectionTimer);
+    stableConnectionTimer = undefined;
+    void handleSocketClose(event, conversation.id);
   });
   activeSocket.addEventListener('error', () => {
     if (activeSocket === socket) setStatus('disconnected');
   });
 }
 
-async function handleSocketClose() {
+function markConnectionStable() {
+  if (!socket || socket.readyState !== WebSocket.OPEN) return;
+  window.clearTimeout(stableConnectionTimer);
+  stableConnectionTimer = undefined;
+  reconnectAttempt = 0;
+  automaticReconnect = true;
+  connectionRecoveryActive = false;
+  lastDisconnectMessage = 'Connection interrupted.';
+  lastDisconnectDetail = '';
+  setStatus('connected');
+  hideBanner();
+}
+
+function describeSocketClose(event) {
+  const detail = `WebSocket closed with code ${event.code}${event.reason ? `: ${event.reason}` : ''}.`;
+  switch (event.reason) {
+    case 'conversation unavailable':
+      return { message: 'Agent or configuration unavailable.', detail, retryAutomatically: false };
+    case 'wrapper unavailable':
+      return { message: 'Terminal wrapper is unreachable.', detail, retryAutomatically: true };
+    case 'terminal proxy failed':
+      return { message: 'Terminal connection was interrupted.', detail, retryAutomatically: true };
+  }
+  if (event.code === 1000) {
+    return { message: 'Claude Code exited or the terminal closed.', detail, retryAutomatically: false };
+  }
+  return { message: 'Terminal connection was interrupted.', detail, retryAutomatically: true };
+}
+
+async function handleSocketClose(event, conversationId) {
   setStatus('disconnected');
-  if (currentMode !== 'conversations') {
+  if (currentMode !== 'conversations' || activeConversationId !== conversationId) {
     return;
   }
-  showBanner('disconnected', 'Terminal connection dropped. Checking conversation state.');
+
+  connectionRecoveryActive = true;
+
+  const description = describeSocketClose(event);
+  lastDisconnectMessage = description.message;
+  lastDisconnectDetail = description.detail;
+  if (!description.retryAutomatically) {
+    pauseAutomaticReconnect(description.message);
+    return;
+  }
+
+  showBanner('disconnected', `${description.message} Checking conversation state…`, {
+    canRetry: true,
+    canStop: true,
+    detail: description.detail
+  });
   try {
     await loadConversations({ syncConnection: false });
   } catch {
@@ -586,16 +666,59 @@ async function handleSocketClose() {
 
 function scheduleReconnect() {
   if (currentMode !== 'conversations' || !activeConversation()) return;
+  if (!automaticReconnect) {
+    pauseAutomaticReconnect(lastDisconnectMessage);
+    return;
+  }
+  if (reconnectAttempt >= reconnectDelays.length) {
+    pauseAutomaticReconnect(`Automatic retries paused after ${reconnectDelays.length} attempts.`);
+    return;
+  }
+
+  const delay = reconnectDelays[reconnectAttempt];
   reconnectAttempt += 1;
-  const delay = Math.min(reconnectBaseDelay * 2 ** (reconnectAttempt - 1), reconnectMaxDelay);
   setStatus('reconnecting');
-  showBanner('reconnecting', `Terminal disconnected. Reconnecting in ${Math.ceil(delay / 1000)}s.`);
+  showBanner(
+    'reconnecting',
+    `${lastDisconnectMessage} Retrying in ${Math.ceil(delay / 1000)}s (attempt ${reconnectAttempt}/${reconnectDelays.length}).`,
+    { canRetry: true, canStop: true, detail: lastDisconnectDetail }
+  );
   window.clearTimeout(reconnectTimer);
-  reconnectTimer = window.setTimeout(connectSocket, delay);
+  reconnectTimer = window.setTimeout(() => {
+    reconnectTimer = undefined;
+    connectSocket();
+  }, delay);
+}
+
+function pauseAutomaticReconnect(message) {
+  automaticReconnect = false;
+  connectionRecoveryActive = false;
+  window.clearTimeout(reconnectTimer);
+  reconnectTimer = undefined;
+  setStatus('disconnected');
+  showBanner('disconnected', message, {
+    canRetry: true,
+    detail: lastDisconnectDetail
+  });
+}
+
+function retryConnectionNow() {
+  closeSocket();
+  reconnectAttempt = 0;
+  automaticReconnect = true;
+  connectSocket();
+}
+
+function stopAutomaticReconnect() {
+  pauseAutomaticReconnect(`${lastDisconnectMessage} Automatic retries stopped.`);
 }
 
 function closeSocket() {
   window.clearTimeout(reconnectTimer);
+  reconnectTimer = undefined;
+  window.clearTimeout(stableConnectionTimer);
+  stableConnectionTimer = undefined;
+  connectionRecoveryActive = false;
   const activeSocket = socket;
   socket = null;
   if (activeSocket && activeSocket.readyState !== WebSocket.CLOSED) activeSocket.close();
@@ -610,7 +733,6 @@ function fitTerminal() {
 }
 
 function openDialog(dialog, focusTarget) {
-  hideBanner();
   if (typeof dialog.showModal === 'function') dialog.showModal();
   else dialog.setAttribute('open', '');
   focusTarget.focus();
@@ -632,7 +754,6 @@ function openConversationDialog() {
 function openAgentDialog() {
   agentNameInput.value = '';
   agentNameInput.setCustomValidity('');
-  agentHarnessSelect.value = 'claude-code';
   openDialog(agentDialog, agentNameInput);
 }
 
@@ -697,7 +818,7 @@ createAgentForm.addEventListener('submit', (event) => {
     return;
   }
   agentNameInput.setCustomValidity('');
-  void createAgent(name, agentHarnessSelect.value)
+  void createAgent(name)
     .then(() => closeDialog(agentDialog))
     .catch((error) => {
       agentNameInput.setCustomValidity(error.message || 'Agent could not be created.');
@@ -737,6 +858,13 @@ conversationDialogClose.addEventListener('click', () => closeDialog(conversation
 conversationCancelButton.addEventListener('click', () => closeDialog(conversationDialog));
 agentDialogClose.addEventListener('click', () => closeDialog(agentDialog));
 agentCancelButton.addEventListener('click', () => closeDialog(agentDialog));
+retryConnectionButton.addEventListener('click', retryConnectionNow);
+stopRetryingButton.addEventListener('click', stopAutomaticReconnect);
+connectionDetailsButton.addEventListener('click', () => {
+  const expanded = connectionDetailsButton.getAttribute('aria-expanded') === 'true';
+  connectionDetailsButton.setAttribute('aria-expanded', String(!expanded));
+  connectionDetails.hidden = expanded;
+});
 
 window.addEventListener('popstate', () => {
   const route = routeFromPath();

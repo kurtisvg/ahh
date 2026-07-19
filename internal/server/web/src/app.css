@@ -199,6 +199,7 @@ select.form-control {
 .icon-button:focus-visible,
 .primary-button:focus-visible,
 .secondary-button:focus-visible,
+.connection-button:focus-visible,
 .conversation-select:focus-visible,
 .item-select:focus-visible {
   outline: 2px solid var(--focus);
@@ -438,6 +439,13 @@ select.form-control {
   font-weight: 700;
 }
 
+.modal-description {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .field-label {
   color: var(--muted-strong);
   font-size: 12px;
@@ -589,8 +597,8 @@ select.form-control {
 }
 
 .connection-banner {
-  display: flex;
-  align-items: center;
+  display: grid;
+  gap: 7px;
   min-height: 34px;
   padding: 7px 10px;
   border: 1px solid #665132;
@@ -599,6 +607,50 @@ select.form-control {
   background: #201a12;
   color: #f6d8a8;
   font-size: 12px;
+}
+
+.connection-message-row,
+.connection-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.connection-message-row {
+  justify-content: space-between;
+}
+
+.connection-actions {
+  flex: 0 0 auto;
+}
+
+.connection-button {
+  min-height: 26px;
+  padding: 3px 8px;
+  border-color: currentColor;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.connection-button:hover {
+  background: rgb(255 255 255 / 0.08);
+}
+
+.connection-details {
+  padding-top: 7px;
+  border-top: 1px solid rgb(255 255 255 / 0.12);
+  color: inherit;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  opacity: 0.82;
+}
+
+.connection-details[hidden],
+.connection-button[hidden] {
+  display: none;
 }
 
 .connection-banner[hidden] {
@@ -763,5 +815,14 @@ select.form-control {
 
   .status-surface {
     min-width: 100px;
+  }
+
+  .connection-message-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .connection-actions {
+    flex-wrap: wrap;
   }
 }

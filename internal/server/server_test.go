@@ -46,7 +46,7 @@ func TestServerHTTP(t *testing.T) {
 		},
 		{
 			name:             "serves bookmarked Agent",
-			path:             "/agents/claude-code",
+			path:             "/agents/9e065f6f-3342-4ee3-9443-3c74ec64012d",
 			wantStatus:       http.StatusOK,
 			wantBodyContains: "New Agent",
 		},
@@ -548,13 +548,26 @@ func TestAppScriptUsesConnectionLifecycleStates(t *testing.T) {
 		"setStatus('connected')",
 		"setStatus('reconnecting')",
 		"setStatus('disconnected')",
+		"const reconnectDelays = [1000, 2000, 4000, 8000, 15000]",
+		"markConnectionStable",
+		"describeSocketClose",
+		"pauseAutomaticReconnect",
+		"retryConnectionNow",
+		"stopAutomaticReconnect",
+		"activeSocket.addEventListener('close', (event)",
+		"Automatic retries paused after",
 	}
 	for _, want := range wants {
 		if !strings.Contains(app, want) {
 			t.Fatalf("app script does not contain %q", want)
 		}
 	}
-	for _, unwanted := range []string{"conversation-exited", "conversation.status"} {
+	for _, unwanted := range []string{
+		"conversation-exited",
+		"conversation.status",
+		"const reconnectBaseDelay",
+		"const reconnectMaxDelay",
+	} {
 		if strings.Contains(app, unwanted) {
 			t.Fatalf("app script contains backend lifecycle state %q", unwanted)
 		}
@@ -573,6 +586,10 @@ func TestAgentUIUsesIndependentSelectionAndAgentBackedConversationCreation(t *te
 		`id="agent-editor-form"`,
 		`id="agent-editor-harness" class="form-control" type="text" readonly`,
 		`id="menu-button"`,
+		`id="retry-connection-button"`,
+		`id="stop-retrying-button"`,
+		`id="connection-details-button"`,
+		`Start with a name. This Agent will use Claude Code`,
 	} {
 		if !strings.Contains(page, want) {
 			t.Fatalf("terminal page does not contain %q", want)
@@ -587,6 +604,8 @@ func TestAgentUIUsesIndependentSelectionAndAgentBackedConversationCreation(t *te
 		"method: 'PATCH'",
 		"agentName(conversation.agent_id)",
 		"closeSocket();",
+		"option.textContent = agent.name",
+		"body: JSON.stringify({ name, harness: 'claude-code' })",
 	} {
 		if !strings.Contains(app, want) {
 			t.Fatalf("app script does not contain %q", want)
@@ -598,7 +617,7 @@ func TestAgentUIUsesIndependentSelectionAndAgentBackedConversationCreation(t *te
 			t.Fatalf("app styles do not contain %q", want)
 		}
 	}
-	for _, unwanted := range []string{"agent config directory", "agent-id-input"} {
+	for _, unwanted := range []string{"agent config directory", "agent-id-input", "agent-harness-select"} {
 		if strings.Contains(strings.ToLower(page), unwanted) {
 			t.Fatalf("Agent editor exposes internal field %q", unwanted)
 		}
