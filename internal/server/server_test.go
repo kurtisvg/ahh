@@ -45,6 +45,12 @@ func TestServerHTTP(t *testing.T) {
 			wantBodyContains: "New conversation",
 		},
 		{
+			name:             "serves bookmarked Agent",
+			path:             "/agents/claude-code",
+			wantStatus:       http.StatusOK,
+			wantBodyContains: "New Agent",
+		},
+		{
 			name:             "serves terminal assets",
 			path:             "/assets/xterm.css",
 			wantStatus:       http.StatusOK,
@@ -67,6 +73,12 @@ func TestServerHTTP(t *testing.T) {
 			path:             "/conversations/assets/app.js",
 			wantStatus:       http.StatusOK,
 			wantBodyContains: "terminalSocketURL",
+		},
+		{
+			name:             "serves assets from bookmarked Agent",
+			path:             "/agents/assets/app.js",
+			wantStatus:       http.StatusOK,
+			wantBodyContains: "activeAgentId",
 		},
 		{
 			name:             "reports server readiness",
@@ -545,6 +557,50 @@ func TestAppScriptUsesConnectionLifecycleStates(t *testing.T) {
 	for _, unwanted := range []string{"conversation-exited", "conversation.status"} {
 		if strings.Contains(app, unwanted) {
 			t.Fatalf("app script contains backend lifecycle state %q", unwanted)
+		}
+	}
+}
+
+func TestAgentUIUsesIndependentSelectionAndAgentBackedConversationCreation(t *testing.T) {
+	page := string(readAsset(t, "assets/index.html"))
+	app := string(readAsset(t, "assets/app.js"))
+	styles := string(readAsset(t, "assets/app.css"))
+
+	for _, want := range []string{
+		`id="conversations-mode-button"`,
+		`id="agents-mode-button"`,
+		`id="conversation-agent-select"`,
+		`id="agent-editor-form"`,
+		`id="agent-editor-harness" class="form-control" type="text" readonly`,
+		`id="menu-button"`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Fatalf("terminal page does not contain %q", want)
+		}
+	}
+
+	for _, want := range []string{
+		"activeConversationId",
+		"activeAgentId",
+		"'/agents/'",
+		"agent_id: agentId",
+		"method: 'PATCH'",
+		"agentName(conversation.agent_id)",
+		"closeSocket();",
+	} {
+		if !strings.Contains(app, want) {
+			t.Fatalf("app script does not contain %q", want)
+		}
+	}
+
+	for _, want := range []string{".mode-switch", ".agent-editor", ".menu-button"} {
+		if !strings.Contains(styles, want) {
+			t.Fatalf("app styles do not contain %q", want)
+		}
+	}
+	for _, unwanted := range []string{"agent config directory", "agent-id-input"} {
+		if strings.Contains(strings.ToLower(page), unwanted) {
+			t.Fatalf("Agent editor exposes internal field %q", unwanted)
 		}
 	}
 }
