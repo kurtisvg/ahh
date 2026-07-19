@@ -82,7 +82,8 @@ func TestManagerCreateUsesManagerLifecycleContext(t *testing.T) {
 	fake := newTestWrapper()
 	var wrapperCtx context.Context
 	lifecycleCtx, cancelLifecycle := context.WithCancel(t.Context())
-	agentManager, agentID := newTestAgentManager(t)
+	agentManager := newTestAgentManager(t)
+	agentID := agentManager.List()[0].ID
 	manager, err := NewManager(
 		lifecycleCtx,
 		agentManager,
@@ -225,7 +226,8 @@ func TestConversationStartDeduplicatesConcurrentCalls(t *testing.T) {
 	var calls int
 	var callsMu sync.Mutex
 	var startedOnce sync.Once
-	agentManager, agentID := newTestAgentManager(t)
+	agentManager := newTestAgentManager(t)
+	agentID := agentManager.List()[0].ID
 	conversation := restoreConversation(
 		Metadata{ID: "persisted", AgentID: agentID, Name: "persisted"},
 		agentManager,
@@ -275,7 +277,8 @@ func TestConversationStartDeduplicatesConcurrentCalls(t *testing.T) {
 func TestConversationDeletePreventsRestartAndMetadataWrites(t *testing.T) {
 	store := &testMetadataStore{}
 	startCalled := false
-	agentManager, agentID := newTestAgentManager(t)
+	agentManager := newTestAgentManager(t)
+	agentID := agentManager.List()[0].ID
 	conversation := restoreConversation(
 		Metadata{ID: "persisted", AgentID: agentID, Name: "persisted"},
 		agentManager,
@@ -309,7 +312,8 @@ func TestConversationDeletePreventsRestartAndMetadataWrites(t *testing.T) {
 
 func TestRestoredConversationUsesAgentLaunchConfigAtStart(t *testing.T) {
 	fake := newTestWrapper()
-	agentManager, agentID := newTestAgentManager(t)
+	agentManager := newTestAgentManager(t)
+	agentID := agentManager.List()[0].ID
 	wantLaunchConfig, err := agentManager.LaunchConfig(agentID)
 	if err != nil {
 		t.Fatalf("Agent LaunchConfig() error = %v", err)
@@ -338,7 +342,7 @@ func TestRestoredConversationUsesAgentLaunchConfigAtStart(t *testing.T) {
 }
 
 func TestRestoredConversationWithMissingAgentStaysExited(t *testing.T) {
-	agentManager, _ := newTestAgentManager(t)
+	agentManager := newTestAgentManager(t)
 	missingAgentID := uuid.NewString()
 	conversation := restoreConversation(
 		Metadata{ID: "persisted", AgentID: missingAgentID, Name: "persisted"},
@@ -391,7 +395,8 @@ func TestManagerListSortsMostRecentFirst(t *testing.T) {
 		return fmt.Sprintf("conversation-%d", nextID), nil
 	}
 
-	agentManager, agentID := newTestAgentManager(t)
+	agentManager := newTestAgentManager(t)
+	agentID := agentManager.List()[0].ID
 	manager, err := NewManager(
 		t.Context(),
 		agentManager,
@@ -537,7 +542,8 @@ func newTestManager(
 ) (*Manager, string) {
 	t.Helper()
 
-	agentManager, agentID := newTestAgentManager(t)
+	agentManager := newTestAgentManager(t)
+	agentID := agentManager.List()[0].ID
 	manager, err := NewManager(
 		t.Context(),
 		agentManager,
@@ -550,17 +556,12 @@ func newTestManager(
 	return manager, agentID
 }
 
-func newTestAgentManager(t *testing.T) (*agents.Manager, string) {
+func newTestAgentManager(t *testing.T) *agents.Manager {
 	t.Helper()
 
 	manager, err := agents.NewManager(t.TempDir())
 	if err != nil {
 		t.Fatalf("agents.NewManager() error = %v", err)
 	}
-	agentConfigs := manager.List()
-	if len(agentConfigs) != 1 {
-		t.Fatalf("Agent List() length = %d, want 1", len(agentConfigs))
-	}
-
-	return manager, agentConfigs[0].ID
+	return manager
 }
