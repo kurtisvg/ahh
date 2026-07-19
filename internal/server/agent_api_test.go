@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/kurtisvg/ahh/internal/harness"
 	"github.com/kurtisvg/ahh/internal/server/agents"
 )
 
@@ -34,14 +35,14 @@ func TestServerAgentsAPI(t *testing.T) {
 	}
 	defaultID := initial.Agents[0].ID
 
-	created := createAgentViaAPI(t, client, server, "Build Agent", agents.ClaudeCodeHarness)
+	created := createAgentViaAPI(t, client, server, "Build Agent", string(harness.TypeClaudeCode))
 	if id, parseErr := uuid.Parse(created.ID); parseErr != nil || id.Version() != 4 || created.ID == defaultID {
 		t.Fatalf("created Agent ID = %q, want a distinct UUID v4", created.ID)
 	}
 
 	resp = doJSONRequest(t, client, http.MethodPost, "http://"+server.Addr+"/api/agents", map[string]string{
 		"name":    "build agent",
-		"harness": agents.ClaudeCodeHarness,
+		"harness": string(harness.TypeClaudeCode),
 	})
 	assertStatus(t, resp, http.StatusConflict)
 	assertAPIError(t, resp, "agent name already exists")

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/kurtisvg/ahh/internal/harness"
 	"github.com/kurtisvg/ahh/internal/server/agents"
 )
 
@@ -14,7 +15,7 @@ type createAgentRequest struct {
 	Harness string `json:"harness"`
 }
 
-type renameAgentRequest struct {
+type updateAgentRequest struct {
 	Name string `json:"name"`
 }
 
@@ -37,13 +38,18 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, "agent name is required")
 		return
 	}
-	harness := strings.TrimSpace(req.Harness)
-	if harness == "" {
+	harnessName := strings.TrimSpace(req.Harness)
+	if harnessName == "" {
 		writeAPIError(w, http.StatusBadRequest, "agent harness is required")
 		return
 	}
+	harnessType, err := harness.ParseType(harnessName)
+	if err != nil {
+		writeAgentError(w, err)
+		return
+	}
 
-	agent, err := s.agents.Create(name, harness)
+	agent, err := s.agents.Create(name, harnessType)
 	if err != nil {
 		writeAgentError(w, err)
 		return
@@ -51,8 +57,8 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, agent)
 }
 
-func (s *Server) renameAgent(w http.ResponseWriter, r *http.Request) {
-	var req renameAgentRequest
+func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request) {
+	var req updateAgentRequest
 	if !decodeAgentRequest(w, r, &req) {
 		return
 	}
@@ -63,7 +69,14 @@ func (s *Server) renameAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	agent, err := s.agents.Rename(r.PathValue("id"), name)
+	id := r.PathValue("id")
+	current, ok := s.agents.Get(id)
+	if !ok {
+		writeAgentError(w, agents.ErrNotFound)
+		return
+	}
+	current.Name = name
+	agent, err := s.agents.Update(id, current)
 	if err != nil {
 		writeAgentError(w, err)
 		return
@@ -87,7 +100,7 @@ func writeAgentError(w http.ResponseWriter, err error) {
 		writeAPIError(w, http.StatusNotFound, "agent not found")
 	case errors.Is(err, agents.ErrNameConflict):
 		writeAPIError(w, http.StatusConflict, "agent name already exists")
-	case errors.Is(err, agents.ErrUnsupportedHarness):
+	case errors.Is(err, agents.ErrUnsupportedHarness), errors.Is(err, harness.ErrUnsupportedType):
 		writeAPIError(w, http.StatusBadRequest, "unsupported agent harness")
 	default:
 		writeAPIError(w, http.StatusInternalServerError, "agent operation failed")

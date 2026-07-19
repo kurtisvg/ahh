@@ -126,7 +126,7 @@ func (s *Server) serveAPI() http.Handler {
 	mux.HandleFunc("GET /conversations/{id}/tty", s.serveTTY)
 	mux.HandleFunc("GET /agents", s.listAgents)
 	mux.HandleFunc("POST /agents", s.createAgent)
-	mux.HandleFunc("PATCH /agents/{id}", s.renameAgent)
+	mux.HandleFunc("PATCH /agents/{id}", s.updateAgent)
 
 	return mux
 }
