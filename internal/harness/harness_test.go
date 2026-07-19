@@ -169,6 +169,15 @@ func TestClaudeEnvironmentUsesManagedConfigDirectory(t *testing.T) {
 	}
 }
 
+func TestWithConfigDirTrimsSpace(t *testing.T) {
+	opts := options{}
+	WithConfigDir("  /managed/agent/config  ")(&opts)
+
+	if opts.configDir != "/managed/agent/config" {
+		t.Fatalf("configDir = %q, want trimmed managed Agent directory", opts.configDir)
+	}
+}
+
 // fakeHarness points Start at a temporary executable so tests exercise
 // the real PTY subprocess lifecycle without requiring Claude Code to be installed.
 func fakeHarness(t *testing.T, ctx context.Context, mode string) (Harness, error) {

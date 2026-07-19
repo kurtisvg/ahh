@@ -29,7 +29,7 @@ type Option func(*options)
 // WithConfigDir isolates Claude Code configuration and history in dir.
 func WithConfigDir(dir string) Option {
 	return func(opts *options) {
-		opts.configDir = dir
+		opts.configDir = strings.TrimSpace(dir)
 	}
 }
 
@@ -96,9 +96,6 @@ func Start(ctx context.Context, sessionID string, startOpts ...Option) (Harness,
 }
 
 func claudeArguments(sessionID string, opts options) ([]string, error) {
-	if strings.TrimSpace(opts.configDir) == "" {
-		return []string{"--session-id", sessionID}, nil
-	}
 	transcriptExists, err := claudeTranscriptExists(opts.configDir, sessionID)
 	if err != nil {
 		return nil, err
@@ -111,8 +108,8 @@ func claudeArguments(sessionID string, opts options) ([]string, error) {
 }
 
 func claudeTranscriptExists(configDir, sessionID string) (bool, error) {
-	if strings.TrimSpace(configDir) == "" {
-		return false, fmt.Errorf("claude config directory is required to find a transcript")
+	if configDir == "" {
+		return false, nil
 	}
 	projectsDir := filepath.Join(configDir, "projects")
 	projects, err := os.ReadDir(projectsDir)
