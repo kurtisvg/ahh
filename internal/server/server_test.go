@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/kurtisvg/ahh/internal/server/agents"
 	"github.com/kurtisvg/ahh/internal/server/conversations"
 	"github.com/kurtisvg/ahh/internal/wrapper"
 )
@@ -147,6 +148,19 @@ func TestStartRejectsNilConversationManager(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "conversation manager is required") {
 		t.Fatalf("Start() error = %q, want containing conversation manager is required", err.Error())
+	}
+}
+
+func TestStartRejectsNilAgentManager(t *testing.T) {
+	server, err := Start(t.Context(), "127.0.0.1:0", WithAgentManager(nil))
+	if err == nil {
+		if server != nil {
+			shutdownTestServer(t, server)
+		}
+		t.Fatal("Start() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "agent manager is required") {
+		t.Fatalf("Start() error = %q, want containing agent manager is required", err.Error())
 	}
 }
 
@@ -687,7 +701,13 @@ func (s *fakeWrapperServer) Shutdown(context.Context) error {
 func startTestServer(t *testing.T, opts ...Option) *Server {
 	t.Helper()
 
-	server, err := Start(t.Context(), "127.0.0.1:0", opts...)
+	testAgents, err := agents.NewManager(t.TempDir())
+	if err != nil {
+		t.Fatalf("agents.NewManager() error = %v", err)
+	}
+	serverOpts := []Option{WithStateDir(t.TempDir()), WithAgentManager(testAgents)}
+	serverOpts = append(serverOpts, opts...)
+	server, err := Start(t.Context(), "127.0.0.1:0", serverOpts...)
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}

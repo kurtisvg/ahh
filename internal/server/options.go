@@ -6,10 +6,12 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/kurtisvg/ahh/internal/server/agents"
 	"github.com/kurtisvg/ahh/internal/server/conversations"
 )
 
 type options struct {
+	agents        *agents.Manager
 	conversations *conversations.Manager
 	stateDir      string
 }
@@ -36,6 +38,18 @@ func defaultStateDir() string {
 
 // Option configures the Ahh server.
 type Option func(*options) error
+
+// WithAgentManager sets the Agent manager used by the server.
+func WithAgentManager(manager *agents.Manager) Option {
+	return func(opts *options) error {
+		if manager == nil {
+			return fmt.Errorf("agent manager is required")
+		}
+
+		opts.agents = manager
+		return nil
+	}
+}
 
 // WithConversationManager sets the conversation manager used by the server.
 func WithConversationManager(manager *conversations.Manager) Option {

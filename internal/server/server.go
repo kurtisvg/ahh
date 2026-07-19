@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/kurtisvg/ahh/internal/server/agents"
 	"github.com/kurtisvg/ahh/internal/server/conversations"
 )
 
@@ -20,6 +21,7 @@ const (
 type Server struct {
 	Addr          string
 	httpServer    *http.Server
+	agents        *agents.Manager
 	conversations *conversations.Manager
 
 	// done is closed after err is set, so Wait can safely read err after
@@ -46,6 +48,16 @@ func Start(ctx context.Context, addr string, opts ...Option) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("listen on %s: %w", addr, err)
 	}
+	if cfg.agents == nil {
+		manager, err := agents.NewManager(cfg.stateDir)
+		if err != nil {
+			if closeErr := listener.Close(); closeErr != nil {
+				return nil, errors.Join(err, fmt.Errorf("close listener: %w", closeErr))
+			}
+			return nil, err
+		}
+		cfg.agents = manager
+	}
 	if cfg.conversations == nil {
 		manager, err := conversations.NewManager(ctx, conversations.WithStateDir(cfg.stateDir))
 		if err != nil {
@@ -59,6 +71,7 @@ func Start(ctx context.Context, addr string, opts ...Option) (*Server, error) {
 
 	server := &Server{
 		Addr:          listener.Addr().String(),
+		agents:        cfg.agents,
 		conversations: cfg.conversations,
 		done:          make(chan struct{}),
 	}
@@ -111,6 +124,9 @@ func (s *Server) serveAPI() http.Handler {
 	mux.HandleFunc("POST /conversations", s.createConversation)
 	mux.HandleFunc("DELETE /conversations/{id}", s.deleteConversation)
 	mux.HandleFunc("GET /conversations/{id}/tty", s.serveTTY)
+	mux.HandleFunc("GET /agents", s.listAgents)
+	mux.HandleFunc("POST /agents", s.createAgent)
+	mux.HandleFunc("PATCH /agents/{id}", s.renameAgent)
 
 	return mux
 }
