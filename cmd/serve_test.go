@@ -53,5 +53,7 @@ func TestServeCommand(t *testing.T) {
 
 func isolateServerState(t *testing.T) {
 	t.Helper()
+	// Keep exercising the default ~/.ahh path without reading or modifying the
+	// developer's real state directory.
 	t.Setenv("HOME", t.TempDir())
 }
