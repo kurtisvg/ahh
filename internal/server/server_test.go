@@ -83,6 +83,12 @@ func TestServerHTTP(t *testing.T) {
 			wantStatus: http.StatusNotFound,
 		},
 		{
+			name:             "serves agent api",
+			path:             "/api/agents",
+			wantStatus:       http.StatusOK,
+			wantBodyContains: `"agents"`,
+		},
+		{
 			name:       "rejects wrong conversation tty method",
 			method:     http.MethodPost,
 			path:       "/api/conversations/not-a-conversation/tty",
@@ -137,26 +143,44 @@ func TestServerHTTP(t *testing.T) {
 	}
 }
 
-func TestStartRejectsNilConversationManager(t *testing.T) {
-	server, err := Start(t.Context(), "127.0.0.1:0", WithConversationManager(nil))
-	if err == nil {
-		if server != nil {
-			shutdownTestServer(t, server)
-		}
-		t.Fatal("Start() error = nil, want error")
+func TestStartRejectsInvalidOptions(t *testing.T) {
+	tests := []struct {
+		name    string
+		option  Option
+		wantErr string
+	}{
+		{
+			name:    "nil conversation manager",
+			option:  WithConversationManager(nil),
+			wantErr: "conversation manager is required",
+		},
+		{
+			name:    "nil agent manager",
+			option:  WithAgentManager(nil),
+			wantErr: "agent manager is required",
+		},
+		{
+			name:    "empty state directory",
+			option:  WithStateDir(" \t "),
+			wantErr: "state directory is required",
+		},
 	}
-	if !strings.Contains(err.Error(), "conversation manager is required") {
-		t.Fatalf("Start() error = %q, want containing conversation manager is required", err.Error())
-	}
-}
 
-func TestStartRejectsEmptyStateDir(t *testing.T) {
-	_, err := Start(t.Context(), "127.0.0.1:0", WithStateDir(" \t "))
-	if err == nil {
-		t.Fatal("Start() error = nil, want error")
-	}
-	if !strings.Contains(err.Error(), "state directory is required") {
-		t.Fatalf("Start() error = %q, want state directory is required", err.Error())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			server, err := Start(t.Context(), "127.0.0.1:0", tt.option)
+			if err == nil {
+				if server != nil {
+					shutdownTestServer(t, server)
+				}
+				t.Fatal("Start() error = nil, want error")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("Start() error = %q, want containing %q", err.Error(), tt.wantErr)
+			}
+		})
 	}
 }
 
@@ -687,7 +711,9 @@ func (s *fakeWrapperServer) Shutdown(context.Context) error {
 func startTestServer(t *testing.T, opts ...Option) *Server {
 	t.Helper()
 
-	server, err := Start(t.Context(), "127.0.0.1:0", opts...)
+	serverOpts := []Option{WithStateDir(t.TempDir())}
+	serverOpts = append(serverOpts, opts...)
+	server, err := Start(t.Context(), "127.0.0.1:0", serverOpts...)
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
