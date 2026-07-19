@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/kurtisvg/ahh/internal/harness"
 )
 
 type terminalSize struct {
@@ -31,7 +32,7 @@ type fakeHarness struct {
 }
 
 func TestStartRejectsInvalidSessionID(t *testing.T) {
-	if _, err := Start(t.Context(), ClaudeCodeHarness, "127.0.0.1:0", "not-a-uuid"); err == nil {
+	if _, err := Start(t.Context(), harness.ClaudeCode, "127.0.0.1:0", "not-a-uuid"); err == nil {
 		t.Fatal("Start() error = nil, want invalid session ID error")
 	}
 }

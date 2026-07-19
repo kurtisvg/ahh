@@ -8,24 +8,23 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
+	"github.com/kurtisvg/ahh/internal/harness"
 )
 
-const (
-	ClaudeCodeHarness = "claude-code"
-	DefaultAgentName  = "default"
-)
+const DefaultAgentName = "default"
 
 var (
 	ErrNotFound           = errors.New("agent not found")
 	ErrNameConflict       = errors.New("agent name already exists")
+	ErrImmutable          = errors.New("agent immutable fields cannot be changed")
 	ErrUnsupportedHarness = errors.New("unsupported agent harness")
 )
 
-// Config is the persisted, user-editable definition of an Agent.
+// Config is the persisted definition of an Agent.
 type Config struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Harness string `json:"harness"`
+	ID      string       `json:"id"`
+	Name    string       `json:"name"`
+	Harness harness.Type `json:"harness"`
 }
 
 // Manager owns persisted Agent definitions.
@@ -66,7 +65,7 @@ func NewManager(stateDir string) (*Manager, error) {
 		defaultAgent := Config{
 			ID:      uuid.NewString(),
 			Name:    DefaultAgentName,
-			Harness: ClaudeCodeHarness,
+			Harness: harness.ClaudeCode,
 		}
 		if err := manager.store.Save(defaultAgent); err != nil {
 			return nil, fmt.Errorf("create default agent: %w", err)
@@ -77,18 +76,18 @@ func NewManager(stateDir string) (*Manager, error) {
 	return manager, nil
 }
 
-// Create persists a new Agent. Its generated ID remains stable across renames.
-func (m *Manager) Create(name, harness string) (Config, error) {
+// Create persists a new Agent. Its generated ID remains stable across updates.
+func (m *Manager) Create(name string, harnessType harness.Type) (Config, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	name = strings.TrimSpace(name)
-	harness = strings.TrimSpace(harness)
+	harnessType = harness.Type(strings.TrimSpace(string(harnessType)))
 	if name == "" {
 		return Config{}, fmt.Errorf("agent name is required")
 	}
-	if harness != ClaudeCodeHarness {
-		return Config{}, fmt.Errorf("%w: %q", ErrUnsupportedHarness, harness)
+	if harnessType != harness.ClaudeCode {
+		return Config{}, fmt.Errorf("%w: %q", ErrUnsupportedHarness, harnessType)
 	}
 	if m.nameExists(name, "") {
 		return Config{}, ErrNameConflict
@@ -102,7 +101,7 @@ func (m *Manager) Create(name, harness string) (Config, error) {
 		id = uuid.NewString()
 	}
 
-	agent := Config{ID: id, Name: name, Harness: harness}
+	agent := Config{ID: id, Name: name, Harness: harnessType}
 	if err := m.store.Save(agent); err != nil {
 		return Config{}, err
 	}
@@ -141,30 +140,32 @@ func (m *Manager) Get(id string) (Config, bool) {
 	return agent, ok
 }
 
-// Rename updates an Agent's display name without changing its ID or harness.
-func (m *Manager) Rename(id, name string) (Config, error) {
+// Update persists a complete Agent configuration after verifying its immutable fields.
+func (m *Manager) Update(id string, next Config) (Config, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	agent, ok := m.agents[id]
+	current, ok := m.agents[id]
 	if !ok {
 		return Config{}, ErrNotFound
 	}
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return Config{}, fmt.Errorf("agent name is required")
+	if next.ID != current.ID || next.Harness != current.Harness {
+		return Config{}, ErrImmutable
 	}
-	if m.nameExists(name, id) {
+	next.Name = strings.TrimSpace(next.Name)
+	if err := validateConfig(next); err != nil {
+		return Config{}, err
+	}
+	if m.nameExists(next.Name, id) {
 		return Config{}, ErrNameConflict
 	}
 
-	agent.Name = name
-	if err := m.store.Save(agent); err != nil {
+	if err := m.store.Save(next); err != nil {
 		return Config{}, err
 	}
-	m.agents[id] = agent
+	m.agents[id] = next
 
-	return agent, nil
+	return next, nil
 }
 
 // ConfigDir returns the managed harness configuration directory for an Agent.
@@ -195,7 +196,7 @@ func validateConfig(agent Config) error {
 	if strings.TrimSpace(agent.Name) == "" {
 		return fmt.Errorf("agent name is required")
 	}
-	if agent.Harness != ClaudeCodeHarness {
+	if agent.Harness != harness.ClaudeCode {
 		return fmt.Errorf("%w: %q", ErrUnsupportedHarness, agent.Harness)
 	}
 	return nil

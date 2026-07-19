@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/kurtisvg/ahh/internal/harness"
 	"github.com/kurtisvg/ahh/internal/wrapper"
 	"github.com/spf13/cobra"
 )
@@ -19,7 +20,7 @@ func newWrapCommand() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Args:          cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
-		ValidArgs:     []string{wrapper.ClaudeCodeHarness},
+		ValidArgs:     []string{string(harness.ClaudeCode)},
 		RunE:          runWrapCommand,
 	}
 
@@ -28,9 +29,9 @@ func newWrapCommand() *cobra.Command {
 
 func runWrapCommand(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
-	harnessName := args[0]
+	harnessType := harness.Type(args[0])
 
-	server, err := wrapper.Start(ctx, harnessName, defaultWrapperAddr, uuid.NewString())
+	server, err := wrapper.Start(ctx, harnessType, defaultWrapperAddr, uuid.NewString())
 	if err != nil {
 		return fmt.Errorf("start wrapper server: %w", err)
 	}

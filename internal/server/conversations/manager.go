@@ -10,12 +10,13 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/kurtisvg/ahh/internal/harness"
 	"github.com/kurtisvg/ahh/internal/wrapper"
 )
 
 const (
 	defaultWrapperAddr    = "127.0.0.1:0"
-	defaultWrapperHarness = wrapper.ClaudeCodeHarness
+	defaultWrapperHarness = harness.ClaudeCode
 )
 
 // Status is the lifecycle state reported for a user-created conversation.

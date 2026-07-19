@@ -12,11 +12,7 @@ import (
 	"github.com/kurtisvg/ahh/internal/harness"
 )
 
-const (
-	ClaudeCodeHarness = "claude-code"
-
-	shutdownTimeout = 5 * time.Second
-)
+const shutdownTimeout = 5 * time.Second
 
 // Wrapper manages a running harness wrapper.
 type Wrapper interface {
@@ -57,7 +53,7 @@ var _ Wrapper = (*Server)(nil)
 // Start starts the wrapper HTTP server for the requested harness.
 func Start(
 	ctx context.Context,
-	harnessName string,
+	harnessType harness.Type,
 	addr string,
 	sessionID string,
 	opts ...Option,
@@ -73,7 +69,7 @@ func Start(
 		opt(&cfg)
 	}
 
-	h, err := startHarness(ctx, harnessName, sessionID, cfg.resume)
+	h, err := startHarness(ctx, harnessType, sessionID, cfg.resume)
 	if err != nil {
 		return nil, err
 	}
@@ -89,24 +85,24 @@ func Start(
 
 func startHarness(
 	ctx context.Context,
-	harnessName string,
+	harnessType harness.Type,
 	sessionID string,
 	resume bool,
 ) (harness.Harness, error) {
-	switch harnessName {
-	case ClaudeCodeHarness:
+	switch harnessType {
+	case harness.ClaudeCode:
 		var opts []harness.Option
 		if resume {
 			opts = append(opts, harness.WithResume())
 		}
 		h, err := harness.Start(ctx, sessionID, opts...)
 		if err != nil {
-			return nil, fmt.Errorf("start %s harness: %w", harnessName, err)
+			return nil, fmt.Errorf("start %s harness: %w", harnessType, err)
 		}
 
 		return h, nil
 	default:
-		return nil, fmt.Errorf("unsupported harness %q", harnessName)
+		return nil, fmt.Errorf("unsupported harness %q", harnessType)
 	}
 }
 
