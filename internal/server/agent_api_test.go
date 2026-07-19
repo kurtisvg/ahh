@@ -119,6 +119,12 @@ func TestCreateAgentRejectsInvalidRequests(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 			wantError:  "invalid agent request",
 		},
+		{
+			name:       "multiple json values",
+			body:       `{"name":"Agent","harness":"claude-code"} {}`,
+			wantStatus: http.StatusBadRequest,
+			wantError:  "invalid agent request",
+		},
 	}
 
 	for _, tt := range tests {
@@ -202,6 +208,12 @@ func TestUpdateAgentRejectsInvalidRequests(t *testing.T) {
 		{
 			name:       "immutable field",
 			body:       `{"name":"Ignored mutation","harness":"codex"}`,
+			wantStatus: http.StatusBadRequest,
+			wantError:  "invalid agent request",
+		},
+		{
+			name:       "multiple json values",
+			body:       `{"name":"Release Agent"} {}`,
 			wantStatus: http.StatusBadRequest,
 			wantError:  "invalid agent request",
 		},

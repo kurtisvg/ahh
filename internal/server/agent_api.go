@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 
@@ -88,6 +89,10 @@ func decodeAgentRequest(w http.ResponseWriter, r *http.Request, value any) bool 
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(value); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid agent request")
+		return false
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		writeAPIError(w, http.StatusBadRequest, "invalid agent request")
 		return false
 	}
