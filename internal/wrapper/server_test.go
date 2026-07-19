@@ -45,6 +45,14 @@ func TestWithResume(t *testing.T) {
 	}
 }
 
+func TestWithConfigDir(t *testing.T) {
+	cfg := options{}
+	WithConfigDir("/agent/config")(&cfg)
+	if cfg.configDir != "/agent/config" {
+		t.Fatalf("configDir = %q, want /agent/config", cfg.configDir)
+	}
+}
+
 func TestServerHTTP(t *testing.T) {
 	tests := []struct {
 		name             string

@@ -18,7 +18,8 @@ const (
 var claudeCommand = "claude"
 
 type options struct {
-	resume bool
+	configDir string
+	resume    bool
 }
 
 // Option configures a Claude Code harness process.
@@ -28,6 +29,13 @@ type Option func(*options)
 func WithResume() Option {
 	return func(opts *options) {
 		opts.resume = true
+	}
+}
+
+// WithConfigDir isolates Claude Code configuration and history in dir.
+func WithConfigDir(dir string) Option {
+	return func(opts *options) {
+		opts.configDir = dir
 	}
 }
 
@@ -53,7 +61,7 @@ func Start(ctx context.Context, sessionID string, startOpts ...Option) (Harness,
 
 	ctx, cancel := context.WithCancel(ctx)
 	cmd := exec.CommandContext(ctx, claudeCommand, claudeArguments(sessionID, opts)...)
-	cmd.Env = claudeEnvironment(os.Environ())
+	cmd.Env = claudeEnvironment(os.Environ(), opts.configDir)
 
 	ptyFile, err := pty.StartWithSize(cmd, &pty.Winsize{
 		Rows: defaultRows,
@@ -140,13 +148,16 @@ func (h *ClaudeCodeHarness) Close() {
 	_ = h.pty.Close()
 }
 
-func claudeEnvironment(env []string) []string {
+func claudeEnvironment(env []string, configDir string) []string {
 	skip := map[string]struct{}{
 		"CLICOLOR":    {},
 		"COLORTERM":   {},
 		"FORCE_COLOR": {},
 		"NO_COLOR":    {},
 		"TERM":        {},
+	}
+	if configDir != "" {
+		skip["CLAUDE_CONFIG_DIR"] = struct{}{}
 	}
 
 	next := make([]string, 0, len(env)+4)
@@ -162,11 +173,15 @@ func claudeEnvironment(env []string) []string {
 		next = append(next, value)
 	}
 
-	return append(
+	next = append(
 		next,
 		"TERM=xterm-256color",
 		"COLORTERM=truecolor",
 		"CLICOLOR=1",
 		"FORCE_COLOR=1",
 	)
+	if configDir != "" {
+		next = append(next, "CLAUDE_CONFIG_DIR="+configDir)
+	}
+	return next
 }

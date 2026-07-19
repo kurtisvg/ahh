@@ -11,13 +11,21 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/kurtisvg/ahh/internal/harness"
+	"github.com/kurtisvg/ahh/internal/server/agents"
 	"github.com/kurtisvg/ahh/internal/wrapper"
 )
 
-const (
-	defaultWrapperAddr    = "127.0.0.1:0"
-	defaultWrapperHarness = harness.TypeClaudeCode
+const defaultWrapperAddr = "127.0.0.1:0"
+
+var (
+	ErrAgentRequired = errors.New("conversation agent is required")
+	ErrAgentNotFound = errors.New("conversation agent not found")
 )
+
+type agentResolver interface {
+	Get(id string) (agents.Config, bool)
+	ConfigDir(id string) (string, error)
+}
 
 // Status is the lifecycle state reported for a user-created conversation.
 type Status string
@@ -31,6 +39,7 @@ const (
 // Metadata is the user-facing metadata for one harness terminal conversation.
 type Metadata struct {
 	ID           string    `json:"id"`
+	AgentID      string    `json:"agent_id"`
 	Name         string    `json:"name"`
 	Status       Status    `json:"status"`
 	Resumable    bool      `json:"resumable,omitempty"`
@@ -42,12 +51,15 @@ type Metadata struct {
 // for a conversation.
 type WrapperStart struct {
 	SessionID string
+	Harness   harness.Type
+	ConfigDir string
 	Resume    bool
 }
 
 // Conversation manages the mutable runtime state for one terminal conversation.
 type Conversation struct {
 	startWrapper func(WrapperStart) (wrapper.Wrapper, error)
+	agents       agentResolver
 	now          func() time.Time
 	store        metadataStore
 
@@ -67,6 +79,7 @@ type Manager struct {
 	conversations map[string]*Conversation
 	closed        bool
 	startWrapper  func(WrapperStart) (wrapper.Wrapper, error)
+	agents        agentResolver
 	cancel        context.CancelFunc
 	newID         func() (string, error)
 	now           func() time.Time
@@ -75,6 +88,7 @@ type Manager struct {
 
 type options struct {
 	startWrapper func(context.Context, WrapperStart) (wrapper.Wrapper, error)
+	agents       agentResolver
 	newID        func() (string, error)
 	now          func() time.Time
 	store        metadataStore
@@ -95,6 +109,9 @@ func NewManager(ctx context.Context, opts ...Option) (*Manager, error) {
 			return nil, err
 		}
 	}
+	if cfg.agents == nil {
+		return nil, fmt.Errorf("agent resolver is required")
+	}
 	lifetimeCtx, cancel := context.WithCancel(ctx)
 
 	manager := &Manager{
@@ -105,6 +122,7 @@ func NewManager(ctx context.Context, opts ...Option) (*Manager, error) {
 			}
 			return cfg.startWrapper(lifetimeCtx, start)
 		},
+		agents: cfg.agents,
 		cancel: cancel,
 		newID:  cfg.newID,
 		now:    cfg.now,
@@ -120,10 +138,27 @@ func NewManager(ctx context.Context, opts ...Option) (*Manager, error) {
 		return nil, err
 	}
 	for _, metadata := range stored {
-		manager.conversations[metadata.ID] = restoreConversation(metadata, cfg.now, cfg.store, manager.startWrapper)
+		manager.conversations[metadata.ID] = restoreConversation(
+			metadata,
+			cfg.agents,
+			cfg.now,
+			cfg.store,
+			manager.startWrapper,
+		)
 	}
 
 	return manager, nil
+}
+
+// WithAgentResolver sets the Agent registry used for wrapper launch settings.
+func WithAgentResolver(resolver agentResolver) Option {
+	return func(opts *options) error {
+		if resolver == nil {
+			return fmt.Errorf("agent resolver is required")
+		}
+		opts.agents = resolver
+		return nil
+	}
 }
 
 // WithStateDir persists conversation metadata beneath stateDir.
@@ -177,10 +212,18 @@ func WithClock(now func() time.Time) Option {
 }
 
 // Create starts a wrapper for a named conversation and stores it in the registry.
-func (m *Manager) Create(ctx context.Context, name string) (*Conversation, error) {
+func (m *Manager) Create(ctx context.Context, name, agentID string) (*Conversation, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return nil, fmt.Errorf("conversation name is required")
+	}
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return nil, ErrAgentRequired
+	}
+	agent, configDir, err := resolveAgent(m.agents, agentID)
+	if err != nil {
+		return nil, err
 	}
 	m.mu.Lock()
 	closed := m.closed
@@ -194,7 +237,11 @@ func (m *Manager) Create(ctx context.Context, name string) (*Conversation, error
 	}
 
 	// Wrapper lifetime belongs to the manager, not the request creating it.
-	w, err := m.startWrapper(WrapperStart{SessionID: id})
+	w, err := m.startWrapper(WrapperStart{
+		SessionID: id,
+		Harness:   agent.Harness,
+		ConfigDir: configDir,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -203,12 +250,14 @@ func (m *Manager) Create(ctx context.Context, name string) (*Conversation, error
 	conversation := &Conversation{
 		metadata: Metadata{
 			ID:           id,
+			AgentID:      agent.ID,
 			Name:         name,
 			Status:       StatusStarting,
 			CreatedAt:    createdAt,
 			LastActiveAt: createdAt,
 		},
 		startWrapper: m.startWrapper,
+		agents:       m.agents,
 		now:          m.now,
 		store:        m.store,
 	}
@@ -348,6 +397,7 @@ func (m *Manager) remove(id string, conversation *Conversation) {
 
 func restoreConversation(
 	metadata Metadata,
+	agentResolver agentResolver,
 	now func() time.Time,
 	store metadataStore,
 	startWrapper func(WrapperStart) (wrapper.Wrapper, error),
@@ -356,6 +406,7 @@ func restoreConversation(
 	return &Conversation{
 		metadata:     metadata,
 		startWrapper: startWrapper,
+		agents:       agentResolver,
 		now:          now,
 		store:        store,
 	}
@@ -464,8 +515,17 @@ func (s *Conversation) Start(ctx context.Context) (wrapper.Wrapper, error) {
 	s.stateMu.Unlock()
 
 	metadata := s.Metadata()
+	agent, configDir, err := resolveAgent(s.agents, metadata.AgentID)
+	if err != nil {
+		s.stateMu.Lock()
+		s.metadata.Status = StatusExited
+		s.stateMu.Unlock()
+		return nil, err
+	}
 	w, err := s.startWrapper(WrapperStart{
 		SessionID: metadata.ID,
+		Harness:   agent.Harness,
+		ConfigDir: configDir,
 		Resume:    metadata.Resumable,
 	})
 	if err != nil {
@@ -563,15 +623,15 @@ func (s *Conversation) watchWrapper(w wrapper.Wrapper) {
 	s.wrapper = nil
 }
 
-// startWrapperConversation starts the default wrapper backing a new conversation.
+// startWrapperConversation starts the configured wrapper backing a conversation.
 func startWrapperConversation(ctx context.Context, start WrapperStart) (wrapper.Wrapper, error) {
-	var opts []wrapper.Option
+	opts := []wrapper.Option{wrapper.WithConfigDir(start.ConfigDir)}
 	if start.Resume {
 		opts = append(opts, wrapper.WithResume())
 	}
 	w, err := wrapper.Start(
 		ctx,
-		defaultWrapperHarness,
+		start.Harness,
 		defaultWrapperAddr,
 		start.SessionID,
 		opts...,
@@ -581,6 +641,21 @@ func startWrapperConversation(ctx context.Context, start WrapperStart) (wrapper.
 	}
 
 	return w, nil
+}
+
+func resolveAgent(resolver agentResolver, id string) (agents.Config, string, error) {
+	agent, ok := resolver.Get(id)
+	if !ok {
+		return agents.Config{}, "", fmt.Errorf("%w: %q", ErrAgentNotFound, id)
+	}
+	configDir, err := resolver.ConfigDir(id)
+	if err != nil {
+		if errors.Is(err, agents.ErrNotFound) {
+			return agents.Config{}, "", fmt.Errorf("%w: %q", ErrAgentNotFound, id)
+		}
+		return agents.Config{}, "", fmt.Errorf("resolve Agent config directory: %w", err)
+	}
+	return agent, configDir, nil
 }
 
 // sortByActivity orders conversations for the list API.

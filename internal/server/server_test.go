@@ -193,6 +193,7 @@ func TestServerConversationsAPI(t *testing.T) {
 	}
 	manager, err := conversations.NewManager(
 		t.Context(),
+		conversations.WithAgentResolver(newTestAgentManager(t)),
 		conversations.WithStartWrapper(factory.start),
 		conversations.WithClock(func() time.Time {
 			if len(times) == 0 {
@@ -238,6 +239,20 @@ func TestServerConversationsAPI(t *testing.T) {
 	if apiErr.Error != "conversation name is required" {
 		t.Fatalf("blank conversation error = %q, want conversation name is required", apiErr.Error)
 	}
+
+	resp, err = client.Post("http://"+server.Addr+"/api/conversations", "application/json", strings.NewReader(`{"name":"No agent"}`))
+	if err != nil {
+		t.Fatalf("POST conversation without Agent: %v", err)
+	}
+	assertStatus(t, resp, http.StatusBadRequest)
+	assertAPIError(t, resp, "conversation agent_id is required")
+
+	resp, err = client.Post("http://"+server.Addr+"/api/conversations", "application/json", strings.NewReader(`{"name":"Missing agent","agent_id":"missing"}`))
+	if err != nil {
+		t.Fatalf("POST conversation with missing Agent: %v", err)
+	}
+	assertStatus(t, resp, http.StatusBadRequest)
+	assertAPIError(t, resp, "conversation agent is invalid")
 
 	first := createConversationViaAPI(t, client, server, "First")
 	second := createConversationViaAPI(t, client, server, "Second")
@@ -330,9 +345,14 @@ func TestServerDeleteConversationAPI(t *testing.T) {
 
 func TestServerPersistsConversationMetadata(t *testing.T) {
 	stateDir := t.TempDir()
+	agentManager, err := agents.NewManager(stateDir)
+	if err != nil {
+		t.Fatalf("agents.NewManager() error = %v", err)
+	}
 	factory := &fakeWrapperFactory{}
 	manager, err := conversations.NewManager(
 		t.Context(),
+		conversations.WithAgentResolver(agentManager),
 		conversations.WithStartWrapper(factory.start),
 		conversations.WithStateDir(stateDir),
 	)
@@ -340,14 +360,21 @@ func TestServerPersistsConversationMetadata(t *testing.T) {
 		t.Fatalf("conversations.NewManager() error = %v", err)
 	}
 
-	server := startTestServer(t, WithConversationManager(manager))
+	server := startTestServer(t, WithAgentManager(agentManager), WithConversationManager(manager))
 	client := &http.Client{
 		Timeout: 2 * time.Second,
 	}
 	conversation := createConversationViaAPI(t, client, server, "persisted")
 	initialStart := factory.startRequest(0)
-	if initialStart.SessionID != conversation.ID || initialStart.Resume {
+	if initialStart.SessionID != conversation.ID || initialStart.Resume || initialStart.Harness != agents.ClaudeCodeHarness {
 		t.Fatalf("initial wrapper start = %+v, want id %q without resume", initialStart, conversation.ID)
+	}
+	wantConfigDir := filepath.Join(stateDir, "agents", agents.ClaudeCodeHarness, "config")
+	if initialStart.ConfigDir != wantConfigDir {
+		t.Fatalf("initial wrapper config dir = %q, want %q", initialStart.ConfigDir, wantConfigDir)
+	}
+	if conversation.AgentID != agents.ClaudeCodeHarness {
+		t.Fatalf("created conversation AgentID = %q, want %q", conversation.AgentID, agents.ClaudeCodeHarness)
 	}
 	createdConversation, ok := manager.Get(conversation.ID)
 	if !ok {
@@ -379,13 +406,14 @@ func TestServerPersistsConversationMetadata(t *testing.T) {
 	}
 	restartedManager, err := conversations.NewManager(
 		t.Context(),
+		conversations.WithAgentResolver(agentManager),
 		conversations.WithStartWrapper(restartedFactory.start),
 		conversations.WithStateDir(stateDir),
 	)
 	if err != nil {
 		t.Fatalf("reload conversations.NewManager() error = %v", err)
 	}
-	restartedServer := startTestServer(t, WithConversationManager(restartedManager))
+	restartedServer := startTestServer(t, WithAgentManager(agentManager), WithConversationManager(restartedManager))
 	defer shutdownTestServer(t, restartedServer)
 
 	resp, err := client.Get("http://" + restartedServer.Addr + "/api/conversations")
@@ -425,7 +453,7 @@ func TestServerPersistsConversationMetadata(t *testing.T) {
 		t.Fatalf("wrappers started after persisted tty connection = %d, want 1", got)
 	}
 	restoredStart := restartedFactory.startRequest(0)
-	if restoredStart.SessionID != conversation.ID || !restoredStart.Resume {
+	if restoredStart.SessionID != conversation.ID || !restoredStart.Resume || restoredStart.ConfigDir != wantConfigDir {
 		t.Fatalf("restored wrapper start = %+v, want id %q with resume", restoredStart, conversation.ID)
 	}
 
@@ -591,7 +619,7 @@ func TestServerTTYWebSocketProxy(t *testing.T) {
 	manager := newTestConversationManager(t, func(context.Context, conversations.WrapperStart) (wrapper.Wrapper, error) {
 		return fake, nil
 	})
-	conversation, err := manager.Create(ctx, "terminal")
+	conversation, err := manager.Create(ctx, "terminal", agents.ClaudeCodeHarness)
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
@@ -727,7 +755,11 @@ func newTestConversationManager(
 ) *conversations.Manager {
 	t.Helper()
 
-	manager, err := conversations.NewManager(t.Context(), conversations.WithStartWrapper(startWrapper))
+	manager, err := conversations.NewManager(
+		t.Context(),
+		conversations.WithAgentResolver(newTestAgentManager(t)),
+		conversations.WithStartWrapper(startWrapper),
+	)
 	if err != nil {
 		t.Fatalf("conversations.NewManager() error = %v", err)
 	}
@@ -760,7 +792,11 @@ func readAsset(t *testing.T, name string) []byte {
 func createConversationViaAPI(t *testing.T, client *http.Client, server *Server, name string) conversations.Metadata {
 	t.Helper()
 
-	requestBody := bytes.NewBufferString(fmt.Sprintf(`{"name":%q}`, name))
+	requestBody := bytes.NewBufferString(fmt.Sprintf(
+		`{"name":%q,"agent_id":%q}`,
+		name,
+		agents.ClaudeCodeHarness,
+	))
 	resp, err := client.Post("http://"+server.Addr+"/api/conversations", "application/json", requestBody)
 	if err != nil {
 		t.Fatalf("POST /api/conversations: %v", err)
@@ -775,6 +811,16 @@ func createConversationViaAPI(t *testing.T, client *http.Client, server *Server,
 	}
 
 	return conversation
+}
+
+func newTestAgentManager(t *testing.T) *agents.Manager {
+	t.Helper()
+
+	manager, err := agents.NewManager(t.TempDir())
+	if err != nil {
+		t.Fatalf("agents.NewManager() error = %v", err)
+	}
+	return manager
 }
 
 func assertStatus(t *testing.T, resp *http.Response, want int) {

@@ -13,7 +13,8 @@ import (
 )
 
 type createConversationRequest struct {
-	Name string `json:"name"`
+	Name    string `json:"name"`
+	AgentID string `json:"agent_id"`
 }
 
 type conversationsResponse struct {
@@ -42,9 +43,18 @@ func (s *Server) createConversation(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, "conversation name is required")
 		return
 	}
+	agentID := strings.TrimSpace(req.AgentID)
+	if agentID == "" {
+		writeAPIError(w, http.StatusBadRequest, "conversation agent_id is required")
+		return
+	}
 
-	conversation, err := s.conversations.Create(r.Context(), name)
+	conversation, err := s.conversations.Create(r.Context(), name, agentID)
 	if err != nil {
+		if errors.Is(err, conversations.ErrAgentRequired) || errors.Is(err, conversations.ErrAgentNotFound) {
+			writeAPIError(w, http.StatusBadRequest, "conversation agent is invalid")
+			return
+		}
 		writeAPIError(w, http.StatusInternalServerError, "create conversation failed")
 		return
 	}

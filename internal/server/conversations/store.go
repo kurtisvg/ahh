@@ -73,6 +73,12 @@ func (s *fileMetadataStore) Load() ([]Metadata, error) {
 				fileID,
 			)
 		}
+		if strings.TrimSpace(conversation.AgentID) == "" {
+			return nil, fmt.Errorf(
+				"conversation metadata %q is missing required agent_id; pre-Agent metadata is not supported",
+				path,
+			)
+		}
 		if conversation.LastActiveAt.IsZero() {
 			conversation.LastActiveAt = conversation.CreatedAt
 		}

@@ -59,7 +59,11 @@ func Start(ctx context.Context, addr string, opts ...Option) (*Server, error) {
 		cfg.agents = manager
 	}
 	if cfg.conversations == nil {
-		manager, err := conversations.NewManager(ctx, conversations.WithStateDir(cfg.stateDir))
+		manager, err := conversations.NewManager(
+			ctx,
+			conversations.WithAgentResolver(cfg.agents),
+			conversations.WithStateDir(cfg.stateDir),
+		)
 		if err != nil {
 			if closeErr := listener.Close(); closeErr != nil {
 				return nil, errors.Join(err, fmt.Errorf("close listener: %w", closeErr))

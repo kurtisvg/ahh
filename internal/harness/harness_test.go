@@ -134,7 +134,7 @@ func TestClaudeEnvironmentEnablesColor(t *testing.T) {
 		"CLICOLOR=0",
 		"FORCE_COLOR=0",
 		"VSCODE_IPC_HOOK_CLI=/tmp/vscode.sock",
-	})
+	}, "")
 	got := envMap(env)
 
 	if got["NO_COLOR"] != "" {
@@ -154,6 +154,18 @@ func TestClaudeEnvironmentEnablesColor(t *testing.T) {
 	}
 	if got["VSCODE_IPC_HOOK_CLI"] != "/tmp/vscode.sock" {
 		t.Fatalf("VSCODE_IPC_HOOK_CLI = %q, want preserved", got["VSCODE_IPC_HOOK_CLI"])
+	}
+}
+
+func TestClaudeEnvironmentUsesManagedConfigDirectory(t *testing.T) {
+	env := claudeEnvironment([]string{
+		"PATH=/bin",
+		"CLAUDE_CONFIG_DIR=/inherited",
+	}, "/managed/agent/config")
+	got := envMap(env)
+
+	if got["CLAUDE_CONFIG_DIR"] != "/managed/agent/config" {
+		t.Fatalf("CLAUDE_CONFIG_DIR = %q, want managed Agent directory", got["CLAUDE_CONFIG_DIR"])
 	}
 }
 
