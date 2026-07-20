@@ -174,6 +174,11 @@ func TestStartRejectsInvalidOptions(t *testing.T) {
 			wantErr: "agent manager is required",
 		},
 		{
+			name:    "nil project manager",
+			option:  WithProjectManager(nil),
+			wantErr: "project manager is required",
+		},
+		{
 			name:    "empty state directory",
 			option:  WithStateDir(" \t "),
 			wantErr: "state directory is required",
