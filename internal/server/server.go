@@ -108,11 +108,14 @@ func Start(ctx context.Context, addr string, opts ...Option) (*Server, error) {
 	mux.HandleFunc("/", server.serveApp)
 	mux.HandleFunc("GET /conversations/{id}", server.serveApp)
 	mux.HandleFunc("GET /agents/{id}", server.serveApp)
+	mux.HandleFunc("GET /projects/{id}", server.serveApp)
+	mux.HandleFunc("GET /settings", server.serveApp)
 	mux.Handle("/assets/", serveAssets())
 	// Relative asset URLs on /conversations/{id} resolve beneath
 	// /conversations while preserving any reverse-proxy mount prefix.
 	mux.Handle("/conversations/assets/", http.StripPrefix("/conversations", serveAssets()))
 	mux.Handle("/agents/assets/", http.StripPrefix("/agents", serveAssets()))
+	mux.Handle("/projects/assets/", http.StripPrefix("/projects", serveAssets()))
 	mux.HandleFunc("/ready", server.serveReady)
 	mux.Handle("/api/", http.StripPrefix("/api", server.serveAPI()))
 
@@ -200,7 +203,11 @@ func (s *Server) serveApp(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	if r.URL.Path != "/" && r.Pattern != "GET /conversations/{id}" && r.Pattern != "GET /agents/{id}" {
+	if r.URL.Path != "/" &&
+		r.Pattern != "GET /conversations/{id}" &&
+		r.Pattern != "GET /agents/{id}" &&
+		r.Pattern != "GET /projects/{id}" &&
+		r.Pattern != "GET /settings" {
 		http.NotFound(w, r)
 		return
 	}

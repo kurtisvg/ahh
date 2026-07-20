@@ -8,27 +8,36 @@
   <link rel="stylesheet" href="assets/app.css">
 </head>
 <body>
-  <div id="app-shell" class="app-shell" data-mode="conversations">
+  <div id="app-shell" class="app-shell" data-mode="projects">
+    <nav class="activity-rail" aria-label="Primary navigation">
+      <div class="activity-group">
+        <button id="projects-mode-button" class="activity-button is-active" type="button" aria-label="Projects" aria-current="page" title="Projects"><svg class="activity-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7.5h7l2-2h9v13H3z"/><path d="M3 9.5h18"/></svg></button>
+        <button id="agents-mode-button" class="activity-button" type="button" aria-label="Agents" title="Agents"><svg class="activity-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v3"/><circle cx="12" cy="2.5" r="1"/><rect x="4" y="6" width="16" height="14" rx="3"/><path d="M8 14h8M8.5 11h.01M15.5 11h.01"/></svg></button>
+        <button id="conversations-mode-button" class="activity-button" type="button" aria-label="Conversations" title="Conversations"><svg class="activity-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h12a3 3 0 0 1 3 3v5a3 3 0 0 1-3 3H9l-5 4z"/><path d="M8 9h7M8 12h5"/></svg></button>
+      </div>
+      <button id="settings-mode-button" class="activity-button" type="button" aria-label="Settings" title="Settings"><svg class="activity-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1z"/></svg></button>
+    </nav>
+
     <aside id="sidebar" class="sidebar" aria-label="Ahh navigation">
       <div class="sidebar-header">
-        <div class="brand">Ahh</div>
-        <button id="new-item-button" class="icon-button" type="button" aria-label="New conversation">+</button>
+        <div id="sidebar-mode-title" class="brand">Projects</div>
+        <button id="new-item-button" class="icon-button" type="button" aria-label="New Project">+</button>
       </div>
-      <div class="mode-switch" role="tablist" aria-label="Workspace">
-        <button id="conversations-mode-button" class="mode-button is-active" type="button" role="tab" aria-selected="true">Conversations</button>
-        <button id="agents-mode-button" class="mode-button" type="button" role="tab" aria-selected="false">Agents</button>
-      </div>
-      <nav id="conversation-sidebar" class="sidebar-section" aria-labelledby="conversation-heading">
-        <h2 id="conversation-heading" class="section-label">Conversations</h2>
+      <nav id="project-sidebar" class="sidebar-section" aria-label="Projects">
+        <div id="project-list" class="item-list"></div>
+        <div id="project-empty" class="list-empty">No Projects</div>
+      </nav>
+      <nav id="conversation-sidebar" class="sidebar-section" aria-label="Conversations" hidden>
         <div id="conversation-list" class="item-list"></div>
         <div id="conversation-empty" class="list-empty">No conversations</div>
       </nav>
-      <nav id="agent-sidebar" class="sidebar-section" aria-labelledby="agent-heading" hidden>
-        <h2 id="agent-heading" class="section-label">Agents</h2>
+      <nav id="agent-sidebar" class="sidebar-section" aria-label="Agents" hidden>
         <div id="agent-list" class="item-list"></div>
         <div id="agent-empty" class="list-empty">No Agents</div>
       </nav>
-      <div class="sidebar-footer">Localhost control plane</div>
+      <div id="settings-sidebar" class="sidebar-section settings-sidebar" hidden>
+        Authentication and installation identity
+      </div>
     </aside>
     <button id="sidebar-backdrop" class="sidebar-backdrop" type="button" aria-label="Close navigation" hidden></button>
 
@@ -36,10 +45,10 @@
       <header class="topbar">
         <button id="menu-button" class="icon-button menu-button" type="button" aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false">&#9776;</button>
         <div class="view-heading">
-          <div id="view-title" class="view-title">Ahh</div>
-          <div id="view-subtitle" class="view-subtitle">No conversation selected</div>
+          <div id="view-title" class="view-title">Projects</div>
+          <div id="view-subtitle" class="view-subtitle">Register a GitHub repository</div>
         </div>
-        <div id="status-surface" class="status-surface" aria-live="polite">
+        <div id="status-surface" class="status-surface" aria-live="polite" hidden>
           <div id="status" class="status" data-state="disconnected">
             <span class="dot"></span>
             <span id="status-text">disconnected</span>
@@ -59,35 +68,72 @@
           </div>
           <div id="connection-details" class="connection-details" hidden></div>
         </div>
-        <section id="terminal-shell" class="terminal-shell" aria-label="Conversation terminal">
+
+        <section id="terminal-shell" class="terminal-shell" aria-label="Conversation terminal" hidden>
           <div class="terminal-tabs" role="tablist" aria-label="Workspace views">
-            <button class="terminal-tab is-active" type="button" role="tab" aria-selected="true" aria-label="Shell">
-              <span class="tab-icon" aria-hidden="true">&gt;_</span>
-            </button>
+            <button class="terminal-tab is-active" type="button" role="tab" aria-selected="true" aria-label="Shell"><span class="tab-icon" aria-hidden="true">&gt;_</span></button>
           </div>
           <div class="terminal-stage" role="tabpanel" aria-label="TTY terminal">
-            <div id="terminal-state" class="terminal-state" data-state="disconnected">
-              <span id="terminal-state-text">No conversation selected</span>
-            </div>
+            <div id="terminal-state" class="terminal-state" data-state="disconnected"><span id="terminal-state-text">No conversation selected</span></div>
             <div id="terminal"></div>
           </div>
         </section>
 
-        <section id="agent-editor" class="agent-editor" aria-label="Agent configuration" hidden>
+        <section id="agent-editor" class="editor-region" aria-label="Agent configuration" hidden>
           <div id="agent-editor-empty" class="editor-empty">Select an Agent to edit its configuration.</div>
           <form id="agent-editor-form" class="editor-card" hidden>
-            <div>
-              <h2 class="editor-title">Agent configuration</h2>
-              <p class="editor-description">Rename this Agent. Its identity and harness stay fixed.</p>
-            </div>
+            <div><h2 class="editor-title">Agent configuration</h2><p class="editor-description">Rename this Agent. Its identity and harness stay fixed.</p></div>
             <label class="field-label" for="agent-editor-name">Name</label>
             <input id="agent-editor-name" class="form-control" name="name" type="text" autocomplete="off" required>
             <label class="field-label" for="agent-editor-harness">Harness</label>
             <input id="agent-editor-harness" class="form-control" type="text" readonly>
-            <div class="editor-actions">
-              <span id="agent-save-message" class="save-message" aria-live="polite"></span>
+            <div class="editor-actions"><span id="agent-save-message" class="save-message" aria-live="polite"></span><button class="primary-button" type="submit">Save</button></div>
+          </form>
+        </section>
+
+        <section id="project-editor" class="editor-region" aria-label="Project configuration">
+          <div id="project-editor-empty" class="editor-empty empty-action">
+            <p>No Project selected.</p>
+            <button id="project-empty-create-button" class="primary-button" type="button">Create Project</button>
+          </div>
+          <form id="project-editor-form" class="editor-card" hidden>
+            <div class="editor-heading-row">
+              <div><h2 id="project-editor-title" class="editor-title">Project</h2><p id="project-editor-source" class="editor-description"></p></div>
+              <span id="project-status-pill" class="project-status-pill"></span>
+            </div>
+            <div id="project-diagnostic" class="inline-warning" hidden></div>
+            <label class="field-label" for="project-default-branch">Default branch</label>
+            <select id="project-default-branch" class="form-control"></select>
+            <div class="editor-actions split-actions">
+              <button id="project-delete-button" class="danger-button" type="button">Delete Project</button>
+              <span class="action-spacer"></span>
+              <button id="project-open-conversations-button" class="secondary-button" type="button">Open Conversations</button>
+              <button id="project-refresh-button" class="secondary-button" type="button">Refresh</button>
               <button class="primary-button" type="submit">Save</button>
             </div>
+          </form>
+        </section>
+
+        <section id="settings-editor" class="editor-region" aria-label="Settings" hidden>
+          <form id="settings-form" class="editor-card settings-card">
+            <div><h2 class="editor-title">Git authentication</h2><p class="editor-description">Choose how Ahh authenticates Git commands.</p></div>
+            <label class="field-label" for="authentication-mode">Authentication</label>
+            <select id="authentication-mode" class="form-control">
+              <option value="managed">Managed SSH identity</option>
+              <option value="ambient">Ambient SSH</option>
+            </select>
+            <p class="field-help">Existing Conversations must restart after switching modes. Ambient mode uses your existing SSH agent, keys, configuration, credential helpers, and known-hosts behavior.</p>
+            <div class="editor-actions"><span id="settings-save-message" class="save-message" aria-live="polite"></span><button class="primary-button" type="submit">Save</button></div>
+            <hr class="card-divider">
+            <div><h2 class="editor-title">Installation SSH identity</h2><p class="editor-description">Register this public key under your GitHub account’s <strong>SSH and GPG keys</strong>. One account key can access every repository your account can access; deploy keys cannot be reused across repositories.</p></div>
+            <div id="identity-invalid-warning" class="inline-warning" hidden>The managed private key is invalid. Managed Git operations are blocked until you regenerate it.</div>
+            <label class="field-label" for="ssh-public-key">Public key</label>
+            <textarea id="ssh-public-key" class="form-control code-control" rows="4" readonly></textarea>
+            <div class="copy-row"><button id="copy-public-key-button" class="secondary-button" type="button">Copy public key</button><span id="copy-key-message" class="save-message" aria-live="polite"></span></div>
+            <label class="field-label" for="ssh-fingerprint">Fingerprint</label>
+            <input id="ssh-fingerprint" class="form-control code-control" type="text" readonly>
+            <p class="field-help"><a href="https://docs.github.com/en/authentication/connecting-to-github-with-ssh/adding-a-new-ssh-key-to-your-github-account" target="_blank" rel="noreferrer">GitHub: add a new SSH key</a>. Registering this key grants Ahh the same repository permissions as your GitHub account.</p>
+            <div class="editor-actions"><button id="regenerate-identity-button" class="danger-button" type="button">Regenerate identity</button></div>
           </form>
         </section>
       </main>
@@ -96,34 +142,49 @@
 
   <dialog id="conversation-dialog" class="modal">
     <form id="create-conversation-form" class="modal-surface" method="dialog">
-      <div class="modal-header">
-        <h2 class="modal-title">New Conversation</h2>
-        <button id="conversation-dialog-close" class="icon-button" type="button" aria-label="Close">&times;</button>
-      </div>
-      <label class="field-label" for="conversation-name-input">Name</label>
-      <input id="conversation-name-input" class="form-control" name="name" type="text" autocomplete="off" required>
-      <label class="field-label" for="conversation-agent-select">Agent</label>
-      <select id="conversation-agent-select" class="form-control" name="agent_id" required></select>
-      <div class="modal-actions">
-        <button id="conversation-cancel-button" class="secondary-button" type="button">Cancel</button>
-        <button class="primary-button" type="submit">Create</button>
-      </div>
+      <div class="modal-header"><h2 class="modal-title">New Conversation</h2><button id="conversation-dialog-close" class="icon-button" type="button" aria-label="Close">&times;</button></div>
+      <label class="field-label" for="conversation-name-input">Name</label><input id="conversation-name-input" class="form-control" name="name" type="text" autocomplete="off" required>
+      <label class="field-label" for="conversation-agent-select">Agent</label><select id="conversation-agent-select" class="form-control" name="agent_id" required></select>
+      <div class="modal-actions"><button id="conversation-cancel-button" class="secondary-button" type="button">Cancel</button><button class="primary-button" type="submit">Create</button></div>
     </form>
   </dialog>
 
   <dialog id="agent-dialog" class="modal">
     <form id="create-agent-form" class="modal-surface" method="dialog">
-      <div class="modal-header">
-        <h2 class="modal-title">New Agent</h2>
-        <button id="agent-dialog-close" class="icon-button" type="button" aria-label="Close">&times;</button>
-      </div>
+      <div class="modal-header"><h2 class="modal-title">New Agent</h2><button id="agent-dialog-close" class="icon-button" type="button" aria-label="Close">&times;</button></div>
       <p class="modal-description">Start with a name. This Agent will use Claude Code and open in the configuration editor after creation.</p>
-      <label class="field-label" for="agent-name-input">Name</label>
-      <input id="agent-name-input" class="form-control" name="name" type="text" autocomplete="off" required>
-      <div class="modal-actions">
-        <button id="agent-cancel-button" class="secondary-button" type="button">Cancel</button>
-        <button class="primary-button" type="submit">Create</button>
-      </div>
+      <label class="field-label" for="agent-name-input">Name</label><input id="agent-name-input" class="form-control" name="name" type="text" autocomplete="off" required>
+      <div class="modal-actions"><button id="agent-cancel-button" class="secondary-button" type="button">Cancel</button><button class="primary-button" type="submit">Create</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="project-dialog" class="modal">
+    <form id="create-project-form" class="modal-surface" method="dialog">
+      <div class="modal-header"><h2 class="modal-title">New Project</h2><button id="project-dialog-close" class="icon-button" type="button" aria-label="Close">&times;</button></div>
+      <p class="modal-description">Register a source repository for this Project.</p>
+      <label class="field-label" for="project-name-input">Project name</label><input id="project-name-input" class="form-control" name="name" type="text" placeholder="my-project" pattern="[A-Za-z0-9](?:[A-Za-z0-9._\-]{0,62}[A-Za-z0-9])?" maxlength="64" autocomplete="off" required>
+      <p class="field-help">This immutable URL-safe name is also the Project ID used in links.</p>
+      <label class="field-label" for="project-source-type">Source type</label><select id="project-source-type" class="form-control" name="source_type" required><option value="github">GitHub.com</option></select>
+      <label class="field-label" for="project-repository-input">GitHub repository</label><input id="project-repository-input" class="form-control" name="repository" type="text" placeholder="owner/repository" autocomplete="off" required>
+      <div class="modal-actions"><button id="project-cancel-button" class="secondary-button" type="button">Cancel</button><button class="primary-button" type="submit">Create</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="project-delete-dialog" class="modal">
+    <form id="project-delete-form" class="modal-surface" method="dialog">
+      <div class="modal-header"><h2 class="modal-title">Delete Project permanently?</h2><button id="project-delete-dialog-close" class="icon-button" type="button" aria-label="Close">&times;</button></div>
+      <p id="project-delete-warning" class="modal-description"></p>
+      <label class="field-label" for="project-delete-confirm-input">Type the Project name to confirm</label><input id="project-delete-confirm-input" class="form-control" type="text" autocomplete="off" required>
+      <div class="modal-actions"><button id="project-delete-cancel-button" class="secondary-button" type="button">Cancel</button><button class="danger-button" type="submit">Delete permanently</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="regenerate-dialog" class="modal">
+    <form id="regenerate-form" class="modal-surface" method="dialog">
+      <div class="modal-header"><h2 class="modal-title">Regenerate SSH identity?</h2><button id="regenerate-dialog-close" class="icon-button" type="button" aria-label="Close">&times;</button></div>
+      <p class="modal-description">This permanently replaces the managed key. GitHub access will fail until the new public key is registered.</p>
+      <label class="field-label" for="regenerate-confirm-input">Type the current fingerprint to confirm</label><input id="regenerate-confirm-input" class="form-control code-control" type="text" autocomplete="off" required>
+      <div class="modal-actions"><button id="regenerate-cancel-button" class="secondary-button" type="button">Cancel</button><button class="danger-button" type="submit">Regenerate permanently</button></div>
     </form>
   </dialog>
 
