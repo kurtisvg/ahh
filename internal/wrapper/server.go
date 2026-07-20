@@ -22,7 +22,23 @@ type Wrapper interface {
 }
 
 type options struct {
-	configDir string
+	configDir   string
+	environment []string
+	workingDir  string
+}
+
+// WithEnvironment configures internal environment entries for the harness.
+func WithEnvironment(environment []string) Option {
+	return func(opts *options) {
+		opts.environment = append([]string(nil), environment...)
+	}
+}
+
+// WithWorkingDirectory starts the harness in dir.
+func WithWorkingDirectory(dir string) Option {
+	return func(opts *options) {
+		opts.workingDir = dir
+	}
 }
 
 // Option configures a wrapper and its harness process.
@@ -99,6 +115,12 @@ func startHarness(
 		var opts []harness.Option
 		if cfg.configDir != "" {
 			opts = append(opts, harness.WithConfigDir(cfg.configDir))
+		}
+		if cfg.workingDir != "" {
+			opts = append(opts, harness.WithWorkingDirectory(cfg.workingDir))
+		}
+		if len(cfg.environment) > 0 {
+			opts = append(opts, harness.WithEnvironment(cfg.environment))
 		}
 		h, err := harness.Start(ctx, sessionID, opts...)
 		if err != nil {

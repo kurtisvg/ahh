@@ -44,9 +44,11 @@ type Metadata struct {
 // WrapperStart identifies the harness session a wrapper should create or resume
 // for a conversation.
 type WrapperStart struct {
-	SessionID string
-	Harness   harness.Type
-	ConfigDir string
+	SessionID   string
+	Harness     harness.Type
+	ConfigDir   string
+	WorkingDir  string
+	Environment []string
 }
 
 // Conversation manages the mutable runtime state for one terminal conversation.
@@ -574,7 +576,11 @@ func (s *Conversation) watchWrapper(w wrapper.Wrapper) {
 
 // startWrapperConversation starts the configured wrapper backing a conversation.
 func startWrapperConversation(ctx context.Context, start WrapperStart) (wrapper.Wrapper, error) {
-	opts := []wrapper.Option{wrapper.WithConfigDir(start.ConfigDir)}
+	opts := []wrapper.Option{
+		wrapper.WithConfigDir(start.ConfigDir),
+		wrapper.WithWorkingDirectory(start.WorkingDir),
+		wrapper.WithEnvironment(start.Environment),
+	}
 	w, err := wrapper.Start(
 		ctx,
 		start.Harness,

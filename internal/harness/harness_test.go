@@ -22,6 +22,9 @@ case "${AHH_HELPER_HARNESS_MODE}" in
   wait)
     sleep 10
     ;;
+  inspect)
+    printf '%s\n%s\n' "${PWD}" "${AHH_INTERNAL_GIT_TEST}"
+    ;;
   *)
     printf 'unknown helper harness mode "%s"\n' "${AHH_HELPER_HARNESS_MODE}" >&2
     exit 2
@@ -175,6 +178,50 @@ func TestWithConfigDirTrimsSpace(t *testing.T) {
 
 	if opts.configDir != "/managed/agent/config" {
 		t.Fatalf("configDir = %q, want trimmed managed Agent directory", opts.configDir)
+	}
+}
+
+func TestHarnessUsesWorkingDirectoryAndInternalEnvironment(t *testing.T) {
+	workingDir := t.TempDir()
+	setHarnessCommand(t, fakeHarnessCommand(t))
+	t.Setenv("AHH_HELPER_HARNESS_MODE", "inspect")
+	t.Setenv("AHH_INTERNAL_GIT_TEST", "ambient")
+
+	h, err := Start(
+		t.Context(),
+		"test-session-id",
+		WithWorkingDirectory("  "+workingDir+"  "),
+		WithEnvironment([]string{"AHH_INTERNAL_GIT_TEST=managed"}),
+	)
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	t.Cleanup(h.Close)
+	buffer := make([]byte, 4096)
+	n, readErr := h.Read(buffer)
+	if readErr != nil {
+		t.Fatalf("Read() error = %v", readErr)
+	}
+	output := string(buffer[:n])
+	if !strings.Contains(output, workingDir) {
+		t.Fatalf("harness output = %q, want working directory %q", output, workingDir)
+	}
+	if !strings.Contains(output, "managed") || strings.Contains(output, "ambient") {
+		t.Fatalf("harness output = %q, want managed environment override", output)
+	}
+	if err := h.Wait(t.Context()); err != nil {
+		t.Fatalf("Wait() error = %v", err)
+	}
+}
+
+func TestMergeEnvironmentOverridesOnlyMatchingKeys(t *testing.T) {
+	actual := mergeEnvironment(
+		[]string{"PATH=/bin", "GIT_SSH_COMMAND=ambient", "KEEP=value"},
+		[]string{"GIT_SSH_COMMAND=managed", "GIT_TERMINAL_PROMPT=0"},
+	)
+	got := envMap(actual)
+	if got["GIT_SSH_COMMAND"] != "managed" || got["GIT_TERMINAL_PROMPT"] != "0" || got["KEEP"] != "value" {
+		t.Fatalf("mergeEnvironment() = %q", actual)
 	}
 }
 
