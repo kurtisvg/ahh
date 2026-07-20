@@ -11,6 +11,7 @@ import (
 
 	"github.com/kurtisvg/ahh/internal/server/agents"
 	"github.com/kurtisvg/ahh/internal/server/conversations"
+	"github.com/kurtisvg/ahh/internal/server/settings"
 )
 
 const (
@@ -23,6 +24,7 @@ type Server struct {
 	httpServer    *http.Server
 	agents        *agents.Manager
 	conversations *conversations.Manager
+	settings      *settings.Manager
 
 	// done is closed after err is set, so Wait can safely read err after
 	// receiving from done.
@@ -58,6 +60,16 @@ func Start(ctx context.Context, addr string, opts ...Option) (*Server, error) {
 		}
 		cfg.agents = manager
 	}
+	if cfg.settings == nil {
+		manager, err := settings.NewManager(cfg.stateDir)
+		if err != nil {
+			if closeErr := listener.Close(); closeErr != nil {
+				return nil, errors.Join(err, fmt.Errorf("close listener: %w", closeErr))
+			}
+			return nil, err
+		}
+		cfg.settings = manager
+	}
 	if cfg.conversations == nil {
 		manager, err := conversations.NewManager(
 			ctx,
@@ -77,6 +89,7 @@ func Start(ctx context.Context, addr string, opts ...Option) (*Server, error) {
 		Addr:          listener.Addr().String(),
 		agents:        cfg.agents,
 		conversations: cfg.conversations,
+		settings:      cfg.settings,
 		done:          make(chan struct{}),
 	}
 
@@ -133,6 +146,9 @@ func (s *Server) serveAPI() http.Handler {
 	mux.HandleFunc("GET /agents", s.listAgents)
 	mux.HandleFunc("POST /agents", s.createAgent)
 	mux.HandleFunc("PATCH /agents/{id}", s.updateAgent)
+	mux.HandleFunc("GET /settings", s.getSettings)
+	mux.HandleFunc("PATCH /settings", s.updateSettings)
+	mux.HandleFunc("POST /settings/ssh-identity/regenerate", s.regenerateSSHIdentity)
 
 	return mux
 }
