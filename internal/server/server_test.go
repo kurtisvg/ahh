@@ -708,7 +708,7 @@ func TestProjectAndSettingsUI(t *testing.T) {
 		`id="project-editor-form"`,
 		`placeholder="my-project"`,
 		`id="project-source-type"`,
-		`<option value="github">GitHub.com</option>`,
+		`<option value="github">github</option>`,
 		`This immutable URL-safe name is also the Project ID used in links.`,
 		`placeholder="owner/repository"`,
 		`id="project-default-branch"`,
