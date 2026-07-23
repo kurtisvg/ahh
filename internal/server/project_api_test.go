@@ -61,7 +61,7 @@ func TestServerProjectsAPI(t *testing.T) {
 		t.Fatalf("initial Projects = %d, want 0", len(initial.Projects))
 	}
 
-	requestBody := `{"name":"ahh","source":{"type":"github","repository":"owner/repository.git"}}`
+	requestBody := `{"name":"example-project","source":{"type":"github","repository":"owner/repository.git"}}`
 	resp, err = client.Post("http://"+server.Addr+"/api/projects", "application/json", strings.NewReader(requestBody))
 	if err != nil {
 		t.Fatalf("POST /api/projects: %v", err)
@@ -70,18 +70,18 @@ func TestServerProjectsAPI(t *testing.T) {
 	var created projects.Metadata
 	decodeJSON(t, resp, &created)
 	resp.Body.Close()
-	if created.ID != "ahh" || created.Name != "ahh" || created.Source.Repository != "owner/repository" || created.Status != projects.StatusReady {
+	if created.ID != "example-project" || created.Name != "example-project" || created.Source.Repository != "owner/repository" || created.Status != projects.StatusReady {
 		t.Fatalf("created Project = %+v", created)
 	}
 
-	resp, err = client.Get("http://" + server.Addr + "/api/projects/ahh")
+	resp, err = client.Get("http://" + server.Addr + "/api/projects/example-project")
 	if err != nil {
 		t.Fatalf("GET Project: %v", err)
 	}
 	assertStatus(t, resp, http.StatusOK)
 	resp.Body.Close()
 
-	resp, err = client.Get("http://" + server.Addr + "/api/projects/ahh/branches")
+	resp, err = client.Get("http://" + server.Addr + "/api/projects/example-project/branches")
 	if err != nil {
 		t.Fatalf("GET Project branches: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestServerProjectsAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal PATCH body: %v", err)
 	}
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodPatch, "http://"+server.Addr+"/api/projects/ahh", bytes.NewReader(patchBody))
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPatch, "http://"+server.Addr+"/api/projects/example-project", bytes.NewReader(patchBody))
 	if err != nil {
 		t.Fatalf("new PATCH request: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestServerProjectsAPI(t *testing.T) {
 		t.Fatalf("updated default branch = %+v, want local", updated.DefaultBranch)
 	}
 
-	req, err = http.NewRequestWithContext(t.Context(), http.MethodPatch, "http://"+server.Addr+"/api/projects/ahh", strings.NewReader(`{"name":"Renamed"}`))
+	req, err = http.NewRequestWithContext(t.Context(), http.MethodPatch, "http://"+server.Addr+"/api/projects/example-project", strings.NewReader(`{"name":"Renamed"}`))
 	if err != nil {
 		t.Fatalf("new immutable PATCH request: %v", err)
 	}
@@ -124,14 +124,14 @@ func TestServerProjectsAPI(t *testing.T) {
 	assertStatus(t, resp, http.StatusBadRequest)
 	resp.Body.Close()
 
-	resp, err = client.Post("http://"+server.Addr+"/api/projects/ahh/fetch", "application/json", nil)
+	resp, err = client.Post("http://"+server.Addr+"/api/projects/example-project/fetch", "application/json", nil)
 	if err != nil {
 		t.Fatalf("POST Project fetch: %v", err)
 	}
 	assertStatus(t, resp, http.StatusOK)
 	resp.Body.Close()
 
-	req, err = http.NewRequestWithContext(t.Context(), http.MethodDelete, "http://"+server.Addr+"/api/projects/ahh", nil)
+	req, err = http.NewRequestWithContext(t.Context(), http.MethodDelete, "http://"+server.Addr+"/api/projects/example-project", nil)
 	if err != nil {
 		t.Fatalf("new DELETE request: %v", err)
 	}
