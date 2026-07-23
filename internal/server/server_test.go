@@ -110,6 +110,12 @@ func TestServerHTTP(t *testing.T) {
 			wantStatus: http.StatusNotFound,
 		},
 		{
+			name:       "rejects wrong terminal page method",
+			method:     http.MethodPost,
+			path:       "/",
+			wantStatus: http.StatusMethodNotAllowed,
+		},
+		{
 			name:       "reports missing api endpoint",
 			path:       "/api/missing",
 			wantStatus: http.StatusNotFound,
