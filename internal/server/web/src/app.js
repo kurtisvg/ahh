@@ -49,8 +49,6 @@ const projectUnavailableReason = document.getElementById('project-unavailable-re
 const projectDefaultBranch = document.getElementById('project-default-branch');
 const projectSaveMessage = document.getElementById('project-save-message');
 const projectRefreshButton = document.getElementById('project-refresh-button');
-const projectDeleteButton = document.getElementById('project-delete-button');
-const projectOpenConversationsButton = document.getElementById('project-open-conversations-button');
 const projectEmptyCreateButton = document.getElementById('project-empty-create-button');
 const settingsEditor = document.getElementById('settings-editor');
 const settingsForm = document.getElementById('settings-form');
@@ -313,7 +311,7 @@ function renderConversations() {
     selectButton.append(itemMain(conversation.name, `${agentName(conversation.agent_id)} · ${stateName}`));
 
     const deleteButton = document.createElement('button');
-    deleteButton.className = 'conversation-delete';
+    deleteButton.className = 'item-delete';
     deleteButton.type = 'button';
     deleteButton.innerHTML = `
       <svg class="trash-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -366,10 +364,21 @@ function renderProjects() {
     selectButton.addEventListener('click', () => selectProject(project.id));
     selectButton.append(itemMain(project.name, `${project.source.repository} · ${project.status}`));
 
+    const deleteButton = document.createElement('button');
+    deleteButton.className = 'item-delete';
+    deleteButton.type = 'button';
+    deleteButton.innerHTML = `
+      <svg class="trash-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M3 6h18"></path><path d="M8 6V4h8v2"></path>
+        <path d="M19 6l-1 14H6L5 6"></path><path d="M10 11v5"></path><path d="M14 11v5"></path>
+      </svg>`;
+    deleteButton.setAttribute('aria-label', `Delete ${project.name}`);
+    deleteButton.addEventListener('click', () => openProjectDeleteDialog(project.id));
+
     const state = document.createElement('span');
     state.className = 'state-pill';
     state.ariaHidden = 'true';
-    item.append(selectButton, state);
+    item.append(selectButton, deleteButton, state);
     projectListEl.append(item);
   }
 }
@@ -1076,9 +1085,10 @@ function openProjectDialog() {
   openDialog(projectDialog, projectNameInput);
 }
 
-function openProjectDeleteDialog() {
-  const project = activeProject();
+function openProjectDeleteDialog(projectId) {
+  const project = projects.find((candidate) => candidate.id === projectId);
   if (!project) return;
+  if (activeProjectId !== project.id) selectProject(project.id);
   projectDeleteConfirmInput.value = '';
   projectDeleteConfirmInput.setCustomValidity('');
   projectDeleteWarning.textContent = `Deleting ${project.name} removes its managed repository. This cannot be undone.`;
@@ -1292,8 +1302,6 @@ projectRefreshButton.addEventListener('click', () => {
     projectUnavailableReason.hidden = false;
   });
 });
-projectDeleteButton.addEventListener('click', openProjectDeleteDialog);
-projectOpenConversationsButton.addEventListener('click', () => setMode('conversations'));
 copyPublicKeyButton.addEventListener('click', () => {
   if (!navigator.clipboard?.writeText) {
     copyKeyMessage.textContent = 'Clipboard access is unavailable; select the key manually.';

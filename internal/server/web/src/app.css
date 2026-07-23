@@ -212,7 +212,7 @@ select {
 
 .conversation-input,
 .form-control,
-.conversation-delete,
+.item-delete,
 .icon-button,
 .primary-button,
 .secondary-button,
@@ -250,7 +250,7 @@ select.form-control {
 
 .conversation-input:focus,
 .form-control:focus,
-.conversation-delete:focus-visible,
+.item-delete:focus-visible,
 .icon-button:focus-visible,
 .primary-button:focus-visible,
 .secondary-button:focus-visible,
@@ -261,7 +261,7 @@ select.form-control {
   outline-offset: 2px;
 }
 
-.conversation-delete,
+.item-delete,
 .icon-button,
 .primary-button,
 .secondary-button,
@@ -319,7 +319,7 @@ button:disabled {
   opacity: 0.65;
 }
 
-.conversation-delete {
+.item-delete {
   align-self: center;
   grid-column: 2;
   grid-row: 1;
@@ -340,14 +340,14 @@ button:disabled {
     color 120ms ease;
 }
 
-.conversation-item:hover .conversation-delete,
-.conversation-item:focus-within .conversation-delete {
+.list-item:hover .item-delete,
+.list-item:focus-within .item-delete {
   opacity: 1;
   pointer-events: auto;
   visibility: visible;
 }
 
-.conversation-delete:hover {
+.item-delete:hover {
   background: #351818;
   border-color: #6f3939;
   color: #ffc8c8;
@@ -384,11 +384,11 @@ button:disabled {
 }
 
 .project-item {
-  grid-template-columns: minmax(0, 1fr) 8px;
+  grid-template-columns: minmax(0, 1fr) 34px 8px;
 }
 
 .project-item .state-pill {
-  grid-column: 2;
+  grid-column: 3;
 }
 
 .project-item[data-state="ready"] .state-pill {
@@ -656,9 +656,7 @@ button:disabled {
 
 .editor-heading-row,
 .copy-row,
-.project-status-actions,
-.project-navigation-actions,
-.project-lifecycle-actions {
+.project-status-actions {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -720,16 +718,6 @@ button:disabled {
   line-height: 1.45;
 }
 
-.project-navigation-actions {
-  justify-content: flex-start;
-}
-
-.navigation-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
 .project-default-branch-field {
   display: grid;
   gap: 8px;
@@ -740,10 +728,6 @@ button:disabled {
 
 .field-actions {
   padding-top: 2px;
-}
-
-.project-lifecycle-actions {
-  justify-content: flex-start;
 }
 
 .empty-action {
