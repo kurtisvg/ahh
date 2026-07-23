@@ -18,18 +18,6 @@ type options struct {
 	stateDir      string
 }
 
-// WithSettingsManager sets the Settings manager used by the server.
-func WithSettingsManager(manager *settings.Manager) Option {
-	return func(opts *options) error {
-		if manager == nil {
-			return fmt.Errorf("settings manager is required")
-		}
-
-		opts.settings = manager
-		return nil
-	}
-}
-
 // WithStateDir sets the directory used for persistent Ahh state.
 func WithStateDir(stateDir string) Option {
 	return func(opts *options) error {

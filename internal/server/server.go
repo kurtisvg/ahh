@@ -60,16 +60,14 @@ func Start(ctx context.Context, addr string, opts ...Option) (*Server, error) {
 		}
 		cfg.agents = manager
 	}
-	if cfg.settings == nil {
-		manager, err := settings.NewManager(cfg.stateDir)
-		if err != nil {
-			if closeErr := listener.Close(); closeErr != nil {
-				return nil, errors.Join(err, fmt.Errorf("close listener: %w", closeErr))
-			}
-			return nil, err
+	settingsManager, err := settings.NewManager(cfg.stateDir)
+	if err != nil {
+		if closeErr := listener.Close(); closeErr != nil {
+			return nil, errors.Join(err, fmt.Errorf("close listener: %w", closeErr))
 		}
-		cfg.settings = manager
+		return nil, err
 	}
+	cfg.settings = settingsManager
 	if cfg.conversations == nil {
 		manager, err := conversations.NewManager(
 			ctx,
