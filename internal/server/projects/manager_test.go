@@ -73,6 +73,13 @@ func (r *fakeCommandRunner) commandStrings() []string {
 	return commands
 }
 
+func TestWithCommandRunnerRejectsNil(t *testing.T) {
+	_, err := NewManager(t.TempDir(), testEnvironment{}, WithCommandRunner(nil))
+	if err == nil || !strings.Contains(err.Error(), "project command runner must not be nil") {
+		t.Fatalf("NewManager() error = %v, want nil command runner error", err)
+	}
+}
+
 func TestManagerCreatesPersistsAndReloadsProject(t *testing.T) {
 	stateDir := t.TempDir()
 	runner := &fakeCommandRunner{

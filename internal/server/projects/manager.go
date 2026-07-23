@@ -112,7 +112,7 @@ func (m *Manager) newProject(stored definition) *Project {
 func WithCommandRunner(runner commandRunner) Option {
 	return func(opts *options) error {
 		if runner == nil {
-			return fmt.Errorf("project command runner is required")
+			return fmt.Errorf("project command runner must not be nil")
 		}
 		opts.runner = runner
 		return nil
