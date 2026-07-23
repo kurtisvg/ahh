@@ -118,17 +118,12 @@ func (m *Manager) Regenerate(confirmFingerprint string) (Settings, error) {
 	return m.settings, nil
 }
 
-// GitEnvironment returns Git-specific environment entries. Managed mode
-// selects only the installation key; background operations also disable
-// credential prompts.
-func (m *Manager) GitEnvironment(background bool) ([]string, error) {
+// Env returns authentication environment entries for Git and SSH processes.
+func (m *Manager) Env() ([]string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	env := make([]string, 0, 3)
-	if background {
-		env = append(env, "GIT_TERMINAL_PROMPT=0", "GCM_INTERACTIVE=Never")
-	}
+	env := make([]string, 0, 1)
 	if m.settings.AuthenticationMode == AuthenticationAmbient {
 		return env, nil
 	}

@@ -115,8 +115,8 @@ func TestManagerPreservesCorruptPrivateKeyAndAllowsConfirmedRegeneration(t *test
 	if !bytes.Equal(gotCorrupt, corrupt) {
 		t.Fatal("corrupt private key was silently replaced")
 	}
-	if _, err := reloaded.GitEnvironment(true); !errors.Is(err, ErrManagedIdentityInvalid) {
-		t.Fatalf("GitEnvironment() error = %v, want ErrManagedIdentityInvalid", err)
+	if _, err := reloaded.Env(); !errors.Is(err, ErrManagedIdentityInvalid) {
+		t.Fatalf("Env() error = %v, want ErrManagedIdentityInvalid", err)
 	}
 	if _, err := reloaded.Regenerate("SHA256:stale"); !errors.Is(err, ErrFingerprintConfirmation) {
 		t.Fatalf("Regenerate(stale) error = %v, want confirmation error", err)
@@ -130,20 +130,20 @@ func TestManagerPreservesCorruptPrivateKeyAndAllowsConfirmedRegeneration(t *test
 	}
 }
 
-func TestManagerAuthenticationModeAndGitEnvironment(t *testing.T) {
+func TestManagerAuthenticationModeAndEnv(t *testing.T) {
 	stateDir := filepath.Join(t.TempDir(), "state dir's value")
 	manager, err := NewManager(stateDir)
 	if err != nil {
 		t.Fatalf("NewManager() error = %v", err)
 	}
 
-	env, err := manager.GitEnvironment(true)
+	env, err := manager.Env()
 	if err != nil {
-		t.Fatalf("GitEnvironment(managed) error = %v", err)
+		t.Fatalf("Env(managed) error = %v", err)
 	}
 	joined := strings.Join(env, "\n")
-	if !strings.Contains(joined, "GIT_TERMINAL_PROMPT=0") || !strings.Contains(joined, "GCM_INTERACTIVE=Never") {
-		t.Fatalf("background environment = %q, want prompts disabled", joined)
+	if strings.Contains(joined, "GIT_TERMINAL_PROMPT") || strings.Contains(joined, "GCM_INTERACTIVE") {
+		t.Fatalf("authentication environment = %q, want no prompt policy", joined)
 	}
 	wantQuotedPath := "'" + strings.ReplaceAll(filepath.Join(stateDir, "settings", "ssh_identity"), "'", "'\\''") + "'"
 	if !strings.Contains(joined, "ssh -i "+wantQuotedPath+" -o IdentitiesOnly=yes") {
@@ -157,9 +157,9 @@ func TestManagerAuthenticationModeAndGitEnvironment(t *testing.T) {
 	if updated.AuthenticationMode != AuthenticationAmbient {
 		t.Fatalf("updated mode = %q, want ambient", updated.AuthenticationMode)
 	}
-	ambient, err := manager.GitEnvironment(false)
+	ambient, err := manager.Env()
 	if err != nil {
-		t.Fatalf("GitEnvironment(ambient) error = %v", err)
+		t.Fatalf("Env(ambient) error = %v", err)
 	}
 	if len(ambient) != 0 {
 		t.Fatalf("interactive ambient environment = %q, want untouched", ambient)

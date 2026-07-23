@@ -11,6 +11,7 @@ import (
 
 	"github.com/kurtisvg/ahh/internal/server/agents"
 	"github.com/kurtisvg/ahh/internal/server/conversations"
+	"github.com/kurtisvg/ahh/internal/server/projects"
 	"github.com/kurtisvg/ahh/internal/server/settings"
 )
 
@@ -24,6 +25,7 @@ type Server struct {
 	httpServer    *http.Server
 	agents        *agents.Manager
 	conversations *conversations.Manager
+	projects      *projects.Manager
 	settings      *settings.Manager
 
 	// done is closed after err is set, so Wait can safely read err after
@@ -68,6 +70,16 @@ func Start(ctx context.Context, addr string, opts ...Option) (*Server, error) {
 		return nil, err
 	}
 	cfg.settings = settingsManager
+	if cfg.projects == nil {
+		manager, err := projects.NewManager(cfg.stateDir, cfg.settings)
+		if err != nil {
+			if closeErr := listener.Close(); closeErr != nil {
+				return nil, errors.Join(err, fmt.Errorf("close listener: %w", closeErr))
+			}
+			return nil, err
+		}
+		cfg.projects = manager
+	}
 	if cfg.conversations == nil {
 		manager, err := conversations.NewManager(
 			ctx,
@@ -87,6 +99,7 @@ func Start(ctx context.Context, addr string, opts ...Option) (*Server, error) {
 		Addr:          listener.Addr().String(),
 		agents:        cfg.agents,
 		conversations: cfg.conversations,
+		projects:      cfg.projects,
 		settings:      cfg.settings,
 		done:          make(chan struct{}),
 	}
@@ -147,6 +160,13 @@ func (s *Server) serveAPI() http.Handler {
 	mux.HandleFunc("GET /settings", s.getSettings)
 	mux.HandleFunc("PATCH /settings", s.updateSettings)
 	mux.HandleFunc("POST /settings/ssh-identity/regenerate", s.regenerateSSHIdentity)
+	mux.HandleFunc("GET /projects", s.listProjects)
+	mux.HandleFunc("POST /projects", s.createProject)
+	mux.HandleFunc("GET /projects/{project_id}", s.getProject)
+	mux.HandleFunc("PATCH /projects/{project_id}", s.updateProject)
+	mux.HandleFunc("DELETE /projects/{project_id}", s.deleteProject)
+	mux.HandleFunc("GET /projects/{project_id}/branches", s.listProjectBranches)
+	mux.HandleFunc("POST /projects/{project_id}/fetch", s.fetchProject)
 
 	return mux
 }

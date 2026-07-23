@@ -166,12 +166,17 @@ func TestStartRejectsInvalidOptions(t *testing.T) {
 		{
 			name:    "nil conversation manager",
 			option:  WithConversationManager(nil),
-			wantErr: "conversation manager is required",
+			wantErr: "conversation manager must not be nil",
 		},
 		{
 			name:    "nil agent manager",
 			option:  WithAgentManager(nil),
-			wantErr: "agent manager is required",
+			wantErr: "agent manager must not be nil",
+		},
+		{
+			name:    "nil project manager",
+			option:  WithProjectManager(nil),
+			wantErr: "project manager must not be nil",
 		},
 		{
 			name:    "empty state directory",

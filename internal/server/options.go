@@ -8,14 +8,28 @@ import (
 
 	"github.com/kurtisvg/ahh/internal/server/agents"
 	"github.com/kurtisvg/ahh/internal/server/conversations"
+	"github.com/kurtisvg/ahh/internal/server/projects"
 	"github.com/kurtisvg/ahh/internal/server/settings"
 )
 
 type options struct {
 	agents        *agents.Manager
 	conversations *conversations.Manager
+	projects      *projects.Manager
 	settings      *settings.Manager
 	stateDir      string
+}
+
+// WithProjectManager sets the Project manager used by the server.
+func WithProjectManager(manager *projects.Manager) Option {
+	return func(opts *options) error {
+		if manager == nil {
+			return fmt.Errorf("project manager must not be nil")
+		}
+
+		opts.projects = manager
+		return nil
+	}
 }
 
 // WithStateDir sets the directory used for persistent Ahh state.
@@ -45,7 +59,7 @@ type Option func(*options) error
 func WithAgentManager(manager *agents.Manager) Option {
 	return func(opts *options) error {
 		if manager == nil {
-			return fmt.Errorf("agent manager is required")
+			return fmt.Errorf("agent manager must not be nil")
 		}
 
 		opts.agents = manager
@@ -57,7 +71,7 @@ func WithAgentManager(manager *agents.Manager) Option {
 func WithConversationManager(manager *conversations.Manager) Option {
 	return func(opts *options) error {
 		if manager == nil {
-			return fmt.Errorf("conversation manager is required")
+			return fmt.Errorf("conversation manager must not be nil")
 		}
 
 		opts.conversations = manager
