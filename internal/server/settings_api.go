@@ -1,9 +1,7 @@
 package server
 
 import (
-	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 
 	"github.com/kurtisvg/ahh/internal/server/settings"
@@ -53,16 +51,4 @@ func (s *Server) regenerateSSHIdentity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, updated)
-}
-
-func decodeStrictJSON(r *http.Request, value any) error {
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(value); err != nil {
-		return err
-	}
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return errors.New("request must contain one json value")
-	}
-	return nil
 }

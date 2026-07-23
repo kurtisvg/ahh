@@ -230,6 +230,28 @@ func TestServerConversationsAPI(t *testing.T) {
 	client := &http.Client{
 		Timeout: 2 * time.Second,
 	}
+	invalidRequests := []struct {
+		name string
+		body string
+	}{
+		{name: "malformed json", body: "{"},
+		{name: "unknown field", body: `{"unknown":true}`},
+		{name: "multiple json values", body: `{"name":"First"} {}`},
+	}
+	for _, tt := range invalidRequests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp, err := client.Post(
+				"http://"+server.Addr+"/api/conversations",
+				"application/json",
+				strings.NewReader(tt.body),
+			)
+			if err != nil {
+				t.Fatalf("POST invalid conversation: %v", err)
+			}
+			assertStatus(t, resp, http.StatusBadRequest)
+			assertAPIError(t, resp, "invalid conversation request")
+		})
+	}
 
 	resp, err := client.Get("http://" + server.Addr + "/api/conversations")
 	if err != nil {

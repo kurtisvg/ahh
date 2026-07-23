@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
@@ -21,10 +20,6 @@ type conversationsResponse struct {
 	Conversations []conversations.Metadata `json:"conversations"`
 }
 
-type errorResponse struct {
-	Error string `json:"error"`
-}
-
 func (s *Server) listConversations(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, conversationsResponse{
 		Conversations: s.conversations.List(),
@@ -33,7 +28,7 @@ func (s *Server) listConversations(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) createConversation(w http.ResponseWriter, r *http.Request) {
 	var req createConversationRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeStrictJSON(r, &req); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid conversation request")
 		return
 	}
@@ -74,19 +69,6 @@ func (s *Server) deleteConversation(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
-}
-
-func writeJSON(w http.ResponseWriter, status int, value any) {
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(value)
-}
-
-func writeAPIError(w http.ResponseWriter, status int, message string) {
-	writeJSON(w, status, errorResponse{
-		Error: message,
-	})
 }
 
 // serveTTY proxies browser websocket traffic to the conversation wrapper's PTY
