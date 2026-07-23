@@ -8,11 +8,13 @@ import (
 
 	"github.com/kurtisvg/ahh/internal/server/agents"
 	"github.com/kurtisvg/ahh/internal/server/conversations"
+	"github.com/kurtisvg/ahh/internal/server/settings"
 )
 
 type options struct {
 	agents        *agents.Manager
 	conversations *conversations.Manager
+	settings      *settings.Manager
 	stateDir      string
 }
 
