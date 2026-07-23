@@ -24,7 +24,7 @@ type options struct {
 func WithProjectManager(manager *projects.Manager) Option {
 	return func(opts *options) error {
 		if manager == nil {
-			return fmt.Errorf("project manager is required")
+			return fmt.Errorf("project manager must not be nil")
 		}
 
 		opts.projects = manager
@@ -59,7 +59,7 @@ type Option func(*options) error
 func WithAgentManager(manager *agents.Manager) Option {
 	return func(opts *options) error {
 		if manager == nil {
-			return fmt.Errorf("agent manager is required")
+			return fmt.Errorf("agent manager must not be nil")
 		}
 
 		opts.agents = manager
@@ -71,7 +71,7 @@ func WithAgentManager(manager *agents.Manager) Option {
 func WithConversationManager(manager *conversations.Manager) Option {
 	return func(opts *options) error {
 		if manager == nil {
-			return fmt.Errorf("conversation manager is required")
+			return fmt.Errorf("conversation manager must not be nil")
 		}
 
 		opts.conversations = manager
