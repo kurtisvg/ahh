@@ -2,7 +2,6 @@ package projects
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -15,8 +14,8 @@ const (
 	localOperationTimeout  = time.Minute
 )
 
-type gitEnvironment interface {
-	GitEnvironment(background bool) ([]string, error)
+type gitEnv interface {
+	Env() ([]string, error)
 }
 
 type commandRunner interface {
@@ -27,9 +26,16 @@ type execRunner struct{}
 
 func (execRunner) Run(ctx context.Context, env []string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
+	env = mergeEnvironment(env, []string{
+		"GIT_TERMINAL_PROMPT=0",
+		"GCM_INTERACTIVE=Never",
+	})
 	cmd.Env = mergeEnvironment(os.Environ(), env)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		if contextErr := ctx.Err(); contextErr != nil {
+			return output, contextErr
+		}
 		return output, fmt.Errorf("run git: %w", err)
 	}
 	return output, nil
@@ -54,24 +60,4 @@ func mergeEnvironment(base, overrides []string) []string {
 		merged = append(merged, entry)
 	}
 	return append(merged, overrides...)
-}
-
-func runWithTimeout(
-	ctx context.Context,
-	timeout time.Duration,
-	runner commandRunner,
-	env []string,
-	args ...string,
-) ([]byte, error) {
-	operationCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	output, err := runner.Run(operationCtx, env, args...)
-	if err != nil {
-		if errors.Is(operationCtx.Err(), context.DeadlineExceeded) {
-			return output, context.DeadlineExceeded
-		}
-		return output, err
-	}
-	return output, nil
 }

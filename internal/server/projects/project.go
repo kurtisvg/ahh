@@ -55,15 +55,15 @@ type Branch struct {
 
 // Metadata is the complete public representation of a Project.
 type Metadata struct {
-	ID            string `json:"id"`
-	Name          string `json:"name"`
-	Source        Source `json:"source"`
-	DefaultBranch Branch `json:"default_branch"`
-	Status        Status `json:"status"`
-	Diagnostic    string `json:"diagnostic,omitempty"`
+	ID                string `json:"id"`
+	Name              string `json:"name"`
+	Source            Source `json:"source"`
+	DefaultBranch     Branch `json:"default_branch"`
+	Status            Status `json:"status"`
+	UnavailableReason string `json:"unavailable_reason,omitempty"`
 }
 
-type definition struct {
+type projectDefinition struct {
 	ID            string `json:"id"`
 	Name          string `json:"name"`
 	Source        Source `json:"source"`
@@ -98,9 +98,7 @@ func NormalizeGitHubRepository(input string) (string, error) {
 	if input == "" || strings.TrimSpace(input) != input || strings.ContainsAny(input, "\x00\r\n\t ") {
 		return "", fmt.Errorf("projects: github repository must be owner/repository")
 	}
-	if strings.HasSuffix(input, ".git") {
-		input = strings.TrimSuffix(input, ".git")
-	}
+	input = strings.TrimSuffix(input, ".git")
 	segments := strings.Split(input, "/")
 	if len(segments) != 2 {
 		return "", fmt.Errorf("projects: github repository must contain exactly two segments")
@@ -126,4 +124,11 @@ func validateBranch(branch Branch) error {
 	default:
 		return fmt.Errorf("projects: invalid branch kind %q", branch.Kind)
 	}
+}
+
+func validateDefaultBranch(branch Branch) error {
+	if branch.Name == "" && branch.Kind == BranchRemote {
+		return nil
+	}
+	return validateBranch(branch)
 }

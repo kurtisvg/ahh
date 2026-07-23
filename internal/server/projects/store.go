@@ -17,16 +17,16 @@ func newFileStore(stateDir string) *fileStore {
 	return &fileStore{stateDir: stateDir}
 }
 
-func (s *fileStore) Load() ([]definition, error) {
+func (s *fileStore) Load() ([]projectDefinition, error) {
 	entries, err := os.ReadDir(s.projectsDir())
 	if errors.Is(err, os.ErrNotExist) {
-		return []definition{}, nil
+		return []projectDefinition{}, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("read projects directory: %w", err)
 	}
 
-	definitions := make([]definition, 0, len(entries))
+	definitions := make([]projectDefinition, 0, len(entries))
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -42,7 +42,7 @@ func (s *fileStore) Load() ([]definition, error) {
 		if err != nil {
 			return nil, fmt.Errorf("read project definition %q: %w", path, err)
 		}
-		var project definition
+		var project projectDefinition
 		decoder := json.NewDecoder(strings.NewReader(string(data)))
 		decoder.DisallowUnknownFields()
 		if err := decoder.Decode(&project); err != nil {
@@ -60,7 +60,7 @@ func (s *fileStore) Load() ([]definition, error) {
 		if err := validateName(project.Name); err != nil {
 			return nil, fmt.Errorf("project definition %q has invalid name: %w", path, err)
 		}
-		if err := validateBranch(project.DefaultBranch); err != nil {
+		if err := validateDefaultBranch(project.DefaultBranch); err != nil {
 			return nil, fmt.Errorf("validate project definition %q: %w", path, err)
 		}
 		if err := s.ensureProjectDir(project.ID); err != nil {
@@ -74,7 +74,7 @@ func (s *fileStore) Load() ([]definition, error) {
 	return definitions, nil
 }
 
-func (s *fileStore) Save(project definition) error {
+func (s *fileStore) Save(project projectDefinition) error {
 	if err := s.ensureProjectDir(project.ID); err != nil {
 		return err
 	}

@@ -17,7 +17,7 @@ type testEnvironment struct {
 	err error
 }
 
-func (e testEnvironment) GitEnvironment(bool) ([]string, error) {
+func (e testEnvironment) Env() ([]string, error) {
 	return append([]string(nil), e.env...), e.err
 }
 
@@ -73,6 +73,12 @@ func (r *fakeCommandRunner) commandStrings() []string {
 	return commands
 }
 
+func (r *fakeCommandRunner) setFetchFailure(fail bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.failFetch = fail
+}
+
 func TestWithCommandRunnerRejectsNil(t *testing.T) {
 	_, err := NewManager(t.TempDir(), testEnvironment{}, WithCommandRunner(nil))
 	if err == nil || !strings.Contains(err.Error(), "project command runner must not be nil") {
@@ -114,10 +120,10 @@ func TestManagerCreatesPersistsAndReloadsProject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read project definition: %v", err)
 	}
-	if strings.Contains(string(data), "status") || strings.Contains(string(data), "diagnostic") {
+	if strings.Contains(string(data), "status") || strings.Contains(string(data), "unavailable_reason") {
 		t.Fatalf("persisted definition contains runtime state: %s", data)
 	}
-	var stored definition
+	var stored projectDefinition
 	if err := json.Unmarshal(data, &stored); err != nil {
 		t.Fatalf("decode project definition: %v", err)
 	}
@@ -211,8 +217,14 @@ func TestManagerRequiresURLSafeProjectName(t *testing.T) {
 }
 
 func TestManagerReportsSanitizedFetchFailure(t *testing.T) {
-	runner := &fakeCommandRunner{originURL: "git@github.com:owner/private.git", failFetch: true}
-	manager, err := NewManager(t.TempDir(), testEnvironment{}, WithCommandRunner(runner))
+	stateDir := t.TempDir()
+	runner := &fakeCommandRunner{
+		originURL:  "git@github.com:owner/private.git",
+		remoteHEAD: "trunk",
+		branchRefs: "refs/remotes/origin/trunk\n",
+		failFetch:  true,
+	}
+	manager, err := NewManager(stateDir, testEnvironment{}, WithCommandRunner(runner))
 	if err != nil {
 		t.Fatalf("NewManager() error = %v", err)
 	}
@@ -220,14 +232,30 @@ func TestManagerReportsSanitizedFetchFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
-	if created.Status != StatusUnavailable || created.Diagnostic != diagnosticAccess {
+	if created.Status != StatusUnavailable || created.UnavailableReason != unavailableReasonAccess {
 		t.Fatalf("created Project = %+v, want sanitized unavailable status", created)
 	}
-	if strings.Contains(created.Diagnostic, "filesystem") || strings.Contains(created.Diagnostic, "exit status") {
-		t.Fatalf("diagnostic leaked technical details: %q", created.Diagnostic)
+	if strings.Contains(created.UnavailableReason, "filesystem") || strings.Contains(created.UnavailableReason, "exit status") {
+		t.Fatalf("unavailable reason leaked technical details: %q", created.UnavailableReason)
+	}
+	if created.DefaultBranch != (Branch{Kind: BranchRemote}) {
+		t.Fatalf("default branch after failed discovery = %+v, want pending remote branch", created.DefaultBranch)
 	}
 	if _, err := manager.Fetch(t.Context(), created.ID); err == nil {
 		t.Fatal("Fetch() error = nil, want failure")
+	}
+
+	runner.setFetchFailure(false)
+	reloaded, err := NewManager(stateDir, testEnvironment{}, WithCommandRunner(runner))
+	if err != nil {
+		t.Fatalf("reload NewManager() error = %v", err)
+	}
+	refreshed, err := reloaded.Fetch(t.Context(), created.ID)
+	if err != nil {
+		t.Fatalf("Fetch() retry error = %v", err)
+	}
+	if refreshed.DefaultBranch != (Branch{Kind: BranchRemote, Name: "trunk"}) {
+		t.Fatalf("default branch after retry = %+v, want remote trunk", refreshed.DefaultBranch)
 	}
 }
 
@@ -240,7 +268,7 @@ func TestManagerBlocksManagedOperationsWhenIdentityInvalid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
-	if created.Status != StatusUnavailable || created.Diagnostic != diagnosticAccess {
+	if created.Status != StatusUnavailable || created.UnavailableReason != unavailableReasonAccess {
 		t.Fatalf("blocked Project = %+v", created)
 	}
 }

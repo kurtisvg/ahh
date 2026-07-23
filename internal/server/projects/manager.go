@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -21,56 +20,45 @@ var (
 )
 
 const (
-	diagnosticAccess         = "GitHub repository access failed. Check the SSH key registration and repository permissions."
-	diagnosticInitialization = "The managed Git repository could not be initialized."
-	diagnosticInvalid        = "The managed Git repository is invalid."
-	diagnosticTimeout        = "The Git operation timed out."
+	unavailableReasonAccess         = "GitHub repository access failed. Check the SSH key registration and repository permissions."
+	unavailableReasonInitialization = "The managed Git repository could not be initialized."
+	unavailableReasonInvalid        = "The managed Git repository is invalid."
+	unavailableReasonTimeout        = "The Git operation timed out."
 )
 
 // Project serializes repository operations and owns one persisted definition.
 type Project struct {
-	operationMu   sync.Mutex
-	definition    definition
-	status        Status
-	diagnostic    string
-	isDeleting    bool
-	hasRemoteRefs bool
+	operationMu       sync.Mutex
+	config            projectDefinition
+	status            Status
+	unavailableReason string
+	isDeleting        bool
 
-	store          *fileStore
-	gitEnvironment gitEnvironment
-	runner         commandRunner
+	store  *fileStore
+	gitEnv gitEnv
+	runner commandRunner
 }
 
 // Manager owns the installation Project registry.
 type Manager struct {
-	mu             sync.Mutex
-	projects       map[string]*Project
-	names          map[string]string
-	store          *fileStore
-	gitEnvironment gitEnvironment
-	runner         commandRunner
-}
-
-type options struct {
-	runner commandRunner
+	mu       sync.Mutex
+	projects map[string]*Project
+	names    map[string]string
+	store    *fileStore
+	gitEnv   gitEnv
+	runner   commandRunner
 }
 
 // Option configures a Project manager.
-type Option func(*options) error
+type Option func(*Manager) error
 
 // NewManager loads Projects beneath stateDir and inspects their local repository state.
-func NewManager(stateDir string, environment gitEnvironment, opts ...Option) (*Manager, error) {
+func NewManager(stateDir string, environment gitEnv, opts ...Option) (*Manager, error) {
 	if strings.TrimSpace(stateDir) == "" {
 		return nil, fmt.Errorf("project state directory is required")
 	}
 	if environment == nil {
 		return nil, fmt.Errorf("project git environment is required")
-	}
-	cfg := options{runner: execRunner{}}
-	for _, opt := range opts {
-		if err := opt(&cfg); err != nil {
-			return nil, err
-		}
 	}
 	store := newFileStore(stateDir)
 	definitions, err := store.Load()
@@ -78,11 +66,16 @@ func NewManager(stateDir string, environment gitEnvironment, opts ...Option) (*M
 		return nil, err
 	}
 	m := &Manager{
-		projects:       make(map[string]*Project, len(definitions)),
-		names:          make(map[string]string, len(definitions)),
-		store:          store,
-		gitEnvironment: environment,
-		runner:         cfg.runner,
+		projects: make(map[string]*Project, len(definitions)),
+		names:    make(map[string]string, len(definitions)),
+		store:    store,
+		gitEnv:   environment,
+		runner:   execRunner{},
+	}
+	for _, opt := range opts {
+		if err := opt(m); err != nil {
+			return nil, err
+		}
 	}
 	for _, stored := range definitions {
 		nameKey := normalizeName(stored.Name)
@@ -97,24 +90,24 @@ func NewManager(stateDir string, environment gitEnvironment, opts ...Option) (*M
 	return m, nil
 }
 
-func (m *Manager) newProject(stored definition) *Project {
+func (m *Manager) newProject(stored projectDefinition) *Project {
 	return &Project{
-		definition:     stored,
-		status:         StatusUnavailable,
-		diagnostic:     diagnosticInvalid,
-		store:          m.store,
-		gitEnvironment: m.gitEnvironment,
-		runner:         m.runner,
+		config:            stored,
+		status:            StatusUnavailable,
+		unavailableReason: unavailableReasonInvalid,
+		store:             m.store,
+		gitEnv:            m.gitEnv,
+		runner:            m.runner,
 	}
 }
 
 // WithCommandRunner replaces Git process execution for tests.
 func WithCommandRunner(runner commandRunner) Option {
-	return func(opts *options) error {
+	return func(manager *Manager) error {
 		if runner == nil {
 			return fmt.Errorf("project command runner must not be nil")
 		}
-		opts.runner = runner
+		manager.runner = runner
 		return nil
 	}
 }
@@ -129,11 +122,11 @@ func (m *Manager) Create(ctx context.Context, name, repository string) (Metadata
 	if err != nil {
 		return Metadata{}, err
 	}
-	stored := definition{
+	stored := projectDefinition{
 		ID:            name,
 		Name:          name,
 		Source:        Source{Type: SourceGitHub, Repository: repository},
-		DefaultBranch: Branch{Kind: BranchRemote, Name: "main"},
+		DefaultBranch: Branch{Kind: BranchRemote},
 	}
 	project := m.newProject(stored)
 
@@ -234,7 +227,7 @@ func (m *Manager) Delete(id string) (bool, error) {
 	}
 	m.mu.Lock()
 	delete(m.projects, id)
-	delete(m.names, normalizeName(project.definition.Name))
+	delete(m.names, normalizeName(project.config.Name))
 	m.mu.Unlock()
 	project.operationMu.Unlock()
 	return true, nil
@@ -249,12 +242,12 @@ func (p *Project) Metadata() Metadata {
 
 func (p *Project) metadataLocked() Metadata {
 	return Metadata{
-		ID:            p.definition.ID,
-		Name:          p.definition.Name,
-		Source:        p.definition.Source,
-		DefaultBranch: p.definition.DefaultBranch,
-		Status:        p.status,
-		Diagnostic:    p.diagnostic,
+		ID:                p.config.ID,
+		Name:              p.config.Name,
+		Source:            p.config.Source,
+		DefaultBranch:     p.config.DefaultBranch,
+		Status:            p.status,
+		UnavailableReason: p.unavailableReason,
 	}
 }
 
@@ -265,67 +258,76 @@ func (p *Project) initialize(ctx context.Context) error {
 		return ErrDeleting
 	}
 
-	repositoryPath, err := p.store.repositoryPath(p.definition.ID)
+	repositoryPath, err := p.store.repositoryPath(p.config.ID)
 	if err != nil {
-		return p.unavailableLocked(err, diagnosticInitialization)
+		return p.unavailableLocked(err, unavailableReasonInitialization)
 	}
 	if _, err := os.Stat(repositoryPath); errors.Is(err, os.ErrNotExist) {
-		env, envErr := p.gitEnvironment.GitEnvironment(true)
+		env, envErr := p.gitEnv.Env()
 		if envErr != nil {
-			return p.unavailableLocked(envErr, diagnosticAccess)
+			return p.unavailableLocked(envErr, unavailableReasonAccess)
 		}
-		if _, err := runWithTimeout(ctx, localOperationTimeout, p.runner, env, "init", "--bare", repositoryPath); err != nil {
-			return p.unavailableLocked(err, diagnosticInitialization)
+		gitCtx, cancel := context.WithTimeout(ctx, localOperationTimeout)
+		_, gitErr := p.runner.Run(gitCtx, env, "init", "--bare", repositoryPath)
+		cancel()
+		if gitErr != nil {
+			return p.unavailableLocked(gitErr, unavailableReasonInitialization)
 		}
-		source, err := sourceFor(p.definition.Source)
+		source, err := sourceFor(p.config.Source)
 		if err != nil {
-			return p.unavailableLocked(err, diagnosticInitialization)
+			return p.unavailableLocked(err, unavailableReasonInitialization)
 		}
-		if _, err := runWithTimeout(ctx, localOperationTimeout, p.runner, env, "--git-dir", repositoryPath, "remote", "add", "origin", source.SSHURL()); err != nil {
-			return p.unavailableLocked(err, diagnosticInitialization)
+		gitCtx, cancel = context.WithTimeout(ctx, localOperationTimeout)
+		_, gitErr = p.runner.Run(gitCtx, env, "--git-dir", repositoryPath, "remote", "add", "origin", source.SSHURL())
+		cancel()
+		if gitErr != nil {
+			return p.unavailableLocked(gitErr, unavailableReasonInitialization)
 		}
 	} else if err != nil {
-		return p.unavailableLocked(err, diagnosticInitialization)
+		return p.unavailableLocked(err, unavailableReasonInitialization)
 	}
-	return p.fetchLocked(ctx, true)
+	return p.fetchLocked(ctx, p.config.DefaultBranch.Name == "")
 }
 
 func (p *Project) inspect(ctx context.Context) {
 	p.operationMu.Lock()
 	defer p.operationMu.Unlock()
-	env, err := p.gitEnvironment.GitEnvironment(true)
+	env, err := p.gitEnv.Env()
 	if err != nil {
-		_ = p.unavailableLocked(err, diagnosticAccess)
+		_ = p.unavailableLocked(err, unavailableReasonAccess)
 		return
 	}
-	repositoryPath, err := p.store.repositoryPath(p.definition.ID)
+	repositoryPath, err := p.store.repositoryPath(p.config.ID)
 	if err != nil {
-		_ = p.unavailableLocked(err, diagnosticInvalid)
+		_ = p.unavailableLocked(err, unavailableReasonInvalid)
 		return
 	}
-	output, err := runWithTimeout(ctx, localOperationTimeout, p.runner, env, "--git-dir", repositoryPath, "rev-parse", "--is-bare-repository")
+	gitCtx, cancel := context.WithTimeout(ctx, localOperationTimeout)
+	output, err := p.runner.Run(gitCtx, env, "--git-dir", repositoryPath, "rev-parse", "--is-bare-repository")
+	cancel()
 	if err != nil || strings.TrimSpace(string(output)) != "true" {
-		_ = p.unavailableLocked(err, diagnosticInvalid)
+		_ = p.unavailableLocked(err, unavailableReasonInvalid)
 		return
 	}
-	source, err := sourceFor(p.definition.Source)
+	source, err := sourceFor(p.config.Source)
 	if err != nil {
-		_ = p.unavailableLocked(err, diagnosticInvalid)
+		_ = p.unavailableLocked(err, unavailableReasonInvalid)
 		return
 	}
-	output, err = runWithTimeout(ctx, localOperationTimeout, p.runner, env, "--git-dir", repositoryPath, "remote", "get-url", "origin")
+	gitCtx, cancel = context.WithTimeout(ctx, localOperationTimeout)
+	output, err = p.runner.Run(gitCtx, env, "--git-dir", repositoryPath, "remote", "get-url", "origin")
+	cancel()
 	if err != nil || strings.TrimSpace(string(output)) != source.SSHURL() {
-		_ = p.unavailableLocked(err, diagnosticInvalid)
+		_ = p.unavailableLocked(err, unavailableReasonInvalid)
 		return
 	}
 	branches, err := p.branchesLocked(ctx, env)
-	if err != nil || len(branches) == 0 {
-		_ = p.unavailableLocked(err, diagnosticInvalid)
+	if err != nil || len(branches) == 0 || p.config.DefaultBranch.Name == "" {
+		_ = p.unavailableLocked(err, unavailableReasonInvalid)
 		return
 	}
-	p.hasRemoteRefs = hasRemoteBranches(branches)
 	p.status = StatusReady
-	p.diagnostic = ""
+	p.unavailableReason = ""
 }
 
 // Fetch refreshes origin and reports a sanitized unavailable state on failure.
@@ -335,79 +337,96 @@ func (p *Project) Fetch(ctx context.Context) error {
 	if p.isDeleting {
 		return ErrDeleting
 	}
-	repositoryPath, err := p.store.repositoryPath(p.definition.ID)
+	repositoryPath, err := p.store.repositoryPath(p.config.ID)
 	if err != nil {
-		return p.unavailableLocked(err, diagnosticInitialization)
+		return p.unavailableLocked(err, unavailableReasonInitialization)
 	}
 	if _, err := os.Stat(repositoryPath); errors.Is(err, os.ErrNotExist) {
-		env, envErr := p.gitEnvironment.GitEnvironment(true)
+		env, envErr := p.gitEnv.Env()
 		if envErr != nil {
-			return p.unavailableLocked(envErr, diagnosticAccess)
+			return p.unavailableLocked(envErr, unavailableReasonAccess)
 		}
-		if _, err := runWithTimeout(ctx, localOperationTimeout, p.runner, env, "init", "--bare", repositoryPath); err != nil {
-			return p.unavailableLocked(err, diagnosticInitialization)
+		gitCtx, cancel := context.WithTimeout(ctx, localOperationTimeout)
+		_, gitErr := p.runner.Run(gitCtx, env, "init", "--bare", repositoryPath)
+		cancel()
+		if gitErr != nil {
+			return p.unavailableLocked(gitErr, unavailableReasonInitialization)
 		}
 	} else if err != nil {
-		return p.unavailableLocked(err, diagnosticInitialization)
+		return p.unavailableLocked(err, unavailableReasonInitialization)
 	}
-	return p.fetchLocked(ctx, !p.hasRemoteRefs)
+	return p.fetchLocked(ctx, p.config.DefaultBranch.Name == "")
 }
 
 func (p *Project) fetchLocked(ctx context.Context, detectDefault bool) error {
-	env, err := p.gitEnvironment.GitEnvironment(true)
+	env, err := p.gitEnv.Env()
 	if err != nil {
-		return p.unavailableLocked(err, diagnosticAccess)
+		return p.unavailableLocked(err, unavailableReasonAccess)
 	}
-	repositoryPath, err := p.store.repositoryPath(p.definition.ID)
+	repositoryPath, err := p.store.repositoryPath(p.config.ID)
 	if err != nil {
-		return p.unavailableLocked(err, diagnosticInitialization)
+		return p.unavailableLocked(err, unavailableReasonInitialization)
 	}
-	source, err := sourceFor(p.definition.Source)
+	source, err := sourceFor(p.config.Source)
 	if err != nil {
-		return p.unavailableLocked(err, diagnosticInitialization)
+		return p.unavailableLocked(err, unavailableReasonInitialization)
 	}
-	remoteURL, remoteErr := runWithTimeout(ctx, localOperationTimeout, p.runner, env,
+	gitCtx, cancel := context.WithTimeout(ctx, localOperationTimeout)
+	remoteURL, remoteErr := p.runner.Run(gitCtx, env,
 		"--git-dir", repositoryPath, "remote", "get-url", "origin",
 	)
+	cancel()
 	if remoteErr != nil {
-		if _, err := runWithTimeout(ctx, localOperationTimeout, p.runner, env,
+		gitCtx, cancel := context.WithTimeout(ctx, localOperationTimeout)
+		_, gitErr := p.runner.Run(gitCtx, env,
 			"--git-dir", repositoryPath, "remote", "add", "origin", source.SSHURL(),
-		); err != nil {
-			return p.unavailableLocked(err, diagnosticInitialization)
+		)
+		cancel()
+		if gitErr != nil {
+			return p.unavailableLocked(gitErr, unavailableReasonInitialization)
 		}
 	} else if strings.TrimSpace(string(remoteURL)) != source.SSHURL() {
-		return p.unavailableLocked(errors.New("projects: origin does not match source"), diagnosticInvalid)
+		return p.unavailableLocked(errors.New("projects: origin does not match source"), unavailableReasonInvalid)
 	}
-	if _, err := runWithTimeout(ctx, remoteOperationTimeout, p.runner, env,
+	gitCtx, cancel = context.WithTimeout(ctx, remoteOperationTimeout)
+	_, gitErr := p.runner.Run(gitCtx, env,
 		"--git-dir", repositoryPath, "fetch", "--prune", "origin", "+refs/heads/*:refs/remotes/origin/*",
-	); err != nil {
-		return p.unavailableLocked(err, diagnosticForGitError(err, true))
+	)
+	cancel()
+	if gitErr != nil {
+		return p.unavailableLocked(gitErr, unavailableReasonForGitError(gitErr, true))
 	}
 	defaultName, err := p.remoteHEAD(ctx, env, repositoryPath)
 	if err != nil {
-		return p.unavailableLocked(err, diagnosticForGitError(err, true))
+		return p.unavailableLocked(err, unavailableReasonForGitError(err, true))
 	}
-	if _, err := runWithTimeout(ctx, localOperationTimeout, p.runner, env,
+	gitCtx, cancel = context.WithTimeout(ctx, localOperationTimeout)
+	_, gitErr = p.runner.Run(gitCtx, env,
 		"--git-dir", repositoryPath, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/"+defaultName,
-	); err != nil {
-		return p.unavailableLocked(err, diagnosticInvalid)
+	)
+	cancel()
+	if gitErr != nil {
+		return p.unavailableLocked(gitErr, unavailableReasonInvalid)
 	}
 	if detectDefault {
-		p.definition.DefaultBranch = Branch{Kind: BranchRemote, Name: defaultName}
-		if err := p.store.Save(p.definition); err != nil {
-			return p.unavailableLocked(err, diagnosticInitialization)
+		updated := p.config
+		updated.DefaultBranch = Branch{Kind: BranchRemote, Name: defaultName}
+		if err := p.store.Save(updated); err != nil {
+			return p.unavailableLocked(err, unavailableReasonInitialization)
 		}
+		p.config = updated
 	}
-	p.hasRemoteRefs = true
 	p.status = StatusReady
-	p.diagnostic = ""
+	p.unavailableReason = ""
 	return nil
 }
 
 func (p *Project) remoteHEAD(ctx context.Context, env []string, repositoryPath string) (string, error) {
-	output, err := runWithTimeout(ctx, remoteOperationTimeout, p.runner, env,
+	gitCtx, cancel := context.WithTimeout(ctx, remoteOperationTimeout)
+	output, err := p.runner.Run(gitCtx, env,
 		"--git-dir", repositoryPath, "ls-remote", "--symref", "origin", "HEAD",
 	)
+	cancel()
 	if err != nil {
 		return "", err
 	}
@@ -430,21 +449,23 @@ func (p *Project) Branches(ctx context.Context) ([]Branch, error) {
 	if p.isDeleting {
 		return nil, ErrDeleting
 	}
-	env, err := p.gitEnvironment.GitEnvironment(true)
+	env, err := p.gitEnv.Env()
 	if err != nil {
-		return nil, p.unavailableLocked(err, diagnosticAccess)
+		return nil, p.unavailableLocked(err, unavailableReasonAccess)
 	}
 	return p.branchesLocked(ctx, env)
 }
 
 func (p *Project) branchesLocked(ctx context.Context, env []string) ([]Branch, error) {
-	repositoryPath, err := p.store.repositoryPath(p.definition.ID)
+	repositoryPath, err := p.store.repositoryPath(p.config.ID)
 	if err != nil {
 		return nil, err
 	}
-	output, err := runWithTimeout(ctx, localOperationTimeout, p.runner, env,
+	gitCtx, cancel := context.WithTimeout(ctx, localOperationTimeout)
+	output, err := p.runner.Run(gitCtx, env,
 		"--git-dir", repositoryPath, "for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes/origin",
 	)
+	cancel()
 	if err != nil {
 		return nil, err
 	}
@@ -476,64 +497,56 @@ func (p *Project) UpdateDefaultBranch(ctx context.Context, branch Branch) (Metad
 	if p.isDeleting {
 		return Metadata{}, ErrDeleting
 	}
-	env, err := p.gitEnvironment.GitEnvironment(true)
+	env, err := p.gitEnv.Env()
 	if err != nil {
-		return Metadata{}, p.unavailableLocked(err, diagnosticAccess)
+		return Metadata{}, p.unavailableLocked(err, unavailableReasonAccess)
 	}
-	repositoryPath, err := p.store.repositoryPath(p.definition.ID)
+	repositoryPath, err := p.store.repositoryPath(p.config.ID)
 	if err != nil {
 		return Metadata{}, err
 	}
-	if _, err := runWithTimeout(ctx, localOperationTimeout, p.runner, env, "check-ref-format", "--branch", branch.Name); err != nil {
-		return Metadata{}, fmt.Errorf("projects: invalid branch name: %w", err)
+	gitCtx, cancel := context.WithTimeout(ctx, localOperationTimeout)
+	_, gitErr := p.runner.Run(gitCtx, env, "check-ref-format", "--branch", branch.Name)
+	cancel()
+	if gitErr != nil {
+		return Metadata{}, fmt.Errorf("projects: invalid branch name: %w", gitErr)
 	}
 	ref := "refs/heads/" + branch.Name
 	if branch.Kind == BranchRemote {
 		ref = "refs/remotes/origin/" + branch.Name
 	}
-	if _, err := runWithTimeout(ctx, localOperationTimeout, p.runner, env,
+	gitCtx, cancel = context.WithTimeout(ctx, localOperationTimeout)
+	_, gitErr = p.runner.Run(gitCtx, env,
 		"--git-dir", repositoryPath, "show-ref", "--verify", "--quiet", ref,
-	); err != nil {
+	)
+	cancel()
+	if gitErr != nil {
 		return Metadata{}, ErrBranchNotFound
 	}
-	p.definition.DefaultBranch = branch
-	if err := p.store.Save(p.definition); err != nil {
+	p.config.DefaultBranch = branch
+	if err := p.store.Save(p.config); err != nil {
 		return Metadata{}, err
 	}
 	return p.metadataLocked(), nil
 }
 
-func (p *Project) unavailableLocked(err error, diagnostic string) error {
+func (p *Project) unavailableLocked(err error, reason string) error {
 	p.status = StatusUnavailable
-	p.diagnostic = diagnostic
+	p.unavailableReason = reason
 	if err == nil {
 		return errors.New("projects: repository unavailable")
 	}
 	return err
 }
 
-func diagnosticForGitError(err error, remote bool) string {
+func unavailableReasonForGitError(err error, remote bool) string {
 	if errors.Is(err, context.DeadlineExceeded) {
-		return diagnosticTimeout
+		return unavailableReasonTimeout
 	}
 	if remote {
-		return diagnosticAccess
+		return unavailableReasonAccess
 	}
-	return diagnosticInvalid
-}
-
-func hasRemoteBranches(branches []Branch) bool {
-	for _, branch := range branches {
-		if branch.Kind == BranchRemote {
-			return true
-		}
-	}
-	return false
+	return unavailableReasonInvalid
 }
 
 func normalizeName(name string) string { return strings.ToLower(name) }
-
-func (p *Project) repositoryPath() string {
-	path, _ := p.store.repositoryPath(p.definition.ID)
-	return filepath.Clean(path)
-}
