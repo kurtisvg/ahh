@@ -712,6 +712,11 @@ func TestProjectAndSettingsUI(t *testing.T) {
 		`This immutable URL-safe name is also the Project ID used in links.`,
 		`placeholder="owner/repository"`,
 		`id="project-default-branch"`,
+		`id="project-refresh-button" class="icon-button compact-icon-button"`,
+		`aria-label="Refresh Project"`,
+		`id="project-open-conversations-button" class="secondary-button navigation-button"`,
+		`id="project-save-message"`,
+		`id="project-unavailable-reason"`,
 		`id="authentication-mode"`,
 		`id="ssh-public-key"`,
 		`id="ssh-fingerprint"`,
@@ -732,13 +737,16 @@ func TestProjectAndSettingsUI(t *testing.T) {
 		"confirm_fingerprint: confirmFingerprint",
 		"regenerateConfirmInput.value !== fingerprint",
 		"projectDeleteConfirmInput.value !== project.name",
+		"project.unavailable_reason",
+		"`${project.source.type} · ${project.source.repository}`",
+		"projectRefreshButton.setAttribute('aria-busy', 'true')",
 		"'/projects/'",
 	} {
 		if !strings.Contains(app, want) {
 			t.Fatalf("app script does not contain %q", want)
 		}
 	}
-	for _, want := range []string{".activity-rail", ".project-status-pill", ".settings-card"} {
+	for _, want := range []string{".activity-rail", ".project-status-pill", ".project-default-branch-field", ".project-lifecycle-actions", ".settings-card"} {
 		if !strings.Contains(styles, want) {
 			t.Fatalf("app styles do not contain %q", want)
 		}

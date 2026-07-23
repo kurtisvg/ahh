@@ -45,8 +45,9 @@ const projectEditorForm = document.getElementById('project-editor-form');
 const projectEditorTitle = document.getElementById('project-editor-title');
 const projectEditorSource = document.getElementById('project-editor-source');
 const projectStatusPill = document.getElementById('project-status-pill');
-const projectDiagnostic = document.getElementById('project-diagnostic');
+const projectUnavailableReason = document.getElementById('project-unavailable-reason');
 const projectDefaultBranch = document.getElementById('project-default-branch');
+const projectSaveMessage = document.getElementById('project-save-message');
 const projectRefreshButton = document.getElementById('project-refresh-button');
 const projectDeleteButton = document.getElementById('project-delete-button');
 const projectOpenConversationsButton = document.getElementById('project-open-conversations-button');
@@ -417,14 +418,23 @@ async function renderProjectEditor() {
   const project = activeProject();
   projectEditorEmpty.hidden = Boolean(project);
   projectEditorForm.hidden = !project;
-  if (!project) return;
+  if (!project) {
+    delete projectEditorForm.dataset.projectId;
+    projectSaveMessage.textContent = '';
+    return;
+  }
+
+  if (projectEditorForm.dataset.projectId !== project.id) {
+    projectEditorForm.dataset.projectId = project.id;
+    projectSaveMessage.textContent = '';
+  }
 
   projectEditorTitle.textContent = project.name;
-  projectEditorSource.textContent = `GitHub · ${project.source.repository}`;
+  projectEditorSource.textContent = `${project.source.type} · ${project.source.repository}`;
   projectStatusPill.textContent = project.status;
   projectStatusPill.dataset.state = project.status;
-  projectDiagnostic.textContent = project.diagnostic || '';
-  projectDiagnostic.hidden = !project.diagnostic;
+  projectUnavailableReason.textContent = project.unavailable_reason || '';
+  projectUnavailableReason.hidden = !project.unavailable_reason;
   projectDefaultBranch.replaceChildren();
   try {
     const response = await fetch(appURL(`api/projects/${encodeURIComponent(project.id)}/branches`), { cache: 'no-store' });
@@ -443,8 +453,8 @@ async function renderProjectEditor() {
     option.value = `${project.default_branch.kind}:${project.default_branch.name}`;
     option.textContent = `${project.default_branch.kind === 'remote' ? 'origin/' : ''}${project.default_branch.name}`;
     projectDefaultBranch.append(option);
-    projectDiagnostic.textContent = project.diagnostic || error.message;
-    projectDiagnostic.hidden = false;
+    projectUnavailableReason.textContent = project.unavailable_reason || error.message;
+    projectUnavailableReason.hidden = false;
   }
 }
 
@@ -755,6 +765,7 @@ async function saveProjectDefaultBranch(projectId) {
 
 async function refreshProject(projectId) {
   projectRefreshButton.disabled = true;
+  projectRefreshButton.setAttribute('aria-busy', 'true');
   try {
     const response = await fetch(appURL(`api/projects/${encodeURIComponent(projectId)}/fetch`), { method: 'POST' });
     if (!response.ok) {
@@ -767,6 +778,7 @@ async function refreshProject(projectId) {
     await renderProjectEditor();
   } finally {
     projectRefreshButton.disabled = false;
+    projectRefreshButton.removeAttribute('aria-busy');
   }
 }
 
@@ -1211,10 +1223,14 @@ projectEditorForm.addEventListener('submit', (event) => {
   event.preventDefault();
   const project = activeProject();
   if (!project) return;
-  void saveProjectDefaultBranch(project.id).catch((error) => {
-    projectDefaultBranch.setCustomValidity(error.message || 'Project could not be saved.');
-    projectDefaultBranch.reportValidity();
-  });
+  projectSaveMessage.textContent = 'Saving…';
+  void saveProjectDefaultBranch(project.id)
+    .then(() => { projectSaveMessage.textContent = 'Saved'; })
+    .catch((error) => {
+      projectSaveMessage.textContent = '';
+      projectDefaultBranch.setCustomValidity(error.message || 'Project could not be saved.');
+      projectDefaultBranch.reportValidity();
+    });
 });
 
 settingsForm.addEventListener('submit', (event) => {
@@ -1272,8 +1288,8 @@ projectEmptyCreateButton.addEventListener('click', openProjectDialog);
 projectRefreshButton.addEventListener('click', () => {
   const project = activeProject();
   if (project) void refreshProject(project.id).catch((error) => {
-    projectDiagnostic.textContent = error.message || 'Project refresh failed.';
-    projectDiagnostic.hidden = false;
+    projectUnavailableReason.textContent = error.message || 'Project refresh failed.';
+    projectUnavailableReason.hidden = false;
   });
 });
 projectDeleteButton.addEventListener('click', openProjectDeleteDialog);
