@@ -83,7 +83,7 @@ func TestWithCommandRunnerRejectsNil(t *testing.T) {
 func TestManagerCreatesPersistsAndReloadsProject(t *testing.T) {
 	stateDir := t.TempDir()
 	runner := &fakeCommandRunner{
-		originURL:  "git@github.com:kurtisvg/ahh.git",
+		originURL:  "git@github.com:owner/repository.git",
 		remoteHEAD: "trunk",
 		branchRefs: "refs/heads/local-work\nrefs/remotes/origin/HEAD\nrefs/remotes/origin/trunk\n",
 	}
@@ -95,11 +95,11 @@ func TestManagerCreatesPersistsAndReloadsProject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewManager() error = %v", err)
 	}
-	created, err := manager.Create(t.Context(), "Ahh", "kurtisvg/ahh.git")
+	created, err := manager.Create(t.Context(), "Ahh", "owner/repository.git")
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
-	if created.Status != StatusReady || created.Source.Repository != "kurtisvg/ahh" {
+	if created.Status != StatusReady || created.Source.Repository != "owner/repository" {
 		t.Fatalf("created Project = %+v, want ready normalized Project", created)
 	}
 	if created.ID != created.Name || created.ID != "Ahh" {

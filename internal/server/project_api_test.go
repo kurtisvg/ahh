@@ -19,7 +19,7 @@ func (projectAPIRunner) Run(_ context.Context, _ []string, args ...string) ([]by
 	command := strings.Join(args, " ")
 	switch {
 	case strings.Contains(command, "remote get-url origin"):
-		return []byte("git@github.com:kurtisvg/ahh.git\n"), nil
+		return []byte("git@github.com:owner/repository.git\n"), nil
 	case strings.Contains(command, "ls-remote --symref origin HEAD"):
 		return []byte("ref: refs/heads/main\tHEAD\nabc\tHEAD\n"), nil
 	case strings.Contains(command, "for-each-ref"):
@@ -61,7 +61,7 @@ func TestServerProjectsAPI(t *testing.T) {
 		t.Fatalf("initial Projects = %d, want 0", len(initial.Projects))
 	}
 
-	requestBody := `{"name":"ahh","source":{"type":"github","repository":"kurtisvg/ahh.git"}}`
+	requestBody := `{"name":"ahh","source":{"type":"github","repository":"owner/repository.git"}}`
 	resp, err = client.Post("http://"+server.Addr+"/api/projects", "application/json", strings.NewReader(requestBody))
 	if err != nil {
 		t.Fatalf("POST /api/projects: %v", err)
@@ -70,7 +70,7 @@ func TestServerProjectsAPI(t *testing.T) {
 	var created projects.Metadata
 	decodeJSON(t, resp, &created)
 	resp.Body.Close()
-	if created.ID != "ahh" || created.Name != "ahh" || created.Source.Repository != "kurtisvg/ahh" || created.Status != projects.StatusReady {
+	if created.ID != "ahh" || created.Name != "ahh" || created.Source.Repository != "owner/repository" || created.Status != projects.StatusReady {
 		t.Fatalf("created Project = %+v", created)
 	}
 

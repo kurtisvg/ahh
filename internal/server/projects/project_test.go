@@ -9,8 +9,8 @@ func TestNormalizeGitHubRepository(t *testing.T) {
 		expected  string
 		wantError bool
 	}{
-		{name: "repository", input: "kurtisvg/ahh", expected: "kurtisvg/ahh"},
-		{name: "optional git suffix", input: "kurtisvg/ahh.git", expected: "kurtisvg/ahh"},
+		{name: "repository", input: "owner/repository", expected: "owner/repository"},
+		{name: "optional git suffix", input: "owner/repository.git", expected: "owner/repository"},
 		{name: "dots within repository", input: "owner/repo.name", expected: "owner/repo.name"},
 		{name: "url", input: "https://github.com/owner/repo", wantError: true},
 		{name: "ssh url", input: "git@github.com:owner/repo.git", wantError: true},
