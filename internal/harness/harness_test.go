@@ -181,6 +181,17 @@ func TestWithConfigDirTrimsSpace(t *testing.T) {
 	}
 }
 
+func TestWithEnvironmentClonesInput(t *testing.T) {
+	environment := []string{"GIT_SSH_COMMAND=managed"}
+	opts := options{}
+	WithEnvironment(environment)(&opts)
+	environment[0] = "GIT_SSH_COMMAND=ambient"
+
+	if opts.environment[0] != "GIT_SSH_COMMAND=managed" {
+		t.Fatalf("environment = %q, want independent copy", opts.environment)
+	}
+}
+
 func TestHarnessUsesWorkingDirectoryAndInternalEnvironment(t *testing.T) {
 	workingDir := t.TempDir()
 	setHarnessCommand(t, fakeHarnessCommand(t))

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/creack/pty"
@@ -28,7 +29,7 @@ type options struct {
 // WithEnvironment adds or replaces environment entries for the harness.
 func WithEnvironment(environment []string) Option {
 	return func(opts *options) {
-		opts.environment = append([]string(nil), environment...)
+		opts.environment = slices.Clone(environment)
 	}
 }
 
