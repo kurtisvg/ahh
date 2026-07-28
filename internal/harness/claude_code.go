@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/creack/pty"
@@ -20,7 +21,23 @@ const (
 var claudeCommand = "claude"
 
 type options struct {
-	configDir string
+	configDir   string
+	environment []string
+	workingDir  string
+}
+
+// WithEnvironment adds or replaces environment entries for the harness.
+func WithEnvironment(environment []string) Option {
+	return func(opts *options) {
+		opts.environment = slices.Clone(environment)
+	}
+}
+
+// WithWorkingDirectory starts the harness in dir.
+func WithWorkingDirectory(dir string) Option {
+	return func(opts *options) {
+		opts.workingDir = strings.TrimSpace(dir)
+	}
 }
 
 // Option configures a Claude Code harness process.
@@ -59,7 +76,10 @@ func Start(ctx context.Context, sessionID string, startOpts ...Option) (Harness,
 
 	ctx, cancel := context.WithCancel(ctx)
 	cmd := exec.CommandContext(ctx, claudeCommand, args...)
-	cmd.Env = claudeEnvironment(os.Environ(), opts.configDir)
+	cmd.Env = mergeEnvironment(claudeEnvironment(os.Environ(), opts.configDir), opts.environment)
+	if opts.workingDir != "" {
+		cmd.Dir = opts.workingDir
+	}
 
 	ptyFile, err := pty.StartWithSize(cmd, &pty.Winsize{
 		Rows: defaultRows,
@@ -93,6 +113,27 @@ func Start(ctx context.Context, sessionID string, startOpts ...Option) (Harness,
 	}()
 
 	return h, nil
+}
+
+func mergeEnvironment(base, overrides []string) []string {
+	overrideKeys := make(map[string]struct{}, len(overrides))
+	for _, value := range overrides {
+		key, _, ok := strings.Cut(value, "=")
+		if ok {
+			overrideKeys[key] = struct{}{}
+		}
+	}
+	next := make([]string, 0, len(base)+len(overrides))
+	for _, value := range base {
+		key, _, ok := strings.Cut(value, "=")
+		if ok {
+			if _, overridden := overrideKeys[key]; overridden {
+				continue
+			}
+		}
+		next = append(next, value)
+	}
+	return append(next, overrides...)
 }
 
 func claudeArguments(sessionID string, opts options) ([]string, error) {

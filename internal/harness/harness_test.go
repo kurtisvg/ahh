@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"os"
@@ -21,6 +22,9 @@ case "${AHH_HELPER_HARNESS_MODE}" in
     ;;
   wait)
     sleep 10
+    ;;
+  inspect)
+    printf '%s\n%s\n' "${PWD}" "${AHH_INTERNAL_GIT_TEST}"
     ;;
   *)
     printf 'unknown helper harness mode "%s"\n' "${AHH_HELPER_HARNESS_MODE}" >&2
@@ -175,6 +179,63 @@ func TestWithConfigDirTrimsSpace(t *testing.T) {
 
 	if opts.configDir != "/managed/agent/config" {
 		t.Fatalf("configDir = %q, want trimmed managed Agent directory", opts.configDir)
+	}
+}
+
+func TestWithEnvironmentClonesInput(t *testing.T) {
+	environment := []string{"GIT_SSH_COMMAND=managed"}
+	opts := options{}
+	WithEnvironment(environment)(&opts)
+	environment[0] = "GIT_SSH_COMMAND=ambient"
+
+	if opts.environment[0] != "GIT_SSH_COMMAND=managed" {
+		t.Fatalf("environment = %q, want independent copy", opts.environment)
+	}
+}
+
+func TestHarnessUsesWorkingDirectoryAndInternalEnvironment(t *testing.T) {
+	workingDir := t.TempDir()
+	setHarnessCommand(t, fakeHarnessCommand(t))
+	t.Setenv("AHH_HELPER_HARNESS_MODE", "inspect")
+	t.Setenv("AHH_INTERNAL_GIT_TEST", "ambient")
+
+	h, err := Start(
+		t.Context(),
+		"test-session-id",
+		WithWorkingDirectory("  "+workingDir+"  "),
+		WithEnvironment([]string{"AHH_INTERNAL_GIT_TEST=managed"}),
+	)
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	t.Cleanup(h.Close)
+
+	scanner := bufio.NewScanner(h)
+	if !scanner.Scan() {
+		t.Fatalf("scan working directory: %v", scanner.Err())
+	}
+	if got := scanner.Text(); got != workingDir {
+		t.Fatalf("working directory = %q, want %q", got, workingDir)
+	}
+	if !scanner.Scan() {
+		t.Fatalf("scan environment override: %v", scanner.Err())
+	}
+	if got := scanner.Text(); got != "managed" {
+		t.Fatalf("environment override = %q, want managed", got)
+	}
+	if err := h.Wait(t.Context()); err != nil {
+		t.Fatalf("Wait() error = %v", err)
+	}
+}
+
+func TestMergeEnvironmentOverridesOnlyMatchingKeys(t *testing.T) {
+	actual := mergeEnvironment(
+		[]string{"PATH=/bin", "GIT_SSH_COMMAND=ambient", "KEEP=value"},
+		[]string{"GIT_SSH_COMMAND=managed", "GIT_TERMINAL_PROMPT=0"},
+	)
+	got := envMap(actual)
+	if got["GIT_SSH_COMMAND"] != "managed" || got["GIT_TERMINAL_PROMPT"] != "0" || got["KEEP"] != "value" {
+		t.Fatalf("mergeEnvironment() = %q", actual)
 	}
 }
 

@@ -45,6 +45,20 @@ func TestWithConfigDir(t *testing.T) {
 	}
 }
 
+func TestHarnessLaunchOptions(t *testing.T) {
+	cfg := options{}
+	WithWorkingDirectory("/project/worktree")(&cfg)
+	environment := []string{"GIT_SSH_COMMAND=managed"}
+	WithEnvironment(environment)(&cfg)
+	environment[0] = "GIT_SSH_COMMAND=ambient"
+	if cfg.workingDir != "/project/worktree" {
+		t.Fatalf("workingDir = %q, want /project/worktree", cfg.workingDir)
+	}
+	if len(cfg.environment) != 1 || cfg.environment[0] != "GIT_SSH_COMMAND=managed" {
+		t.Fatalf("environment = %q, want managed Git environment", cfg.environment)
+	}
+}
+
 func TestServerHTTP(t *testing.T) {
 	tests := []struct {
 		name             string
