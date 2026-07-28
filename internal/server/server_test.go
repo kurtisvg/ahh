@@ -36,19 +36,31 @@ func TestServerHTTP(t *testing.T) {
 			name:             "serves terminal page",
 			path:             "/",
 			wantStatus:       http.StatusOK,
-			wantBodyContains: "New conversation",
+			wantBodyContains: "Primary navigation",
 		},
 		{
 			name:             "serves bookmarked conversation",
 			path:             "/conversations/bookmarked-id",
 			wantStatus:       http.StatusOK,
-			wantBodyContains: "New conversation",
+			wantBodyContains: "Conversations",
 		},
 		{
 			name:             "serves bookmarked Agent",
 			path:             "/agents/9e065f6f-3342-4ee3-9443-3c74ec64012d",
 			wantStatus:       http.StatusOK,
 			wantBodyContains: "New Agent",
+		},
+		{
+			name:             "serves bookmarked Project",
+			path:             "/projects/project-id",
+			wantStatus:       http.StatusOK,
+			wantBodyContains: "Create Project",
+		},
+		{
+			name:             "serves Settings",
+			path:             "/settings",
+			wantStatus:       http.StatusOK,
+			wantBodyContains: "Installation SSH identity",
 		},
 		{
 			name:             "serves terminal assets",
@@ -81,6 +93,12 @@ func TestServerHTTP(t *testing.T) {
 			wantBodyContains: "activeAgentId",
 		},
 		{
+			name:             "serves assets from bookmarked Project",
+			path:             "/projects/assets/app.js",
+			wantStatus:       http.StatusOK,
+			wantBodyContains: "activeProjectId",
+		},
+		{
 			name:             "reports server readiness",
 			path:             "/ready",
 			wantStatus:       http.StatusOK,
@@ -90,6 +108,12 @@ func TestServerHTTP(t *testing.T) {
 			name:       "reports missing page",
 			path:       "/missing",
 			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "rejects wrong terminal page method",
+			method:     http.MethodPost,
+			path:       "/",
+			wantStatus: http.StatusMethodNotAllowed,
 		},
 		{
 			name:       "reports missing api endpoint",
@@ -666,7 +690,7 @@ func TestAgentUIUsesIndependentSelectionAndAgentBackedConversationCreation(t *te
 		}
 	}
 
-	for _, want := range []string{".mode-switch", ".agent-editor", ".menu-button"} {
+	for _, want := range []string{".activity-rail", ".editor-region", ".menu-button"} {
 		if !strings.Contains(styles, want) {
 			t.Fatalf("app styles do not contain %q", want)
 		}
@@ -674,6 +698,69 @@ func TestAgentUIUsesIndependentSelectionAndAgentBackedConversationCreation(t *te
 	for _, unwanted := range []string{"agent config directory", "agent-id-input", "agent-harness-select"} {
 		if strings.Contains(strings.ToLower(page), unwanted) {
 			t.Fatalf("Agent editor exposes internal field %q", unwanted)
+		}
+	}
+}
+
+func TestProjectAndSettingsUI(t *testing.T) {
+	page := string(readAsset(t, "assets/index.html"))
+	app := string(readAsset(t, "assets/app.js"))
+	styles := string(readAsset(t, "assets/app.css"))
+
+	for _, want := range []string{
+		`id="projects-mode-button"`,
+		`class="activity-icon"`,
+		`id="settings-mode-button"`,
+		`id="project-editor-form"`,
+		`placeholder="my-project"`,
+		`id="project-source-type"`,
+		`<option value="github">github</option>`,
+		`This immutable URL-safe name is also the Project ID used in links.`,
+		`placeholder="owner/repository"`,
+		`id="project-default-branch"`,
+		`id="project-refresh-button" class="icon-button compact-icon-button"`,
+		`aria-label="Refresh Project"`,
+		`id="project-save-message"`,
+		`id="project-unavailable-reason"`,
+		`id="authentication-mode"`,
+		`id="ssh-public-key"`,
+		`id="ssh-fingerprint"`,
+		`GitHub: add a new SSH key`,
+		`Type the current fingerprint to confirm`,
+		`GitHub access will fail until the new public key is registered`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Fatalf("app page does not contain %q", want)
+		}
+	}
+	for _, want := range []string{
+		"loadProjects",
+		"loadSettings",
+		"source: { type: sourceType, repository }",
+		"default_branch: { kind, name: nameParts.join(':') }",
+		"navigator.clipboard.writeText(sshPublicKey.value)",
+		"confirm_fingerprint: confirmFingerprint",
+		"regenerateConfirmInput.value !== fingerprint",
+		"projectDeleteConfirmInput.value !== project.name",
+		"project.unavailable_reason",
+		"`${project.source.type} · ${project.source.repository}`",
+		"projectRefreshButton.setAttribute('aria-busy', 'true')",
+		"deleteButton.className = 'item-delete'",
+		"openProjectDeleteDialog(project.id)",
+		"'/projects/'",
+	} {
+		if !strings.Contains(app, want) {
+			t.Fatalf("app script does not contain %q", want)
+		}
+	}
+	for _, want := range []string{".activity-rail", ".project-status-pill", ".project-default-branch-field", ".item-delete", ".settings-card"} {
+		if !strings.Contains(styles, want) {
+			t.Fatalf("app styles do not contain %q", want)
+		}
+	}
+	for _, unwanted := range []string{"Localhost control plane", `class="section-label"`, "Open Conversations"} {
+		if strings.Contains(page, unwanted) {
+			t.Fatalf("app page contains redundant label %q", unwanted)
 		}
 	}
 }

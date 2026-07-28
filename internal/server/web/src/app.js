@@ -2,11 +2,18 @@ const appShell = document.getElementById('app-shell');
 const sidebar = document.getElementById('sidebar');
 const sidebarBackdrop = document.getElementById('sidebar-backdrop');
 const menuButton = document.getElementById('menu-button');
+const projectsModeButton = document.getElementById('projects-mode-button');
 const conversationsModeButton = document.getElementById('conversations-mode-button');
 const agentsModeButton = document.getElementById('agents-mode-button');
+const settingsModeButton = document.getElementById('settings-mode-button');
+const projectSidebar = document.getElementById('project-sidebar');
 const conversationSidebar = document.getElementById('conversation-sidebar');
 const agentSidebar = document.getElementById('agent-sidebar');
+const settingsSidebar = document.getElementById('settings-sidebar');
+const sidebarModeTitle = document.getElementById('sidebar-mode-title');
 const newItemButton = document.getElementById('new-item-button');
+const projectListEl = document.getElementById('project-list');
+const projectEmptyEl = document.getElementById('project-empty');
 const conversationListEl = document.getElementById('conversation-list');
 const conversationEmptyEl = document.getElementById('conversation-empty');
 const agentListEl = document.getElementById('agent-list');
@@ -32,6 +39,27 @@ const agentEditorForm = document.getElementById('agent-editor-form');
 const agentEditorName = document.getElementById('agent-editor-name');
 const agentEditorHarness = document.getElementById('agent-editor-harness');
 const agentSaveMessage = document.getElementById('agent-save-message');
+const projectEditor = document.getElementById('project-editor');
+const projectEditorEmpty = document.getElementById('project-editor-empty');
+const projectEditorForm = document.getElementById('project-editor-form');
+const projectEditorTitle = document.getElementById('project-editor-title');
+const projectEditorSource = document.getElementById('project-editor-source');
+const projectStatusPill = document.getElementById('project-status-pill');
+const projectUnavailableReason = document.getElementById('project-unavailable-reason');
+const projectDefaultBranch = document.getElementById('project-default-branch');
+const projectSaveMessage = document.getElementById('project-save-message');
+const projectRefreshButton = document.getElementById('project-refresh-button');
+const projectEmptyCreateButton = document.getElementById('project-empty-create-button');
+const settingsEditor = document.getElementById('settings-editor');
+const settingsForm = document.getElementById('settings-form');
+const authenticationMode = document.getElementById('authentication-mode');
+const settingsSaveMessage = document.getElementById('settings-save-message');
+const identityInvalidWarning = document.getElementById('identity-invalid-warning');
+const sshPublicKey = document.getElementById('ssh-public-key');
+const sshFingerprint = document.getElementById('ssh-fingerprint');
+const copyPublicKeyButton = document.getElementById('copy-public-key-button');
+const copyKeyMessage = document.getElementById('copy-key-message');
+const regenerateIdentityButton = document.getElementById('regenerate-identity-button');
 const conversationDialog = document.getElementById('conversation-dialog');
 const createConversationForm = document.getElementById('create-conversation-form');
 const conversationDialogClose = document.getElementById('conversation-dialog-close');
@@ -43,6 +71,24 @@ const createAgentForm = document.getElementById('create-agent-form');
 const agentDialogClose = document.getElementById('agent-dialog-close');
 const agentCancelButton = document.getElementById('agent-cancel-button');
 const agentNameInput = document.getElementById('agent-name-input');
+const projectDialog = document.getElementById('project-dialog');
+const createProjectForm = document.getElementById('create-project-form');
+const projectDialogClose = document.getElementById('project-dialog-close');
+const projectCancelButton = document.getElementById('project-cancel-button');
+const projectNameInput = document.getElementById('project-name-input');
+const projectSourceType = document.getElementById('project-source-type');
+const projectRepositoryInput = document.getElementById('project-repository-input');
+const projectDeleteDialog = document.getElementById('project-delete-dialog');
+const projectDeleteForm = document.getElementById('project-delete-form');
+const projectDeleteDialogClose = document.getElementById('project-delete-dialog-close');
+const projectDeleteCancelButton = document.getElementById('project-delete-cancel-button');
+const projectDeleteWarning = document.getElementById('project-delete-warning');
+const projectDeleteConfirmInput = document.getElementById('project-delete-confirm-input');
+const regenerateDialog = document.getElementById('regenerate-dialog');
+const regenerateForm = document.getElementById('regenerate-form');
+const regenerateDialogClose = document.getElementById('regenerate-dialog-close');
+const regenerateCancelButton = document.getElementById('regenerate-cancel-button');
+const regenerateConfirmInput = document.getElementById('regenerate-confirm-input');
 
 const reconnectDelays = [1000, 2000, 4000, 8000, 15000];
 const stableConnectionDelay = 3000;
@@ -54,9 +100,12 @@ const terminalStateMessages = {
 
 let conversations = [];
 let agents = [];
+let projects = [];
+let settings;
 let activeConversationId = '';
 let activeAgentId = '';
-let currentMode = 'conversations';
+let activeProjectId = '';
+let currentMode = 'projects';
 let socket;
 let connectionState = 'disconnected';
 let reconnectAttempt = 0;
@@ -99,11 +148,17 @@ function appURL(path) {
 }
 
 function appBasePath() {
-  for (const marker of ['/conversations/', '/agents/']) {
+  for (const marker of ['/projects/', '/conversations/', '/agents/']) {
     const markerIndex = window.location.pathname.lastIndexOf(marker);
     if (markerIndex >= 0) {
       return window.location.pathname.slice(0, markerIndex + 1);
     }
+  }
+
+  const settingsMarker = '/settings';
+  const settingsIndex = window.location.pathname.lastIndexOf(settingsMarker);
+  if (settingsIndex >= 0 && settingsIndex + settingsMarker.length === window.location.pathname.length) {
+    return window.location.pathname.slice(0, settingsIndex + 1);
   }
 
   return window.location.pathname.endsWith('/')
@@ -113,7 +168,10 @@ function appBasePath() {
 
 function routeFromPath() {
   const basePath = appBasePath();
-  for (const mode of ['conversations', 'agents']) {
+  if (window.location.pathname === `${basePath}settings`) {
+    return { mode: 'settings', id: '' };
+  }
+  for (const mode of ['projects', 'conversations', 'agents']) {
     const prefix = `${basePath}${mode}/`;
     if (!window.location.pathname.startsWith(prefix)) {
       continue;
@@ -125,7 +183,7 @@ function routeFromPath() {
       return { mode, id: '' };
     }
   }
-  return { mode: 'conversations', id: '' };
+  return { mode: 'projects', id: '' };
 }
 
 function conversationIdFromPath() {
@@ -139,9 +197,15 @@ function updateSelectionURL(mode = 'replace') {
   }
 
   const url = new URL(window.location.href);
-  const selectedId = currentMode === 'agents' ? activeAgentId : activeConversationId;
+  const selectedId = currentMode === 'projects'
+    ? activeProjectId
+    : currentMode === 'agents'
+      ? activeAgentId
+      : activeConversationId;
   const basePath = appBasePath();
-  url.pathname = selectedId
+  url.pathname = currentMode === 'settings'
+    ? `${basePath}settings`
+    : selectedId
     ? `${basePath}${currentMode}/${encodeURIComponent(selectedId)}`
     : basePath;
   url.search = '';
@@ -168,6 +232,10 @@ function activeConversation() {
 
 function activeAgent() {
   return agents.find((agent) => agent.id === activeAgentId);
+}
+
+function activeProject() {
+  return projects.find((project) => project.id === activeProjectId);
 }
 
 function agentName(agentId) {
@@ -243,7 +311,7 @@ function renderConversations() {
     selectButton.append(itemMain(conversation.name, `${agentName(conversation.agent_id)} · ${stateName}`));
 
     const deleteButton = document.createElement('button');
-    deleteButton.className = 'conversation-delete';
+    deleteButton.className = 'item-delete';
     deleteButton.type = 'button';
     deleteButton.innerHTML = `
       <svg class="trash-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -277,6 +345,41 @@ function renderAgents() {
     selectButton.append(itemMain(agent.name, agent.harness));
     item.append(selectButton);
     agentListEl.append(item);
+  }
+}
+
+function renderProjects() {
+  projectListEl.replaceChildren();
+  projectEmptyEl.hidden = projects.length !== 0;
+  for (const project of projects) {
+    const item = document.createElement('div');
+    item.className = 'list-item project-item';
+    item.dataset.state = project.status;
+    item.classList.toggle('is-active', project.id === activeProjectId);
+
+    const selectButton = document.createElement('button');
+    selectButton.className = 'item-select';
+    selectButton.type = 'button';
+    selectButton.ariaCurrent = project.id === activeProjectId ? 'page' : 'false';
+    selectButton.addEventListener('click', () => selectProject(project.id));
+    selectButton.append(itemMain(project.name, `${project.source.repository} · ${project.status}`));
+
+    const deleteButton = document.createElement('button');
+    deleteButton.className = 'item-delete';
+    deleteButton.type = 'button';
+    deleteButton.innerHTML = `
+      <svg class="trash-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M3 6h18"></path><path d="M8 6V4h8v2"></path>
+        <path d="M19 6l-1 14H6L5 6"></path><path d="M10 11v5"></path><path d="M14 11v5"></path>
+      </svg>`;
+    deleteButton.setAttribute('aria-label', `Delete ${project.name}`);
+    deleteButton.addEventListener('click', () => openProjectDeleteDialog(project.id));
+
+    const state = document.createElement('span');
+    state.className = 'state-pill';
+    state.ariaHidden = 'true';
+    item.append(selectButton, deleteButton, state);
+    projectListEl.append(item);
   }
 }
 
@@ -320,7 +423,75 @@ function renderAgentEditor() {
   }
 }
 
+async function renderProjectEditor() {
+  const project = activeProject();
+  projectEditorEmpty.hidden = Boolean(project);
+  projectEditorForm.hidden = !project;
+  if (!project) {
+    delete projectEditorForm.dataset.projectId;
+    projectSaveMessage.textContent = '';
+    return;
+  }
+
+  if (projectEditorForm.dataset.projectId !== project.id) {
+    projectEditorForm.dataset.projectId = project.id;
+    projectSaveMessage.textContent = '';
+  }
+
+  projectEditorTitle.textContent = project.name;
+  projectEditorSource.textContent = `${project.source.type} · ${project.source.repository}`;
+  projectStatusPill.textContent = project.status;
+  projectStatusPill.dataset.state = project.status;
+  projectUnavailableReason.textContent = project.unavailable_reason || '';
+  projectUnavailableReason.hidden = !project.unavailable_reason;
+  projectDefaultBranch.replaceChildren();
+  try {
+    const response = await fetch(appURL(`api/projects/${encodeURIComponent(project.id)}/branches`), { cache: 'no-store' });
+    if (!response.ok) throw new Error(await readErrorPayload(response) || 'Branches are unavailable.');
+    const payload = await response.json();
+    if (activeProjectId !== project.id) return;
+    for (const branch of payload.branches || []) {
+      const option = document.createElement('option');
+      option.value = `${branch.kind}:${branch.name}`;
+      option.textContent = `${branch.kind === 'remote' ? 'origin/' : ''}${branch.name}`;
+      projectDefaultBranch.append(option);
+    }
+    projectDefaultBranch.value = `${project.default_branch.kind}:${project.default_branch.name}`;
+  } catch (error) {
+    const option = document.createElement('option');
+    option.value = `${project.default_branch.kind}:${project.default_branch.name}`;
+    option.textContent = `${project.default_branch.kind === 'remote' ? 'origin/' : ''}${project.default_branch.name}`;
+    projectDefaultBranch.append(option);
+    projectUnavailableReason.textContent = project.unavailable_reason || error.message;
+    projectUnavailableReason.hidden = false;
+  }
+}
+
+function renderSettings() {
+  if (!settings) return;
+  authenticationMode.value = settings.authentication_mode;
+  const identity = settings.ssh_identity || {};
+  identityInvalidWarning.hidden = identity.status !== 'invalid';
+  sshPublicKey.value = identity.public_key || '';
+  sshFingerprint.value = identity.fingerprint || '';
+  copyPublicKeyButton.disabled = !identity.public_key;
+  regenerateIdentityButton.disabled = !identity.fingerprint;
+}
+
 function updateViewHeading() {
+  if (currentMode === 'projects') {
+    const project = activeProject();
+    viewTitle.textContent = project?.name || 'Projects';
+    viewSubtitle.textContent = project ? project.source.repository : 'Register a GitHub repository';
+    viewSubtitle.hidden = false;
+    return;
+  }
+  if (currentMode === 'settings') {
+    viewTitle.textContent = 'Settings';
+    viewSubtitle.textContent = 'Authentication and installation identity';
+    viewSubtitle.hidden = false;
+    return;
+  }
   if (currentMode === 'agents') {
     const agent = activeAgent();
     viewTitle.textContent = agent?.name || 'Agents';
@@ -336,29 +507,45 @@ function updateViewHeading() {
 
 function renderMode() {
   const conversationsActive = currentMode === 'conversations';
+  const agentsActive = currentMode === 'agents';
+  const projectsActive = currentMode === 'projects';
+  const settingsActive = currentMode === 'settings';
   appShell.dataset.mode = currentMode;
+  projectSidebar.hidden = !projectsActive;
   conversationSidebar.hidden = !conversationsActive;
-  agentSidebar.hidden = conversationsActive;
+  agentSidebar.hidden = !agentsActive;
+  settingsSidebar.hidden = !settingsActive;
   terminalShell.hidden = !conversationsActive;
-  agentEditor.hidden = conversationsActive;
+  agentEditor.hidden = !agentsActive;
+  projectEditor.hidden = !projectsActive;
+  settingsEditor.hidden = !settingsActive;
   statusSurface.hidden = !conversationsActive;
   connectionBanner.hidden = !conversationsActive || connectionBanner.hidden;
+  projectsModeButton.classList.toggle('is-active', projectsActive);
+  projectsModeButton.setAttribute('aria-current', projectsActive ? 'page' : 'false');
   conversationsModeButton.classList.toggle('is-active', conversationsActive);
-  conversationsModeButton.setAttribute('aria-selected', String(conversationsActive));
-  agentsModeButton.classList.toggle('is-active', !conversationsActive);
-  agentsModeButton.setAttribute('aria-selected', String(!conversationsActive));
-  newItemButton.setAttribute('aria-label', conversationsActive ? 'New conversation' : 'New Agent');
+  conversationsModeButton.setAttribute('aria-current', conversationsActive ? 'page' : 'false');
+  agentsModeButton.classList.toggle('is-active', agentsActive);
+  agentsModeButton.setAttribute('aria-current', agentsActive ? 'page' : 'false');
+  settingsModeButton.classList.toggle('is-active', settingsActive);
+  settingsModeButton.setAttribute('aria-current', settingsActive ? 'page' : 'false');
+  const modeLabels = { projects: 'Projects', agents: 'Agents', conversations: 'Conversations', settings: 'Settings' };
+  sidebarModeTitle.textContent = modeLabels[currentMode];
+  newItemButton.hidden = settingsActive;
+  newItemButton.setAttribute('aria-label', projectsActive ? 'New Project' : agentsActive ? 'New Agent' : 'New conversation');
   updateViewHeading();
   renderAgentEditor();
+  if (projectsActive) void renderProjectEditor();
+  if (settingsActive) renderSettings();
 }
 
 function setMode(mode, { history = 'push' } = {}) {
-  if (mode !== 'agents' && mode !== 'conversations') {
+  if (!['projects', 'agents', 'conversations', 'settings'].includes(mode)) {
     return;
   }
   const changed = currentMode !== mode;
   currentMode = mode;
-  if (mode === 'agents') {
+  if (mode !== 'conversations') {
     closeSocket();
     setStatus('disconnected');
   } else if (changed) {
@@ -370,6 +557,17 @@ function setMode(mode, { history = 'push' } = {}) {
     window.setTimeout(fitTerminal, 0);
   }
   updateSelectionURL(history);
+  closeSidebar();
+}
+
+function selectProject(projectId) {
+  activeProjectId = projectId;
+  currentMode = 'projects';
+  closeSocket();
+  setStatus('disconnected');
+  renderProjects();
+  renderMode();
+  updateSelectionURL('push');
   closeSidebar();
 }
 
@@ -415,6 +613,29 @@ async function loadAgents({ preserveActive = true } = {}) {
   }
   renderAgents();
   populateAgentPicker();
+}
+
+async function loadProjects({ preserveActive = true } = {}) {
+  const response = await fetch(appURL('api/projects'), { cache: 'no-store' });
+  if (!response.ok) throw new Error(`Projects could not be loaded (server returned ${response.status}).`);
+  const payload = await response.json();
+  projects = payload.projects || [];
+  const route = routeFromPath();
+  const requested = route.mode === 'projects' ? route.id : '';
+  const activeStillExists = projects.some((project) => project.id === activeProjectId);
+  if (requested && projects.some((project) => project.id === requested)) {
+    activeProjectId = requested;
+  } else if (!preserveActive || !activeStillExists) {
+    activeProjectId = projects[0]?.id || '';
+  }
+  renderProjects();
+}
+
+async function loadSettings() {
+  const response = await fetch(appURL('api/settings'), { cache: 'no-store' });
+  if (!response.ok) throw new Error(`Settings could not be loaded (server returned ${response.status}).`);
+  settings = await response.json();
+  renderSettings();
 }
 
 async function loadConversations({ preserveActive = true, syncConnection = true } = {}) {
@@ -518,6 +739,88 @@ async function deleteConversation(conversationId) {
   renderConversations();
   syncActiveConversation();
   updateSelectionURL();
+}
+
+async function createProject(name, sourceType, repository) {
+  const response = await fetch(appURL('api/projects'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, source: { type: sourceType, repository } })
+  });
+  if (!response.ok) throw new Error(await readErrorPayload(response) || `create Project failed: ${response.status}`);
+  const project = await response.json();
+  projects = [...projects.filter((item) => item.id !== project.id), project]
+    .sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: 'base' }));
+  activeProjectId = project.id;
+  currentMode = 'projects';
+  renderProjects();
+  renderMode();
+  updateSelectionURL('push');
+}
+
+async function saveProjectDefaultBranch(projectId) {
+  const [kind, ...nameParts] = projectDefaultBranch.value.split(':');
+  const response = await fetch(appURL(`api/projects/${encodeURIComponent(projectId)}`), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ default_branch: { kind, name: nameParts.join(':') } })
+  });
+  if (!response.ok) throw new Error(await readErrorPayload(response) || 'Project could not be saved.');
+  const updated = await response.json();
+  projects = projects.map((project) => project.id === updated.id ? updated : project);
+  renderProjects();
+  await renderProjectEditor();
+}
+
+async function refreshProject(projectId) {
+  projectRefreshButton.disabled = true;
+  projectRefreshButton.setAttribute('aria-busy', 'true');
+  try {
+    const response = await fetch(appURL(`api/projects/${encodeURIComponent(projectId)}/fetch`), { method: 'POST' });
+    if (!response.ok) {
+      await loadProjects();
+      throw new Error(await readErrorPayload(response) || 'Project refresh failed.');
+    }
+    const updated = await response.json();
+    projects = projects.map((project) => project.id === updated.id ? updated : project);
+    renderProjects();
+    await renderProjectEditor();
+  } finally {
+    projectRefreshButton.disabled = false;
+    projectRefreshButton.removeAttribute('aria-busy');
+  }
+}
+
+async function deleteProject(projectId) {
+  const response = await fetch(appURL(`api/projects/${encodeURIComponent(projectId)}`), { method: 'DELETE' });
+  if (!response.ok && response.status !== 404) throw new Error(await readErrorPayload(response) || 'Project could not be deleted.');
+  projects = projects.filter((project) => project.id !== projectId);
+  activeProjectId = projects[0]?.id || '';
+  renderProjects();
+  renderMode();
+  updateSelectionURL();
+}
+
+async function saveSettings(mode) {
+  const response = await fetch(appURL('api/settings'), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ authentication_mode: mode })
+  });
+  if (!response.ok) throw new Error(await readErrorPayload(response) || 'Settings could not be saved.');
+  settings = await response.json();
+  renderSettings();
+}
+
+async function regenerateIdentity(confirmFingerprint) {
+  const response = await fetch(appURL('api/settings/ssh-identity/regenerate'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ confirm_fingerprint: confirmFingerprint })
+  });
+  if (!response.ok) throw new Error(await readErrorPayload(response) || 'SSH identity could not be regenerated.');
+  settings = await response.json();
+  renderSettings();
 }
 
 async function createAgent(name) {
@@ -773,6 +1076,31 @@ function openAgentDialog() {
   openDialog(agentDialog, agentNameInput);
 }
 
+function openProjectDialog() {
+  projectNameInput.value = '';
+  projectSourceType.value = 'github';
+  projectRepositoryInput.value = '';
+  projectNameInput.setCustomValidity('');
+  projectRepositoryInput.setCustomValidity('');
+  openDialog(projectDialog, projectNameInput);
+}
+
+function openProjectDeleteDialog(projectId) {
+  const project = projects.find((candidate) => candidate.id === projectId);
+  if (!project) return;
+  if (activeProjectId !== project.id) selectProject(project.id);
+  projectDeleteConfirmInput.value = '';
+  projectDeleteConfirmInput.setCustomValidity('');
+  projectDeleteWarning.textContent = `Deleting ${project.name} removes its managed repository. This cannot be undone.`;
+  openDialog(projectDeleteDialog, projectDeleteConfirmInput);
+}
+
+function openRegenerateDialog() {
+  regenerateConfirmInput.value = '';
+  regenerateConfirmInput.setCustomValidity('');
+  openDialog(regenerateDialog, regenerateConfirmInput);
+}
+
 function openSidebar() {
   appShell.dataset.sidebarOpen = 'true';
   menuButton.setAttribute('aria-expanded', 'true');
@@ -787,7 +1115,7 @@ function closeSidebar() {
 
 async function refreshAll() {
   try {
-    await Promise.all([loadAgents(), loadConversations({ syncConnection: false })]);
+    await Promise.all([loadProjects(), loadAgents(), loadConversations({ syncConnection: false }), loadSettings()]);
     if (connectionBanner.dataset.source === 'data') {
       const terminalRetryPaused = currentMode === 'conversations' &&
         activeConversation() &&
@@ -806,7 +1134,7 @@ async function refreshAll() {
   } catch (error) {
     const message = error instanceof TypeError
       ? 'Cannot reach the Ahh server. Check that it is running, then refresh this page.'
-      : error?.message || 'Agents and Conversations could not be loaded.';
+      : error?.message || 'Projects, Agents, Conversations, and Settings could not be loaded.';
     showBanner('error', message, { source: 'data' });
   }
 }
@@ -856,6 +1184,28 @@ createAgentForm.addEventListener('submit', (event) => {
     });
 });
 
+createProjectForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+  const name = projectNameInput.value;
+  const sourceType = projectSourceType.value;
+  const repository = projectRepositoryInput.value.trim();
+  if (!name || !sourceType || !repository) {
+    const control = !name ? projectNameInput : !sourceType ? projectSourceType : projectRepositoryInput;
+    control.setCustomValidity(!name ? 'Project name is required.' : !sourceType ? 'A source type is required.' : 'GitHub owner/repository is required.');
+    control.reportValidity();
+    return;
+  }
+  projectNameInput.setCustomValidity('');
+  projectSourceType.setCustomValidity('');
+  projectRepositoryInput.setCustomValidity('');
+  void createProject(name, sourceType, repository)
+    .then(() => closeDialog(projectDialog))
+    .catch((error) => {
+      projectRepositoryInput.setCustomValidity(error.message || 'Project could not be created.');
+      projectRepositoryInput.reportValidity();
+    });
+});
+
 agentEditorForm.addEventListener('submit', (event) => {
   event.preventDefault();
   const agent = activeAgent();
@@ -879,15 +1229,101 @@ agentEditorForm.addEventListener('submit', (event) => {
     });
 });
 
-newItemButton.addEventListener('click', () => currentMode === 'agents' ? openAgentDialog() : openConversationDialog());
+projectEditorForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+  const project = activeProject();
+  if (!project) return;
+  projectSaveMessage.textContent = 'Saving…';
+  void saveProjectDefaultBranch(project.id)
+    .then(() => { projectSaveMessage.textContent = 'Saved'; })
+    .catch((error) => {
+      projectSaveMessage.textContent = '';
+      projectDefaultBranch.setCustomValidity(error.message || 'Project could not be saved.');
+      projectDefaultBranch.reportValidity();
+    });
+});
+
+settingsForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+  settingsSaveMessage.textContent = 'Saving…';
+  void saveSettings(authenticationMode.value)
+    .then(() => { settingsSaveMessage.textContent = 'Saved. Restart existing Conversations to apply the mode.'; })
+    .catch((error) => { settingsSaveMessage.textContent = error.message || 'Settings could not be saved.'; });
+});
+
+projectDeleteForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+  const project = activeProject();
+  if (!project || projectDeleteConfirmInput.value !== project.name) {
+    projectDeleteConfirmInput.setCustomValidity('Type the exact Project name.');
+    projectDeleteConfirmInput.reportValidity();
+    return;
+  }
+  projectDeleteConfirmInput.setCustomValidity('');
+  void deleteProject(project.id)
+    .then(() => closeDialog(projectDeleteDialog))
+    .catch((error) => {
+      projectDeleteConfirmInput.setCustomValidity(error.message || 'Project could not be deleted.');
+      projectDeleteConfirmInput.reportValidity();
+    });
+});
+
+regenerateForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+  const fingerprint = settings?.ssh_identity?.fingerprint || '';
+  if (!fingerprint || regenerateConfirmInput.value !== fingerprint) {
+    regenerateConfirmInput.setCustomValidity('Type the exact current fingerprint.');
+    regenerateConfirmInput.reportValidity();
+    return;
+  }
+  regenerateConfirmInput.setCustomValidity('');
+  void regenerateIdentity(fingerprint)
+    .then(() => closeDialog(regenerateDialog))
+    .catch((error) => {
+      regenerateConfirmInput.setCustomValidity(error.message || 'Identity could not be regenerated.');
+      regenerateConfirmInput.reportValidity();
+    });
+});
+
+newItemButton.addEventListener('click', () => {
+  if (currentMode === 'projects') openProjectDialog();
+  else if (currentMode === 'agents') openAgentDialog();
+  else openConversationDialog();
+});
+projectsModeButton.addEventListener('click', () => setMode('projects'));
 conversationsModeButton.addEventListener('click', () => setMode('conversations'));
 agentsModeButton.addEventListener('click', () => setMode('agents'));
+settingsModeButton.addEventListener('click', () => setMode('settings'));
+projectEmptyCreateButton.addEventListener('click', openProjectDialog);
+projectRefreshButton.addEventListener('click', () => {
+  const project = activeProject();
+  if (project) void refreshProject(project.id).catch((error) => {
+    projectUnavailableReason.textContent = error.message || 'Project refresh failed.';
+    projectUnavailableReason.hidden = false;
+  });
+});
+copyPublicKeyButton.addEventListener('click', () => {
+  if (!navigator.clipboard?.writeText) {
+    copyKeyMessage.textContent = 'Clipboard access is unavailable; select the key manually.';
+    return;
+  }
+  void navigator.clipboard.writeText(sshPublicKey.value)
+    .then(() => { copyKeyMessage.textContent = 'Copied'; })
+    .catch(() => { copyKeyMessage.textContent = 'Copy failed; select the key manually.'; });
+});
+regenerateIdentityButton.addEventListener('click', openRegenerateDialog);
 menuButton.addEventListener('click', () => appShell.dataset.sidebarOpen ? closeSidebar() : openSidebar());
 sidebarBackdrop.addEventListener('click', closeSidebar);
 conversationDialogClose.addEventListener('click', () => closeDialog(conversationDialog));
 conversationCancelButton.addEventListener('click', () => closeDialog(conversationDialog));
 agentDialogClose.addEventListener('click', () => closeDialog(agentDialog));
 agentCancelButton.addEventListener('click', () => closeDialog(agentDialog));
+projectDialogClose.addEventListener('click', () => closeDialog(projectDialog));
+projectCancelButton.addEventListener('click', () => closeDialog(projectDialog));
+projectDeleteDialogClose.addEventListener('click', () => closeDialog(projectDeleteDialog));
+projectDeleteCancelButton.addEventListener('click', () => closeDialog(projectDeleteDialog));
+regenerateDialogClose.addEventListener('click', () => closeDialog(regenerateDialog));
+regenerateCancelButton.addEventListener('click', () => closeDialog(regenerateDialog));
 retryConnectionButton.addEventListener('click', retryConnectionNow);
 stopRetryingButton.addEventListener('click', stopAutomaticReconnect);
 connectionDetailsButton.addEventListener('click', () => {
@@ -898,6 +1334,7 @@ connectionDetailsButton.addEventListener('click', () => {
 
 window.addEventListener('popstate', () => {
   const route = routeFromPath();
+  if (route.mode === 'projects' && projects.some((project) => project.id === route.id)) activeProjectId = route.id;
   if (route.mode === 'agents' && agents.some((agent) => agent.id === route.id)) activeAgentId = route.id;
   const conversationExists = route.mode === 'conversations' &&
     conversations.some((conversation) => conversation.id === route.id);
@@ -905,6 +1342,7 @@ window.addEventListener('popstate', () => {
   if (conversationExists) activeConversationId = route.id;
   if (conversationChanged && currentMode === 'conversations') resetTerminalForActiveConversation();
   setMode(route.mode, { history: 'replace' });
+  renderProjects();
   renderAgents();
   renderConversations();
 });
