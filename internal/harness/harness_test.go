@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"os"
@@ -208,17 +209,19 @@ func TestHarnessUsesWorkingDirectoryAndInternalEnvironment(t *testing.T) {
 		t.Fatalf("Start() error = %v", err)
 	}
 	t.Cleanup(h.Close)
-	buffer := make([]byte, 4096)
-	n, readErr := h.Read(buffer)
-	if readErr != nil {
-		t.Fatalf("Read() error = %v", readErr)
+
+	scanner := bufio.NewScanner(h)
+	if !scanner.Scan() {
+		t.Fatalf("scan working directory: %v", scanner.Err())
 	}
-	output := string(buffer[:n])
-	if !strings.Contains(output, workingDir) {
-		t.Fatalf("harness output = %q, want working directory %q", output, workingDir)
+	if got := scanner.Text(); got != workingDir {
+		t.Fatalf("working directory = %q, want %q", got, workingDir)
 	}
-	if !strings.Contains(output, "managed") || strings.Contains(output, "ambient") {
-		t.Fatalf("harness output = %q, want managed environment override", output)
+	if !scanner.Scan() {
+		t.Fatalf("scan environment override: %v", scanner.Err())
+	}
+	if got := scanner.Text(); got != "managed" {
+		t.Fatalf("environment override = %q, want managed", got)
 	}
 	if err := h.Wait(t.Context()); err != nil {
 		t.Fatalf("Wait() error = %v", err)
