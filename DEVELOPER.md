@@ -6,6 +6,7 @@ from the repository root.
 ## Setup
 
 - [Go](https://go.dev/doc/install) >= 1.27.2.
+- [golangci-lint](https://golangci-lint.run/docs/welcome/install/) v2.14.0.
 
 ## Run
 
@@ -42,11 +43,10 @@ needed. Tests configure arguments and I/O directly on fresh Cobra commands.
 
 ## Lint
 
-Format code and run static checks:
+Format code and apply available lint fixes:
 
 ```sh
-go fmt ./...
-go vet ./...
+golangci-lint run --fix --timeout 5m
 ```
 
 ## Test
