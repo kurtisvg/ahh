@@ -1,0 +1,39 @@
+name: Renovate
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/renovate.json
+      - .github/workflows/renovate-validate.yml
+  push:
+    branches: [main]
+    paths:
+      - .github/renovate.json
+      - .github/workflows/renovate-validate.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      RENOVATE_VERSION: 44.151.2
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.21.0'
+      - name: Validate Renovate config
+        run: >-
+          npm exec --yes --package="renovate@$RENOVATE_VERSION" --
+          renovate-config-validator --strict --no-global .github/renovate.json
