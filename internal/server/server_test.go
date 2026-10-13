@@ -41,7 +41,7 @@ func TestServerLifecycle(t *testing.T) {
 			}
 			body, err := io.ReadAll(resp.Body)
 			resp.Body.Close()
-			if err != nil || string(body) != "hello world\n" {
+			if err != nil || !strings.Contains(string(body), "Ahh terminal") {
 				t.Fatalf("response = %q, error = %v", body, err)
 			}
 

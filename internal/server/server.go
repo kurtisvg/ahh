@@ -74,9 +74,7 @@ func start(ctx context.Context, address string, port int, executable string, arg
 	requestCtx, cancelRequests := context.WithCancel(ctx)
 	protection := http.NewCrossOriginProtection()
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte("hello world\n"))
-	})
+	mux.Handle("GET /", serveAssets())
 	server := &Server{
 		Address: actualAddress,
 		Port:    actualPort,

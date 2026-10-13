@@ -43,10 +43,22 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: internal/server/web/package-lock.json
+      - name: Install browser dependencies
+        working-directory: internal/server/web
+        run: npm ci
+      - name: Generate assets
+        run: go generate ./...
       - name: Build
         run: go build ./...
+      - name: Install browser
+        run: go run github.com/mxschmitt/playwright-go/cmd/playwright install --with-deps chromium
       - name: Test
-        run: go test -race -shuffle=on -timeout 60s ./...
+        run: go test -count=1 -race -shuffle=on -timeout 5m ./...
 
   lint:
     if: "github.event.action != 'labeled' || github.event.label.name == 'tests: run'"
@@ -59,6 +71,16 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: internal/server/web/package-lock.json
+      - name: Install browser dependencies
+        working-directory: internal/server/web
+        run: npm ci
+      - name: Generate assets
+        run: go generate ./...
       - name: Verify go mod tidy
         run: go mod tidy -diff
       - name: golangci-lint

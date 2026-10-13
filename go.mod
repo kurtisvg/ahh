@@ -5,11 +5,14 @@ go 1.27.3
 require (
 	github.com/coder/websocket v1.8.15
 	github.com/creack/pty v1.1.24
+	github.com/mxschmitt/playwright-go v0.6201.1
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/sys v0.49.0
 )
 
 require (
+	github.com/deckarep/golang-set/v2 v2.8.0 // indirect
+	github.com/go-stack/stack v1.8.1 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
 	golang.org/x/mod v0.42.0 // indirect
