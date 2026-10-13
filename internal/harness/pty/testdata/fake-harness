@@ -12,6 +12,7 @@ while IFS= read -r line; do
   case "$line" in
     size) printf 'size='; stty size ;;
     exit) exit 0 ;;
+    fail) exit 7 ;;
     *) printf 'received: %s\n' "$line" ;;
   esac
 done

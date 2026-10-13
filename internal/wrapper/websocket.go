@@ -37,7 +37,7 @@ type replayMessage struct {
 func (s *Server) servePTY(ctx context.Context) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		s.socketsMu.Lock()
-		if ctx.Err() != nil {
+		if ctx.Err() != nil || s.draining {
 			s.socketsMu.Unlock()
 			http.Error(w, "wrapper is shutting down", http.StatusServiceUnavailable)
 			return

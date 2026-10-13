@@ -28,6 +28,13 @@ func (s *Server) proxyPTY(ctx context.Context, protection *http.CrossOriginProte
 		s.requestsMu.Unlock()
 		defer s.requests.Done()
 
+		select {
+		case <-s.wrapper.done:
+			http.Error(w, "invocation has ended", http.StatusGone)
+			return
+		default:
+		}
+
 		// WebSocket upgrades use GET but allow terminal input, so check as a write.
 		check := *r
 		check.Method = http.MethodPost

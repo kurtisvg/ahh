@@ -16,19 +16,23 @@ import (
 	"time"
 )
 
-// wrapperProcess owns a wrap subprocess and its startup output reader.
+// wrapperProcess owns a wrap subprocess and its lifecycle output reader.
 type wrapperProcess struct {
 	command *exec.Cmd
 	url     *url.URL
 	cancel  context.CancelFunc
 
-	done chan struct{}
-	err  error // Read after done closes.
+	done   chan struct{}
+	err    error       // Read after done closes.
+	result *exitResult // Read after done closes.
 }
 
 // startWrapper waits for the wrapper's startup JSON before returning ownership.
 // On failure it stops the child and releases its output pipe.
 func startWrapper(ctx context.Context, executable string, args ...string) (*wrapperProcess, error) {
+	ready, stop := context.WithTimeout(ctx, 10*time.Second)
+	defer stop()
+
 	ctx, cancel := context.WithCancel(ctx)
 	command := exec.CommandContext(ctx, executable, args...)
 	command.Cancel = func() error {
@@ -59,8 +63,9 @@ func startWrapper(ctx context.Context, executable string, args ...string) (*wrap
 	}
 	startup := make(chan []byte, 1)
 	readDone := make(chan struct{})
+	var reportErr error // Read after readDone closes.
 
-	// Read the startup message, then drain stdout so the child cannot block on output.
+	// Read both lifecycle records with the same scanner so buffered bytes are preserved.
 	go func() {
 		defer close(readDone)
 		scanner := bufio.NewScanner(stdout)
@@ -70,20 +75,42 @@ func startWrapper(ctx context.Context, executable string, args ...string) (*wrap
 		} else {
 			startup <- nil
 		}
+		if scanner.Scan() {
+			var message struct {
+				Type   string      `json:"type"`
+				Result *exitResult `json:"result"`
+			}
+			reportErr = json.Unmarshal(scanner.Bytes(), &message)
+			if reportErr == nil {
+				if message.Type != "exit" || message.Result == nil {
+					reportErr = errors.New("invalid wrapper exit report")
+				} else {
+					p.result = message.Result
+				}
+			}
+		} else {
+			reportErr = errors.Join(errors.New("wrapper exited without a result"), scanner.Err())
+		}
 		_, _ = io.Copy(io.Discard, stdout)
 	}()
 
 	// Finish process and output cleanup before allowing Wait to return.
 	go func() {
 		p.err = command.Wait()
+		// Allow buffered reports to drain, but do not wait forever on inherited stdout.
+		timer := time.NewTimer(time.Second)
+		select {
+		case <-readDone:
+		case <-timer.C:
+		}
+		timer.Stop()
 		_ = stdout.Close()
 		<-readDone
+		p.err = errors.Join(p.err, reportErr)
 		cancel()
 		close(p.done)
 	}()
 
-	ready, stop := context.WithTimeout(ctx, 10*time.Second)
-	defer stop()
 	select {
 	case data := <-startup:
 		var started struct {
@@ -114,7 +141,7 @@ func startWrapper(ctx context.Context, executable string, args ...string) (*wrap
 	return p, nil
 }
 
-// Wait joins the subprocess and startup reader.
+// Wait joins the subprocess and lifecycle reader, including its final result.
 func (p *wrapperProcess) Wait() error {
 	<-p.done
 	return p.err

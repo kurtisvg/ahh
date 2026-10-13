@@ -50,6 +50,12 @@ func TestChildWrapper(t *testing.T) {
 	if err := server.Wait(); err != nil {
 		t.Error(err)
 	}
+	if err := json.NewEncoder(os.Stdout).Encode(struct {
+		Type   string             `json:"type"`
+		Result wrapper.ExitResult `json:"result"`
+	}{Type: "exit", Result: server.Result()}); err != nil {
+		t.Error(err)
+	}
 }
 
 func TestWrapperSubprocessAndShutdown(t *testing.T) {
