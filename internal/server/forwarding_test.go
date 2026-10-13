@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/coder/websocket/wsjson"
 )
 
 func TestForwardedTerminal(t *testing.T) {
@@ -75,6 +76,14 @@ func TestForwardedTerminal(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer func() { _ = conn.CloseNow() }()
+
+			var replay struct {
+				Type string `json:"type"`
+			}
+			if err := wsjson.Read(ctx, conn, &replay); err != nil || replay.Type != "replay" {
+				t.Fatalf("replay message = %+v, error = %v", replay, err)
+			}
+
 			kind, _, err := conn.Read(ctx)
 			if err != nil || kind != websocket.MessageBinary {
 				t.Fatalf("terminal output kind = %v, error = %v", kind, err)

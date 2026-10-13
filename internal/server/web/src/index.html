@@ -13,7 +13,9 @@
     <p id="status" role="status">Connecting…</p>
   </header>
   <main id="terminal" aria-label="Codex terminal"></main>
-  <footer>All connections share terminal input and size.</footer>
+  <footer>
+    <span id="notice" role="status"></span>
+  </footer>
   <script src="vendor/xterm.js"></script>
   <script src="vendor/addon-fit.js"></script>
   <script type="module" src="app.js"></script>

@@ -2,6 +2,7 @@ package wrapper
 
 import (
 	"context"
+	"encoding/binary"
 	"net"
 	"strconv"
 	"strings"
@@ -127,10 +128,17 @@ func readUntil(t *testing.T, ctx context.Context, conn *websocket.Conn, want ...
 		if err != nil {
 			t.Fatalf("read %q: %v (received %q)", want, err, text.String())
 		}
-		if kind != websocket.MessageBinary {
+		if kind == websocket.MessageText {
+			continue // The initial replay message precedes terminal bytes.
+		}
+		if kind != websocket.MessageBinary || len(data) < 8 {
 			t.Fatalf("expected terminal bytes, got message type %v", kind)
 		}
-		text.Write(data)
+		text.Write(data[8:])
+		end := binary.BigEndian.Uint64(data) + uint64(len(data)-8)
+		if err := wsjson.Write(ctx, conn, inputMessage{Type: "ack", Offset: end}); err != nil {
+			t.Fatal(err)
+		}
 
 		matched := true
 		for _, value := range want {
@@ -144,9 +152,12 @@ func readUntil(t *testing.T, ctx context.Context, conn *websocket.Conn, want ...
 
 func TestTerminalBoundsSlowReaders(t *testing.T) {
 	terminal := newTerminal()
-	slow, _ := terminal.attach()
+	slow, err := terminal.attach(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	chunk := make([]byte, 32<<10)
+	chunk := make([]byte, 32*1024)
 	for range 40 {
 		_, _ = terminal.Write(chunk)
 	}
@@ -154,16 +165,19 @@ func TestTerminalBoundsSlowReaders(t *testing.T) {
 	if len(terminal.history) != replayLimit {
 		t.Fatalf("history size = %d", len(terminal.history))
 	}
-	if terminal.clients[slow] {
+	if terminal.clients[slow.client] {
 		t.Fatal("slow reader retained")
 	}
 
-	terminal.detach(slow)
-	next, history := terminal.attach()
-	if len(history) != replayLimit || !terminal.clients[next] {
+	terminal.detach(slow.client)
+	next, err := terminal.attach(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(next.history.data) != replayLimit || !terminal.clients[next.client] {
 		t.Fatal("new attachment did not receive history and subscribe")
 	}
-	terminal.detach(next)
+	terminal.detach(next.client)
 }
 
 func TestTerminalConnectionCloses(t *testing.T) {

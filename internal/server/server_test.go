@@ -56,6 +56,13 @@ func TestServerLifecycle(t *testing.T) {
 				}
 				defer func() { _ = conn.CloseNow() }()
 				connections = append(connections, conn)
+				var replay struct {
+					Type string `json:"type"`
+				}
+				if err := wsjson.Read(wsctx, conn, &replay); err != nil || replay.Type != "replay" {
+					t.Fatalf("replay message = %+v, error = %v", replay, err)
+				}
+
 				input := fmt.Sprintf("proxy-test-%d", i)
 				if err := wsjson.Write(wsctx, conn, map[string]string{"type": "input", "data": input + "\n"}); err != nil {
 					t.Fatal(err)
@@ -66,7 +73,10 @@ func TestServerLifecycle(t *testing.T) {
 					if err != nil || kind != websocket.MessageBinary {
 						t.Fatalf("terminal output kind = %v, error = %v", kind, err)
 					}
-					output.Write(data)
+					if len(data) < 8 {
+						t.Fatal("terminal output has no offset")
+					}
+					output.Write(data[8:])
 				}
 			}
 

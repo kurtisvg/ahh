@@ -11,6 +11,8 @@ terminal.loadAddon(fit);
 terminal.open(document.querySelector('#terminal'));
 fit.fit();
 
+let received = 0n;
+
 // Keep the page's path prefix when connecting through a proxy.
 const url = new URL('pty', location.href);
 url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -48,7 +50,29 @@ socket.onopen = () => {
 };
 
 socket.onmessage = ({ data }) => {
-  terminal.write(new Uint8Array(data));
+  if (data instanceof ArrayBuffer) {
+    const offset = new DataView(data).getBigUint64(0);
+    if (offset !== received) {
+      socket.close();
+      return;
+    }
+
+    const bytes = new Uint8Array(data, 8);
+    received = offset + BigInt(bytes.byteLength);
+    const end = received;
+    // Acknowledge rendering, rather than just receipt, to bound pending output.
+    terminal.write(bytes, () => send({ type: 'ack', offset: end.toString() }));
+    return;
+  }
+
+  const message = JSON.parse(data);
+  if (message.type === 'replay') {
+    received = BigInt(message.offset);
+    if (message.gap) {
+      terminal.reset();
+      document.querySelector('#notice').textContent = 'Earlier output is no longer available';
+    }
+  }
 };
 
 socket.onclose = () => {
