@@ -36,6 +36,6 @@ func NewCommand() *cobra.Command {
 		},
 		CompletionOptions: cobra.CompletionOptions{DisableDefaultCmd: true},
 	}
-	cmd.AddCommand(newWrapCommand())
+	cmd.AddCommand(newWrapCommand(), newServeCommand())
 	return cmd
 }
