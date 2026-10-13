@@ -13,7 +13,7 @@ from the repository root.
 ```sh
 go run . --help
 go run . --version
-go run . wrap --address 127.0.0.1 --port 8081
+go run . wrap codex --address 127.0.0.1 --port 8081
 ```
 
 ## Build
@@ -37,7 +37,10 @@ The project uses one Go module. Tests live beside the code they exercise.
 | `main.go` | Process entry point; calls `cmd.Execute()`. |
 | `cmd/` | Cobra commands, arguments, I/O, and exit handling. |
 | `internal/version/` | Version text embedded in the binary. |
-| `internal/wrapper/` | Wrapper HTTP server startup, serving, and shutdown. |
+| `internal/wrapper/` | Wrapper HTTP server and harness lifetime. |
+| `internal/harness/` | Harness selection and lifecycle interface. |
+| `internal/harness/codex/` | Codex startup and configuration. |
+| `internal/harness/process/` | Shared process and PTY lifecycle. |
 
 Keep commands thin. Add application behavior under `internal/` when it has an
 owner and a concrete need. Add subcommands through their own constructors when

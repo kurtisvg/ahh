@@ -1,4 +1,4 @@
-// Package wrapper owns the harness process and its terminal server.
+// Package wrapper serves HTTP and owns the lifetime of a running harness.
 package wrapper
 
 import (
@@ -9,21 +9,24 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/kurtisvg/ahh/internal/harness"
 )
 
-// Server owns a running wrapper HTTP server. Create one with Start.
+// Server owns the wrapper HTTP server and a running harness. Create one with Start.
 type Server struct {
 	Address string
 	Port    int
 
-	http *http.Server
-	done chan struct{}
-	err  error // Published by closing done.
+	http    *http.Server
+	harness harness.Harness
+	done    chan struct{}
+	err     error // Published by closing done.
 }
 
-// Start binds address and port, then starts serving. Port zero selects a free port.
-// Cancel ctx or call Shutdown to stop it.
-func Start(ctx context.Context, address string, port int) (*Server, error) {
+// Start binds address and port, then starts and owns the named harness.
+// Port zero selects a free port. Cancel ctx or call Shutdown to stop serving.
+func Start(ctx context.Context, address string, port int, name string) (*Server, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -47,6 +50,12 @@ func Start(ctx context.Context, address string, port int) (*Server, error) {
 		return nil, fmt.Errorf("parse listener port: %w", err)
 	}
 
+	h, err := harness.Start(ctx, name)
+	if err != nil {
+		_ = listener.Close()
+		return nil, err
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("hello world\n"))
@@ -58,7 +67,8 @@ func Start(ctx context.Context, address string, port int) (*Server, error) {
 			Handler:           mux,
 			ReadHeaderTimeout: 5 * time.Second,
 		},
-		done: make(chan struct{}),
+		harness: h,
+		done:    make(chan struct{}),
 	}
 	go server.serve(ctx, listener)
 	return server, nil
@@ -66,6 +76,13 @@ func Start(ctx context.Context, address string, port int) (*Server, error) {
 
 func (s *Server) serve(ctx context.Context, listener net.Listener) {
 	defer close(s.done)
+	// Finish harness cleanup before releasing callers of Wait.
+	defer func() {
+		shutdown, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		_ = s.harness.Shutdown(shutdown)
+		_ = s.harness.Wait()
+	}()
 
 	serveErr := make(chan error, 1)
 	go func() {
@@ -88,14 +105,14 @@ func (s *Server) serve(ctx context.Context, listener net.Listener) {
 	}
 }
 
-// Wait blocks until serving ends and returns any unexpected server error.
+// Wait blocks until serving and process cleanup end, returning any unexpected server error.
 func (s *Server) Wait() error {
 	<-s.done
 	return s.err
 }
 
 // Shutdown drains requests until ctx expires, then closes remaining connections.
-// It is safe to call more than once. Call Wait to join the serving goroutine.
+// It is safe to call more than once. Call Wait to join serving and process cleanup.
 func (s *Server) Shutdown(ctx context.Context) error {
 	err := s.http.Shutdown(ctx)
 	if err != nil {
