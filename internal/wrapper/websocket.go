@@ -30,6 +30,12 @@ type replayMessage struct {
 	Gap    bool   `json:"gap"`
 }
 
+// endMessage confirms that this connection received all terminal output.
+type endMessage struct {
+	Type   string `json:"type"`
+	Offset uint64 `json:"offset,string"`
+}
+
 // servePTY streams output from an optional decimal ?cursor=N byte offset.
 // It sends a replay message first, then binary chunks prefixed by an eight-byte
 // big-endian offset. Clients acknowledge the next rendered byte with
@@ -87,7 +93,7 @@ func (s *Server) servePTY(ctx context.Context) http.HandlerFunc {
 
 		// Read acknowledgments while sending replay and live output.
 		done := make(chan error, 3)
-		go func() { done <- sendOutput(ctx, conn, state.client, state.history) }()
+		go func() { done <- sendOutput(ctx, conn, s.terminal, state.client, state.history) }()
 		go func() { done <- s.readInput(ctx, conn, state.client) }()
 		// Detect idle connections whose browser is no longer reachable.
 		go func() { done <- heartbeat(ctx, conn) }()
@@ -122,7 +128,7 @@ func heartbeat(ctx context.Context, conn *websocket.Conn) error {
 }
 
 // sendOutput limits unacknowledged bytes so a slow browser cannot buffer forever.
-func sendOutput(ctx context.Context, conn *websocket.Conn, client *attachment, history outputFrame) error {
+func sendOutput(ctx context.Context, conn *websocket.Conn, terminal *terminal, client *attachment, history outputFrame) error {
 	acked, sent := history.offset, history.offset
 	acknowledge := func(offset uint64) error {
 		if offset < acked || offset > sent {
@@ -179,6 +185,11 @@ func sendOutput(ctx context.Context, conn *websocket.Conn, client *attachment, h
 			}
 		case data, ok := <-client.output:
 			if !ok {
+				if terminal.finishedAt(sent) {
+					end, cancel := context.WithTimeout(ctx, 5*time.Second)
+					defer cancel()
+					return wsjson.Write(end, conn, endMessage{Type: "end", Offset: sent})
+				}
 				return nil
 			}
 			if err := write(data); err != nil {

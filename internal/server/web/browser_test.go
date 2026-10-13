@@ -192,3 +192,29 @@ func requireStatus(t *testing.T, page playwright.Page, expected string) {
 	t.Helper()
 	requireNoError(t, playwright.NewPlaywrightAssertions().Locator(page.Locator("#status")).ToHaveText(expected))
 }
+
+// Expose sockets so tests can disconnect without stopping the harness.
+func trackConnections(t *testing.T, page playwright.Page) {
+	t.Helper()
+	requireNoError(t, page.AddInitScript(playwright.Script{Content: playwright.String(`
+		const NativeWebSocket = window.WebSocket;
+		window.connections = [];
+		window.WebSocket = class extends NativeWebSocket {
+			constructor(...args) {
+				super(...args);
+				window.connections.push(this);
+			}
+		};
+	`)}))
+}
+
+func connectionCount(t *testing.T, page playwright.Page) int {
+	t.Helper()
+	value, err := page.Evaluate("() => window.connections.length")
+	requireNoError(t, err)
+	count, ok := value.(int)
+	if !ok {
+		t.Fatalf("unexpected connection count: %v", value)
+	}
+	return count
+}

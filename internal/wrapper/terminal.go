@@ -141,3 +141,10 @@ func (t *terminal) finish() {
 		t.clients[client] = false
 	}
 }
+
+// finishedAt distinguishes a fully drained terminal from a dropped slow reader.
+func (t *terminal) finishedAt(offset uint64) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.closed && offset == t.nextOffset
+}

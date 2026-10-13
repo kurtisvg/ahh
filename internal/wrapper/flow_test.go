@@ -29,7 +29,7 @@ func TestUnacknowledgedOutputIsBounded(t *testing.T) {
 			return
 		}
 		defer func() { _ = conn.CloseNow() }()
-		done <- sendOutput(r.Context(), conn, state.client, state.history)
+		done <- sendOutput(r.Context(), conn, terminal, state.client, state.history)
 	}))
 	defer server.Close()
 
