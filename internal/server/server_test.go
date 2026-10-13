@@ -8,8 +8,10 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -49,6 +51,7 @@ func TestServerLifecycle(t *testing.T) {
 			wsctx, stopSockets := context.WithTimeout(t.Context(), 5*time.Second)
 			defer stopSockets()
 			var connections []*websocket.Conn
+			var harnessPID int
 			for i := range 2 {
 				conn, _, err := websocket.Dial(wsctx, "ws://"+address+"/pty", nil)
 				if err != nil {
@@ -78,6 +81,19 @@ func TestServerLifecycle(t *testing.T) {
 					}
 					output.Write(data[8:])
 				}
+
+				match := regexp.MustCompile(`pid=(\d+)`).FindStringSubmatch(output.String())
+				if len(match) != 2 {
+					t.Fatal("harness did not report its PID")
+				}
+				pid, err := strconv.Atoi(match[1])
+				if err != nil {
+					t.Fatal(err)
+				}
+				if i > 0 && pid != harnessPID {
+					t.Fatal("attachments connected to different harness processes")
+				}
+				harnessPID = pid
 			}
 
 			if method == "cancel" {
@@ -105,6 +121,10 @@ func TestServerLifecycle(t *testing.T) {
 
 			if server.wrapper.command.ProcessState == nil {
 				t.Fatal("Wait returned before the wrapper was reaped")
+			}
+			// Signal 0 checks existence without sending a signal to the process.
+			if err := syscall.Kill(harnessPID, 0); !errors.Is(err, syscall.ESRCH) {
+				t.Fatalf("harness survived server shutdown: %v", err)
 			}
 			for _, conn := range connections {
 				for {
