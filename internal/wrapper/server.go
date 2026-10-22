@@ -1,10 +1,15 @@
 // Package wrapper serves HTTP and owns the lifetime of a running harness.
+//
+// This layer owns the single output reader and input coordinator, along with
+// browser connections, output history, and broadcast queues. It serializes input
+// writes and resize commands, drains final output, and releases the harness terminal.
 package wrapper
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"strconv"
@@ -14,6 +19,8 @@ import (
 )
 
 // Server owns the wrapper HTTP server and a running harness. Create one with Start.
+// It also owns the harness output reader. Shutdown initiates cleanup; Wait joins
+// serving, harness cleanup, and output copying. Harness exit alone does not stop HTTP.
 type Server struct {
 	Address string
 	Port    int
@@ -76,12 +83,17 @@ func Start(ctx context.Context, address string, port int, name string) (*Server,
 
 func (s *Server) serve(ctx context.Context, listener net.Listener) {
 	defer close(s.done)
+
+	outputDone := make(chan error, 1)
+	go func() { outputDone <- copyHarnessOutput(ctx, s.harness, io.Discard) }()
+
 	// Finish harness cleanup before releasing callers of Wait.
 	defer func() {
 		shutdown, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
 		_ = s.harness.Shutdown(shutdown)
 		_ = s.harness.Wait()
+		s.err = errors.Join(s.err, <-outputDone)
 	}()
 
 	serveErr := make(chan error, 1)
@@ -105,7 +117,7 @@ func (s *Server) serve(ctx context.Context, listener net.Listener) {
 	}
 }
 
-// Wait blocks until serving and process cleanup end, returning any unexpected server error.
+// Wait joins serving, process cleanup, and output copying, returning server or copy errors.
 func (s *Server) Wait() error {
 	<-s.done
 	return s.err

@@ -3,14 +3,14 @@ package codex
 
 import (
 	"context"
-	"io"
 
 	"github.com/kurtisvg/ahh/internal/harness/process"
 )
 
-// Start runs Codex in the current directory. Cancel ctx or call Shutdown to stop it.
+// Start runs Codex in the current directory. Consume its output continuously
+// and call Shutdown to release the terminal, even after process exit.
 func Start(ctx context.Context) (*process.Process, error) {
 	args := []string{"codex", "--no-daemon"}
 
-	return process.Start(ctx, io.Discard, args)
+	return process.Start(ctx, args)
 }

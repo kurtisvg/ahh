@@ -12,9 +12,15 @@ import (
 	"time"
 
 	"github.com/creack/pty"
+	"golang.org/x/sys/unix"
 )
 
-// Process owns one PTY, child process group, and output reader. Create one with Start.
+// Process owns one PTY and child process group. Create one with Start.
+// The caller owns the output-reading goroutine and must call Shutdown to release
+// the PTY, including after normal process exit.
+//
+// Use one reader and serialize Write and Resize calls. Reading may overlap input
+// operations, and Shutdown may overlap all terminal I/O.
 type Process struct {
 	cmd *exec.Cmd
 	pty *os.File
@@ -24,9 +30,9 @@ type Process struct {
 	err    error // Read only after done closes.
 }
 
-// Start runs args[0] with args[1:] in a PTY and copies its output to output, which must not block.
-// Cancel ctx or call Shutdown to stop the process group; call Wait to join cleanup.
-func Start(ctx context.Context, output io.Writer, args []string) (*Process, error) {
+// Start runs args[0] with args[1:] in a PTY. The caller must consume output.
+// Cancel ctx to stop the child. Call Shutdown to release the PTY even after exit.
+func Start(ctx context.Context, args []string) (*Process, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -53,52 +59,97 @@ func Start(ctx context.Context, output io.Writer, args []string) (*Process, erro
 		return nil, fmt.Errorf("start harness: %w", err)
 	}
 
+	// PTY setup calls File.Fd, which switches the descriptor to blocking mode.
+	// Restore nonblocking I/O so deadlines and Close can interrupt terminal writes.
+	if err := syscall.SetNonblock(int(terminal.Fd()), true); err != nil {
+		cancel()
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		_ = terminal.Close()
+		_ = cmd.Wait()
+		return nil, fmt.Errorf("configure terminal I/O: %w", err)
+	}
+
 	p := &Process{
 		cmd:    cmd,
 		pty:    terminal,
 		done:   make(chan struct{}),
 		cancel: cancel,
 	}
-	go p.run(output)
+	go p.run(ctx)
 	return p, nil
 }
 
-func (p *Process) run(output io.Writer) {
+func (p *Process) run(ctx context.Context) {
 	defer close(p.done)
 	defer p.cancel()
-
-	readDone := make(chan struct{})
-	go func() {
-		defer close(readDone)
-		// Linux returns EIO when the last PTY slave closes.
-		_, _ = io.Copy(output, p.pty)
-	}()
 
 	p.err = p.cmd.Wait()
 
 	// WaitDelay only kills the leader; also clean up any remaining group members.
 	_ = syscall.Kill(-p.cmd.Process.Pid, syscall.SIGKILL)
 
-	// Drain final output, but do not wait indefinitely for an inherited PTY to close.
-	select {
-	case <-readDone:
-	case <-time.After(250 * time.Millisecond):
+	// Cancellation must unblock readers, even if a descendant retains the slave.
+	// On normal exit, leave the PTY open so the caller can drain remaining output.
+	if ctx.Err() != nil {
 		_ = p.pty.Close()
-		<-readDone
 	}
-	_ = p.pty.Close()
 }
 
-// Wait returns the process exit result after the child and PTY reader have stopped.
+// Read reads terminal output. Use one reader; concurrent readers divide the stream.
+// Wait does not consume or discard output. Shutdown unblocks a pending Read.
+func (p *Process) Read(data []byte) (int, error) {
+	n, err := p.pty.Read(data)
+	// Linux returns EIO when the last slave closes; cleanup can also close the master.
+	if errors.Is(err, syscall.EIO) || errors.Is(err, os.ErrClosed) {
+		err = io.EOF
+	}
+	return n, err
+}
+
+// Write sends terminal input with a bounded write deadline.
+// The caller must serialize Write and Resize calls.
+func (p *Process) Write(data []byte) (int, error) {
+	if err := p.pty.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		return 0, err
+	}
+	return p.pty.Write(data)
+}
+
+// Resize updates the terminal dimensions without changing its blocking mode.
+// The caller must serialize Write and Resize calls.
+func (p *Process) Resize(rows, cols uint16) error {
+	raw, err := p.pty.SyscallConn()
+	if err != nil {
+		return err
+	}
+
+	size := &unix.Winsize{
+		Row: rows,
+		Col: cols,
+	}
+	var resizeErr error
+	err = raw.Control(func(fd uintptr) {
+		resizeErr = unix.IoctlSetWinsize(int(fd), unix.TIOCSWINSZ, size)
+	})
+	if err != nil {
+		return err
+	}
+	return resizeErr
+}
+
+// Wait returns the process exit result after the child is reaped and its group cleaned up.
+// Drain remaining output and call Shutdown to close the PTY.
 func (p *Process) Wait() error {
 	<-p.done
 	return p.err
 }
 
-// Shutdown requests graceful termination and waits for cleanup.
+// Shutdown requests graceful termination, waits for the child, and closes the PTY.
+// Unread output may be discarded. Call this even after normal process exit.
 // If ctx expires, it forces termination and returns ctx.Err(); call Wait to join cleanup.
 // It is safe to call more than once.
 func (p *Process) Shutdown(ctx context.Context) error {
+	defer func() { _ = p.pty.Close() }()
 	p.cancel()
 
 	// Prefer completed cleanup if both done and ctx.Done are already closed.
