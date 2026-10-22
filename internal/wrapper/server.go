@@ -3,16 +3,17 @@
 // This layer owns the single output reader and input coordinator, along with
 // browser connections, output history, and broadcast queues. It serializes input
 // writes and resize commands, drains final output, and releases the harness terminal.
+// Every attachment may send input; the last resize command sets the shared size.
 package wrapper
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/kurtisvg/ahh/internal/harness"
@@ -25,10 +26,17 @@ type Server struct {
 	Address string
 	Port    int
 
-	http    *http.Server
-	harness harness.Harness
-	done    chan struct{}
-	err     error // Published by closing done.
+	http          *http.Server
+	harness       harness.Harness
+	terminal      *terminal
+	cancelSockets context.CancelFunc
+
+	inputMu   sync.Mutex // Orders input and resize commands from all connections.
+	socketsMu sync.Mutex // Prevents new handlers from starting during shutdown.
+	sockets   sync.WaitGroup
+
+	done chan struct{}
+	err  error // Read after done closes.
 }
 
 // Start binds address and port, then starts and owns the named harness.
@@ -63,6 +71,7 @@ func Start(ctx context.Context, address string, port int, name string) (*Server,
 		return nil, err
 	}
 
+	socketCtx, cancelSockets := context.WithCancel(ctx)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("hello world\n"))
@@ -74,9 +83,12 @@ func Start(ctx context.Context, address string, port int, name string) (*Server,
 			Handler:           mux,
 			ReadHeaderTimeout: 5 * time.Second,
 		},
-		harness: h,
-		done:    make(chan struct{}),
+		harness:       h,
+		terminal:      newTerminal(),
+		cancelSockets: cancelSockets,
+		done:          make(chan struct{}),
 	}
+	mux.HandleFunc("GET /pty", server.servePTY(socketCtx))
 	go server.serve(ctx, listener)
 	return server, nil
 }
@@ -85,15 +97,22 @@ func (s *Server) serve(ctx context.Context, listener net.Listener) {
 	defer close(s.done)
 
 	outputDone := make(chan error, 1)
-	go func() { outputDone <- copyHarnessOutput(ctx, s.harness, io.Discard) }()
+	go func() {
+		err := copyHarnessOutput(ctx, s.harness, s.terminal)
+		// Close queues after the last output has been saved.
+		s.terminal.finish()
+		outputDone <- err
+	}()
 
-	// Finish harness cleanup before releasing callers of Wait.
+	// Finish all cleanup before Wait returns.
 	defer func() {
+		s.stopSockets()
 		shutdown, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
 		_ = s.harness.Shutdown(shutdown)
 		_ = s.harness.Wait()
 		s.err = errors.Join(s.err, <-outputDone)
+		s.sockets.Wait()
 	}()
 
 	serveErr := make(chan error, 1)
@@ -117,18 +136,28 @@ func (s *Server) serve(ctx context.Context, listener net.Listener) {
 	}
 }
 
-// Wait joins serving, process cleanup, and output copying, returning server or copy errors.
+// Wait blocks until the server, harness, output reader, and WebSocket handlers stop.
+// It returns any HTTP server or output-copy error.
 func (s *Server) Wait() error {
 	<-s.done
 	return s.err
 }
 
 // Shutdown drains requests until ctx expires, then closes remaining connections.
-// It is safe to call more than once. Call Wait to join serving and process cleanup.
+// It is safe to call more than once. Call Wait for cleanup to finish.
 func (s *Server) Shutdown(ctx context.Context) error {
+	// HTTP shutdown leaves WebSockets open, so cancel their handlers explicitly.
+	s.stopSockets()
 	err := s.http.Shutdown(ctx)
 	if err != nil {
 		_ = s.http.Close()
 	}
 	return err
+}
+
+func (s *Server) stopSockets() {
+	// Hold the lock so no handler can register after cancellation.
+	s.socketsMu.Lock()
+	s.cancelSockets()
+	s.socketsMu.Unlock()
 }

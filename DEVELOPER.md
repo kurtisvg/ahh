@@ -37,7 +37,7 @@ The project uses one Go module. Tests live beside the code they exercise.
 | `main.go` | Process entry point; calls `cmd.Execute()`. |
 | `cmd/` | Cobra commands, arguments, I/O, and exit handling. |
 | `internal/version/` | Version text embedded in the binary. |
-| `internal/wrapper/` | Wrapper HTTP server and harness lifetime. |
+| `internal/wrapper/` | HTTP/WebSocket server, terminal attachments, and harness lifetime. |
 | `internal/harness/` | Harness selection and lifecycle interface. |
 | `internal/harness/codex/` | Codex startup and configuration. |
 | `internal/harness/process/` | Shared process and PTY lifecycle. |

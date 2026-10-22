@@ -3,6 +3,7 @@ module github.com/kurtisvg/ahh
 go 1.27.2
 
 require (
+	github.com/coder/websocket v1.8.15
 	github.com/creack/pty v1.1.24
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/sys v0.49.0
