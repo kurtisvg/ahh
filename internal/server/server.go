@@ -9,17 +9,21 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 )
 
-// Server owns the orchestrator HTTP server and wrapper subprocess.
-// Create one with Start. Wait joins serving and wrapper cleanup.
+// Server owns the orchestrator HTTP server, wrapper subprocess, and terminal proxies.
+// Create one with Start. Wait joins serving and all owned resources.
 type Server struct {
 	Address string
 	Port    int
 
-	http    *http.Server
-	wrapper *wrapperProcess
+	http           *http.Server
+	wrapper        *wrapperProcess
+	cancelRequests context.CancelFunc
+	requestsMu     sync.Mutex // Prevents registration after shutdown starts.
+	requests       sync.WaitGroup
 
 	done chan struct{}
 	err  error // Read after done closes.
@@ -67,6 +71,8 @@ func start(ctx context.Context, address string, port int, executable string, arg
 		return nil, err
 	}
 
+	requestCtx, cancelRequests := context.WithCancel(ctx)
+	protection := http.NewCrossOriginProtection()
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("hello world\n"))
@@ -75,12 +81,15 @@ func start(ctx context.Context, address string, port int, executable string, arg
 		Address: actualAddress,
 		Port:    actualPort,
 		http: &http.Server{
-			Handler:           mux,
+			Handler:           protection.Handler(mux),
 			ReadHeaderTimeout: 5 * time.Second,
+			BaseContext:       func(net.Listener) context.Context { return requestCtx },
 		},
-		wrapper: child,
-		done:    make(chan struct{}),
+		wrapper:        child,
+		cancelRequests: cancelRequests,
+		done:           make(chan struct{}),
 	}
+	mux.HandleFunc("GET /pty", server.proxyPTY(requestCtx, protection))
 	go server.serve(ctx, listener)
 	return server, nil
 }
@@ -88,10 +97,12 @@ func start(ctx context.Context, address string, port int, executable string, arg
 func (s *Server) serve(ctx context.Context, listener net.Listener) {
 	defer close(s.done)
 	defer func() {
+		s.stopRequests()
 		shutdown, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cancel()
 		_ = s.wrapper.Shutdown(shutdown)
 		_ = s.wrapper.Wait()
+		s.requests.Wait()
 	}()
 
 	serveErr := make(chan error, 1)
@@ -115,7 +126,7 @@ func (s *Server) serve(ctx context.Context, listener net.Listener) {
 	}
 }
 
-// Wait joins the HTTP server and wrapper subprocess.
+// Wait joins the HTTP server, wrapper subprocess, and terminal proxy handlers.
 // It returns any unexpected HTTP server error.
 func (s *Server) Wait() error {
 	<-s.done
@@ -125,9 +136,17 @@ func (s *Server) Wait() error {
 // Shutdown drains requests until ctx expires, then closes remaining connections.
 // It is safe to call more than once. Call Wait for wrapper cleanup to finish.
 func (s *Server) Shutdown(ctx context.Context) error {
+	// HTTP shutdown leaves upgraded connections open; cancel their proxies too.
+	s.stopRequests()
 	err := s.http.Shutdown(ctx)
 	if err != nil {
 		_ = s.http.Close()
 	}
 	return err
+}
+
+func (s *Server) stopRequests() {
+	s.requestsMu.Lock()
+	defer s.requestsMu.Unlock()
+	s.cancelRequests()
 }
