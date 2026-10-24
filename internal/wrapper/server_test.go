@@ -179,7 +179,7 @@ func TestLaunchFailureClosesListener(t *testing.T) {
 func useFakeCodex(t *testing.T) {
 	t.Helper()
 
-	script, err := os.ReadFile("../harness/process/testdata/fake-harness")
+	script, err := os.ReadFile("../harness/pty/testdata/fake-harness")
 	if err != nil {
 		t.Fatal(err)
 	}
