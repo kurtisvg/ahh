@@ -86,15 +86,38 @@ func (s *Server) servePTY(ctx context.Context) http.HandlerFunc {
 		}
 
 		// Read acknowledgments while sending replay and live output.
-		done := make(chan error, 2)
+		done := make(chan error, 3)
 		go func() { done <- sendOutput(ctx, conn, state.client, state.history) }()
 		go func() { done <- s.readInput(ctx, conn, state.client) }()
+		// Detect idle connections whose browser is no longer reachable.
+		go func() { done <- heartbeat(ctx, conn) }()
 
-		// Stop both I/O goroutines before removing the attachment.
+		// Join I/O and heartbeat goroutines before removing the attachment.
 		<-done
 		cancel()
 		_ = conn.CloseNow()
 		<-done
+		<-done
+	}
+}
+
+// heartbeat detects silent connections that no longer respond to WebSocket pings.
+func heartbeat(ctx context.Context, conn *websocket.Conn) error {
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			ping, cancel := context.WithTimeout(ctx, 5*time.Second)
+			err := conn.Ping(ping)
+			cancel()
+			if err != nil {
+				return err
+			}
+		}
 	}
 }
 
