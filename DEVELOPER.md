@@ -42,7 +42,7 @@ The project uses one Go module. Tests live beside the code they exercise.
 | `internal/wrapper/` | HTTP/WebSocket server, terminal attachments, and harness lifetime. |
 | `internal/harness/` | Harness selection and lifecycle interface. |
 | `internal/harness/codex/` | Codex startup and configuration. |
-| `internal/harness/process/` | Shared process and PTY lifecycle. |
+| `internal/harness/pty/` | Shared process and PTY lifecycle. |
 
 Keep commands thin. Add application behavior under `internal/` when it has an
 owner and a concrete need. Add subcommands through their own constructors when

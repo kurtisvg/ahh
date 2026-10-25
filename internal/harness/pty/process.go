@@ -1,5 +1,5 @@
-// Package process manages the process and terminal lifecycle of a local harness.
-package process
+// Package pty manages the process and terminal lifecycle of a local harness.
+package pty
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/creack/pty"
+	creackpty "github.com/creack/pty"
 	"golang.org/x/sys/unix"
 )
 
@@ -49,11 +49,11 @@ func Start(ctx context.Context, args []string) (*Process, error) {
 	}
 	cmd.WaitDelay = 5 * time.Second
 
-	size := &pty.Winsize{
+	size := &creackpty.Winsize{
 		Rows: 24,
 		Cols: 80,
 	}
-	terminal, err := pty.StartWithSize(cmd, size)
+	terminal, err := creackpty.StartWithSize(cmd, size)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("start harness: %w", err)

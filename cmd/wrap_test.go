@@ -168,7 +168,7 @@ func TestWrapInvalidHarness(t *testing.T) {
 func useFakeCodex(t *testing.T) {
 	t.Helper()
 
-	script, err := os.ReadFile("../internal/harness/process/testdata/fake-harness")
+	script, err := os.ReadFile("../internal/harness/pty/testdata/fake-harness")
 	if err != nil {
 		t.Fatal(err)
 	}
