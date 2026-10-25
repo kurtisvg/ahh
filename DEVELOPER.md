@@ -83,7 +83,7 @@ go test -count=1 -race -shuffle=on -timeout 5m ./...
 
 Browser tests use a fake harness and run the built binary outside the checkout.
 They check direct connections and a path-prefix proxy, without a model account.
-Use `-short` to skip browser tests, or `-run TestTerminalInputAndResize` to select a
+Use `-short` to skip browser tests, or `-run TestTerminalReconnect` to select a
 scenario. Keep `-count=1` because the browser tests build the application as a
 subprocess. Add `-artifacts -outputdir <existing-directory>` to retain screenshots
 and failure traces.

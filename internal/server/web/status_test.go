@@ -3,6 +3,7 @@ package web_test
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mxschmitt/playwright-go"
 )
@@ -10,6 +11,7 @@ import (
 func TestTerminalExitStatus(t *testing.T) {
 	testConnections(t, "", func(t *testing.T, fixture browserTest) {
 		page := fixture.page
+		trackConnections(t, page)
 		openTerminal(t, page, fixture.url)
 		requireOutput(t, page, "fake harness ready")
 
@@ -23,6 +25,12 @@ func TestTerminalExitStatus(t *testing.T) {
 		requireOutput(t, page, "received: last output")
 		sendLine(t, page, "exit")
 		requireStatus(t, page, "Disconnected")
+		requireOutput(t, page, "final output before exit")
+		// Wait beyond two retry intervals to prove that complete output stops retries.
+		time.Sleep(1200 * time.Millisecond)
+		if count := connectionCount(t, page); count != 1 {
+			t.Fatalf("reconnected after complete output: %d connections", count)
+		}
 
 		requireNoError(t, page.Unroute("**/status"))
 		requireStatus(t, page, "Stopped (exit 0)")
