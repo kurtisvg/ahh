@@ -20,7 +20,9 @@ type Server struct {
 	Port    int
 
 	http           *http.Server
+	wrapperMu      sync.Mutex // Serializes launch and shutdown; proxies snapshot the process.
 	wrapper        *wrapperProcess
+	launch         func() (*wrapperProcess, error)
 	cancelRequests context.CancelFunc
 	requestsMu     sync.Mutex // Prevents registration after shutdown starts.
 	requests       sync.WaitGroup
@@ -29,8 +31,8 @@ type Server struct {
 	err  error // Read after done closes.
 }
 
-// Start binds address and port, launches wrap codex in the current directory,
-// and serves once the wrapper reports readiness. Port zero selects a free port.
+// Start binds address and port without launching a harness. POST /start launches
+// wrap codex in the current directory. Port zero selects a free port.
 // Cancel ctx or call Shutdown to stop it. Failed startup releases all resources.
 func Start(ctx context.Context, address string, port int) (*Server, error) {
 	executable, err := os.Executable()
@@ -65,12 +67,6 @@ func start(ctx context.Context, address string, port int, executable string, arg
 		return nil, fmt.Errorf("parse listener port: %w", err)
 	}
 
-	child, err := startWrapper(ctx, executable, args...)
-	if err != nil {
-		_ = listener.Close()
-		return nil, err
-	}
-
 	requestCtx, cancelRequests := context.WithCancel(ctx)
 	protection := http.NewCrossOriginProtection()
 	mux := http.NewServeMux()
@@ -83,12 +79,18 @@ func start(ctx context.Context, address string, port int, executable string, arg
 			ReadHeaderTimeout: 5 * time.Second,
 			BaseContext:       func(net.Listener) context.Context { return requestCtx },
 		},
-		wrapper:        child,
+		launch: func() (*wrapperProcess, error) {
+			if err := requestCtx.Err(); err != nil {
+				return nil, err
+			}
+			return startWrapper(requestCtx, executable, args...)
+		},
 		cancelRequests: cancelRequests,
 		done:           make(chan struct{}),
 	}
 	mux.HandleFunc("GET /pty", server.proxyPTY(requestCtx, protection))
 	mux.HandleFunc("GET /status", server.serveStatus)
+	mux.HandleFunc("POST /start", server.serveStart)
 	go server.serve(ctx, listener)
 	return server, nil
 }
@@ -99,8 +101,12 @@ func (s *Server) serve(ctx context.Context, listener net.Listener) {
 		s.stopRequests()
 		shutdown, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cancel()
-		_ = s.wrapper.Shutdown(shutdown)
-		_ = s.wrapper.Wait()
+		s.wrapperMu.Lock()
+		if s.wrapper != nil {
+			_ = s.wrapper.Shutdown(shutdown)
+			_ = s.wrapper.Wait()
+		}
+		s.wrapperMu.Unlock()
 		s.requests.Wait()
 	}()
 

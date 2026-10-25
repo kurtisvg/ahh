@@ -17,18 +17,54 @@ type processStatus struct {
 	Signal   string `json:"signal,omitempty"`
 }
 
+// currentWrapper returns a stable process reference; replacement never retargets a proxy.
+func (s *Server) currentWrapper() *wrapperProcess {
+	s.wrapperMu.Lock()
+	defer s.wrapperMu.Unlock()
+	return s.wrapper
+}
+
+func (s *Server) serveStart(w http.ResponseWriter, r *http.Request) {
+	s.wrapperMu.Lock()
+	child := s.wrapper
+	if child != nil {
+		select {
+		case <-child.done:
+			child = nil
+		default:
+		}
+	}
+	var err error
+	if child == nil {
+		child, err = s.launch()
+		if err == nil {
+			s.wrapper = child
+		}
+	}
+	s.wrapperMu.Unlock()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	s.serveStatus(w, r)
+}
+
 // serveStatus keeps the final result available after the wrapper has exited.
 func (s *Server) serveStatus(w http.ResponseWriter, _ *http.Request) {
-	status := processStatus{State: "running"}
-	select {
-	case <-s.wrapper.done:
-		status.State = "failed"
-		if result := s.wrapper.result; result != nil {
-			status.State = "exited"
-			status.ExitCode = result.ExitCode
-			status.Signal = result.Signal
+	status := processStatus{State: "stopped"}
+	child := s.currentWrapper()
+	if child != nil {
+		status.State = "running"
+		select {
+		case <-child.done:
+			status.State = "failed"
+			if result := child.result; result != nil {
+				status.State = "exited"
+				status.ExitCode = result.ExitCode
+				status.Signal = result.Signal
+			}
+		default:
 		}
-	default:
 	}
 
 	w.Header().Set("Content-Type", "application/json")

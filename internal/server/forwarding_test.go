@@ -17,7 +17,7 @@ func TestForwardedTerminal(t *testing.T) {
 	useTestWrapper(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
-	server, err := start(ctx, "127.0.0.1", 0, os.Args[0], "-test.run=^TestChildWrapper$")
+	server, err := startRunning(ctx, "127.0.0.1", 0, os.Args[0], "-test.run=^TestChildWrapper$")
 	if err != nil {
 		t.Fatal(err)
 	}

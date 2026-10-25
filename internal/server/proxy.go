@@ -10,13 +10,6 @@ import (
 
 // proxyPTY forwards terminal connections and closes them when requests are canceled.
 func (s *Server) proxyPTY(ctx context.Context, protection *http.CrossOriginProtection) http.HandlerFunc {
-	proxy := &httputil.ReverseProxy{
-		Rewrite: func(r *httputil.ProxyRequest) {
-			r.SetURL(s.wrapper.url)
-			// Origin is checked at the public boundary, before proxying to loopback.
-			r.Out.Header.Del("Origin")
-		},
-	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		s.requestsMu.Lock()
 		if ctx.Err() != nil {
@@ -28,8 +21,13 @@ func (s *Server) proxyPTY(ctx context.Context, protection *http.CrossOriginProte
 		s.requestsMu.Unlock()
 		defer s.requests.Done()
 
+		child := s.currentWrapper()
+		if child == nil {
+			http.Error(w, "terminal has not started", http.StatusConflict)
+			return
+		}
 		select {
-		case <-s.wrapper.done:
+		case <-child.done:
 			http.Error(w, "invocation has ended", http.StatusGone)
 			return
 		default:
@@ -55,6 +53,13 @@ func (s *Server) proxyPTY(ctx context.Context, protection *http.CrossOriginProte
 			ResponseWriter: w,
 			onHijack: func(conn net.Conn) {
 				stop = context.AfterFunc(r.Context(), func() { _ = conn.Close() })
+			},
+		}
+		proxy := &httputil.ReverseProxy{
+			Rewrite: func(r *httputil.ProxyRequest) {
+				r.SetURL(child.url)
+				// Origin was checked at the public boundary.
+				r.Out.Header.Del("Origin")
 			},
 		}
 		proxy.ServeHTTP(writer, r)

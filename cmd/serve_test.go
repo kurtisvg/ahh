@@ -24,7 +24,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestServeStartup(t *testing.T) {
-	useFakeCodex(t)
+	t.Setenv("PATH", t.TempDir())
 
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
@@ -112,17 +112,5 @@ func TestServeInvalidInput(t *testing.T) {
 				t.Fatalf("announced startup for invalid input: %q %q", stdout, stderr)
 			}
 		})
-	}
-}
-
-func TestServeWrapperLaunchFailure(t *testing.T) {
-	t.Setenv("PATH", t.TempDir())
-
-	stdout, _, err := executeRootCommand(t.Context(), "serve", "--port", "0")
-	if err == nil || !strings.Contains(err.Error(), "wrapper startup") {
-		t.Fatalf("expected wrapper launch failure, got %v", err)
-	}
-	if stdout != "" {
-		t.Fatalf("announced startup after launch failure: %q", stdout)
 	}
 }

@@ -1,4 +1,17 @@
 const status = document.querySelector('#status');
+const start = document.querySelector('#start');
+start.addEventListener('click', async () => {
+  start.disabled = true;
+  status.textContent = 'Starting…';
+  try {
+    const response = await fetch('start', { method: 'POST' });
+    if (!response.ok) throw new Error(await response.text());
+    location.reload();
+  } catch (error) {
+    document.querySelector('#notice').textContent = `Could not start terminal: ${error.message}`;
+    start.disabled = false;
+  }
+});
 const terminal = new Terminal({
   cursorBlink: true,
   screenReaderMode: true,
@@ -113,7 +126,12 @@ async function refreshStatus() {
     if (!response.ok) return;
 
     const process = await response.json();
-    if (process.state === 'exited') {
+    start.hidden = process.state === 'running';
+    if (process.state === 'running' && !socket) {
+      connect();
+    } else if (process.state === 'stopped') {
+      if (!start.disabled) status.textContent = 'Stopped';
+    } else if (process.state === 'exited') {
       exited = true;
       const reason = process.signal || (process.exit_code == null ? '' : `exit ${process.exit_code}`);
       status.textContent = reason ? `Stopped (${reason})` : 'Stopped';
@@ -131,5 +149,4 @@ async function refreshStatus() {
   }
 }
 
-connect();
 refreshStatus();
