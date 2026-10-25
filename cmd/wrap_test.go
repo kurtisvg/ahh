@@ -46,8 +46,9 @@ func TestWrapStartup(t *testing.T) {
 	})
 
 	// Startup JSON must report the resolved address and assigned port.
+	decoder := json.NewDecoder(stdout)
 	var started wrapStartup
-	if err := json.NewDecoder(stdout).Decode(&started); err != nil {
+	if err := decoder.Decode(&started); err != nil {
 		t.Fatal(err)
 	}
 	if !net.ParseIP(started.Address).IsLoopback() || started.Port == 0 {
@@ -70,6 +71,16 @@ func TestWrapStartup(t *testing.T) {
 
 	// Wait for shutdown before checking the result and reading captured stderr.
 	cancel()
+	var finished struct {
+		Type string `json:"type"`
+	}
+	if err := decoder.Decode(&finished); err != nil || finished.Type != "exit" {
+		t.Fatalf("exit report = %+v, error = %v", finished, err)
+	}
+	// Consume the final newline so the pipe writer can finish its write.
+	if _, err := io.Copy(io.Discard, stdout); err != nil {
+		t.Fatal(err)
+	}
 	<-done
 	if runErr != nil || !strings.Contains(stderr.String(), url) {
 		t.Fatalf("command error = %v, diagnostics = %q", runErr, stderr.String())

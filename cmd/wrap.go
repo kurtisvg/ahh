@@ -72,5 +72,17 @@ func runWrapCommand(cmd *cobra.Command, opts wrapOpts, name string) error {
 	if err := server.Wait(); err != nil {
 		return fmt.Errorf("serve wrapper: %w", err)
 	}
+
+	// Stdout carries lifecycle messages; terminal output stays on the WebSocket.
+	finished := struct {
+		Type   string             `json:"type"`
+		Result wrapper.ExitResult `json:"result"`
+	}{
+		Type:   "exit",
+		Result: server.Result(),
+	}
+	if err := json.NewEncoder(cmd.OutOrStdout()).Encode(finished); err != nil {
+		return fmt.Errorf("report harness exit: %w", err)
+	}
 	return nil
 }

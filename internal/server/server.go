@@ -88,6 +88,7 @@ func start(ctx context.Context, address string, port int, executable string, arg
 		done:           make(chan struct{}),
 	}
 	mux.HandleFunc("GET /pty", server.proxyPTY(requestCtx, protection))
+	mux.HandleFunc("GET /status", server.serveStatus)
 	go server.serve(ctx, listener)
 	return server, nil
 }

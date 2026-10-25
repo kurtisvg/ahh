@@ -21,7 +21,7 @@ import (
 
 // Server owns the wrapper HTTP server and a running harness. Create one with Start.
 // It also owns the harness output reader. Shutdown initiates cleanup; Wait joins
-// serving, harness cleanup, and output copying. Harness exit alone does not stop HTTP.
+// serving, harness cleanup, and output copying. Harness exit stops the wrapper.
 type Server struct {
 	Address string
 	Port    int
@@ -30,10 +30,13 @@ type Server struct {
 	harness       harness.Harness
 	terminal      *terminal
 	cancelSockets context.CancelFunc
+	harnessDone   chan struct{}
+	harnessErr    error // Read after harnessDone closes.
 
 	inputMu   sync.Mutex // Orders input and resize commands from all connections.
 	socketsMu sync.Mutex // Prevents new handlers from starting during shutdown.
 	sockets   sync.WaitGroup
+	draining  bool // Protected by socketsMu; rejects new attachments during final drain.
 
 	done chan struct{}
 	err  error // Read after done closes.
@@ -86,6 +89,7 @@ func Start(ctx context.Context, address string, port int, name string) (*Server,
 		harness:       h,
 		terminal:      newTerminal(),
 		cancelSockets: cancelSockets,
+		harnessDone:   make(chan struct{}),
 		done:          make(chan struct{}),
 	}
 	mux.HandleFunc("GET /pty", server.servePTY(socketCtx))
@@ -101,6 +105,9 @@ func (s *Server) serve(ctx context.Context, listener net.Listener) {
 		err := copyHarnessOutput(ctx, s.harness, s.terminal)
 		// Close queues after the last output has been saved.
 		s.terminal.finish()
+		// Publish confirmed exit only after the final output has been drained.
+		s.harnessErr = s.harness.Wait()
+		close(s.harnessDone)
 		outputDone <- err
 	}()
 
@@ -123,6 +130,32 @@ func (s *Server) serve(ctx context.Context, listener net.Listener) {
 	var err error
 	select {
 	case err = <-serveErr:
+	case <-s.harnessDone:
+		// Stop accepting attachments, then give existing clients time to drain.
+		s.socketsMu.Lock()
+		s.draining = true
+		s.socketsMu.Unlock()
+
+		shutdown, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if err := s.http.Shutdown(shutdown); err != nil {
+			_ = s.http.Close()
+		}
+		drained := make(chan struct{})
+		go func() {
+			s.sockets.Wait()
+			close(drained)
+		}()
+		select {
+		case <-drained:
+		case <-shutdown.Done():
+			s.stopSockets()
+			<-drained
+		case <-ctx.Done():
+			s.stopSockets()
+			<-drained
+		}
+		err = <-serveErr
 	case <-ctx.Done():
 		shutdown, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
