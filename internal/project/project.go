@@ -9,15 +9,19 @@ import (
 
 // Metadata describes a Project's identity and lifecycle.
 type Metadata struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Type    string `json:"type"` // Repository kind; currently "git".
-	State   State  `json:"state"`
-	Version int64  `json:"version"`         // Increases on updates to reject stale writes.
-	Error   string `json:"error,omitempty"` // User-facing preparation or deletion failure.
+	// Immutable after creation.
+	ID   string `json:"id"`
+	Type string `json:"type"` // Repository kind; currently "git".
 
+	// Mutable settings and lifecycle.
+	Name  string `json:"name"`
+	State State  `json:"state"`
+	Error string `json:"error,omitempty"` // User-facing preparation or deletion failure.
 	// CreatorToken identifies the current repository preparation attempt.
 	CreatorToken string `json:"-" db:"creator_token"`
+
+	// Version is incremented by the store on each update to reject stale writes.
+	Version int64 `json:"version"`
 }
 
 // State describes a Project's repository lifecycle.
