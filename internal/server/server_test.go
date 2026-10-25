@@ -3,13 +3,18 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/coder/websocket"
+	"github.com/coder/websocket/wsjson"
 )
 
 func TestServerLifecycle(t *testing.T) {
@@ -40,6 +45,31 @@ func TestServerLifecycle(t *testing.T) {
 				t.Fatalf("response = %q, error = %v", body, err)
 			}
 
+			// Leave two attachments open: both can write, and shutdown must close both.
+			wsctx, stopSockets := context.WithTimeout(t.Context(), 5*time.Second)
+			defer stopSockets()
+			var connections []*websocket.Conn
+			for i := range 2 {
+				conn, _, err := websocket.Dial(wsctx, "ws://"+address+"/pty", nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer func() { _ = conn.CloseNow() }()
+				connections = append(connections, conn)
+				input := fmt.Sprintf("proxy-test-%d", i)
+				if err := wsjson.Write(wsctx, conn, map[string]string{"type": "input", "data": input + "\n"}); err != nil {
+					t.Fatal(err)
+				}
+				var output strings.Builder
+				for !strings.Contains(output.String(), "received: "+input) {
+					kind, data, err := conn.Read(wsctx)
+					if err != nil || kind != websocket.MessageBinary {
+						t.Fatalf("terminal output kind = %v, error = %v", kind, err)
+					}
+					output.Write(data)
+				}
+			}
+
 			if method == "cancel" {
 				cancel()
 			} else {
@@ -66,6 +96,17 @@ func TestServerLifecycle(t *testing.T) {
 			if server.wrapper.command.ProcessState == nil {
 				t.Fatal("Wait returned before the wrapper was reaped")
 			}
+			for _, conn := range connections {
+				for {
+					if _, _, err := conn.Read(wsctx); err != nil {
+						if wsctx.Err() != nil {
+							t.Fatal("proxy connection survived shutdown")
+						}
+						break
+					}
+				}
+			}
+
 			if conn, err := net.DialTimeout("tcp", address, time.Second); err == nil {
 				conn.Close()
 				t.Fatal("listener remained open")
