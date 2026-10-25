@@ -1,6 +1,7 @@
 package web_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/mxschmitt/playwright-go"
@@ -15,7 +16,7 @@ func TestTerminalWithoutInstalledHarness(t *testing.T) {
 	browser := newBrowserContext(t)
 	page, err := browser.NewPage()
 	requireNoError(t, err)
-	_, err = page.Goto(url)
+	_, err = page.Goto(strings.TrimRight(url, "/") + "/terminal")
 	requireNoError(t, err)
 	requireStatus(t, page, "Stopped")
 	_, err = page.Reload()

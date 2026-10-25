@@ -95,6 +95,8 @@ func start(ctx context.Context, config Config, storage store.Store, executable s
 	mux.Handle("GET /", serveAssets())
 	mux.Handle("GET /{$}", page)
 	mux.Handle("GET /terminal", page)
+	mux.Handle("GET /p", page)
+	mux.Handle("GET /p/{id}", page)
 	server := &Server{
 		Address: actualAddress,
 		Port:    actualPort,

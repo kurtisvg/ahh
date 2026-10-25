@@ -1,10 +1,32 @@
 :root { color-scheme: dark; font: 14px system-ui, sans-serif; background: #11151c; color: #e2e8f0; }
 * { box-sizing: border-box; }
-body { margin: 0; height: 100dvh; display: grid; grid-template-rows: auto 1fr auto; }
+body { margin: 0; height: 100dvh; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
 header, footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 20px; }
 header { border-bottom: 1px solid #334155; }
 h1 { font-size: 18px; margin: 0; }
-h1 span { color: #94a3b8; font-size: 14px; font-weight: normal; margin-left: 12px; }
-#status { margin: 0; }
-main { min-height: 0; margin: 12px 16px; overflow: hidden; }
+h2 { font-size: 16px; }
 footer { border-top: 1px solid #334155; color: #94a3b8; font-size: 12px; }
+a { color: #cbd5e1; }
+button, input, select { font: inherit; padding: 8px; }
+button, a { cursor: pointer; }
+:focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px; }
+#app { min-height: 0; display: grid; grid-template-columns: 48px 230px minmax(0, 1fr); }
+#activity { border-right: 1px solid #334155; padding: 8px; }
+#activity a { display: block; text-align: center; padding: 10px 0; font-size: 22px; text-decoration: none; }
+#sidebar { border-right: 1px solid #334155; padding: 12px; overflow: auto; }
+#sidebar nav a { display: block; padding: 10px 6px; overflow-wrap: anywhere; text-decoration: none; }
+[aria-current="page"] { background: #25354c; }
+#detail { padding: 12px 16px; overflow: auto; min-width: 0; min-height: 0; }
+#detail:has(#terminal) { display: flex; flex-direction: column; overflow: hidden; }
+#terminal { flex: 1; min-height: 0; overflow: hidden; }
+.toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+#focus-terminal { align-self: flex-start; font-size: 12px; margin-bottom: 8px; }
+dt { color: #94a3b8; margin-top: 16px; }
+dd { margin: 6px 0; overflow-wrap: anywhere; }
+@media (max-width: 650px) {
+  #app { grid-template-columns: 44px minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  #activity { grid-row: 1 / 3; }
+  #sidebar { grid-column: 2; max-height: 160px; border-bottom: 1px solid #334155; }
+  #detail { grid-column: 2; }
+  header, footer { padding: 8px; }
+}
