@@ -8,6 +8,8 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -15,6 +17,8 @@ import (
 )
 
 func TestWrapStartup(t *testing.T) {
+	useFakeCodex(t)
+
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
@@ -23,7 +27,7 @@ func TestWrapStartup(t *testing.T) {
 	var stderr bytes.Buffer
 
 	cmd := NewCommand()
-	cmd.SetArgs([]string{"wrap", "--address", "localhost", "--port", "0"})
+	cmd.SetArgs([]string{"wrap", "codex", "--address", "localhost", "--port", "0"})
 	cmd.SetOut(writer)
 	cmd.SetErr(&stderr)
 
@@ -82,6 +86,8 @@ func (w *failedOutput) Write(p []byte) (int, error) {
 }
 
 func TestWrapStartupOutputFailureStopsServer(t *testing.T) {
+	useFakeCodex(t)
+
 	var output failedOutput
 	cmd := newWrapCommand()
 	cmd.SetContext(t.Context())
@@ -91,7 +97,7 @@ func TestWrapStartupOutputFailureStopsServer(t *testing.T) {
 		address: "127.0.0.1",
 		port:    0,
 	}
-	err := runWrapCommand(cmd, opts)
+	err := runWrapCommand(cmd, opts, "codex")
 	if !errors.Is(err, io.ErrClosedPipe) {
 		t.Fatalf("startup output failure = %v", err)
 	}
@@ -110,9 +116,9 @@ func TestWrapStartupOutputFailureStopsServer(t *testing.T) {
 
 func TestWrapInvalidAddress(t *testing.T) {
 	for _, args := range [][]string{
-		{"wrap", "--address", "[invalid]", "--port", "0"},
-		{"wrap", "--port", "-1"},
-		{"wrap", "--port", "65536"},
+		{"wrap", "codex", "--address", "[invalid]", "--port", "0"},
+		{"wrap", "codex", "--port", "-1"},
+		{"wrap", "codex", "--port", "65536"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			stdout, stderr, err := executeRootCommand(t.Context(), args...)
@@ -125,4 +131,50 @@ func TestWrapInvalidAddress(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestWrapLaunchFailure(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+
+	stdout, stderr, err := executeRootCommand(t.Context(), "wrap", "codex", "--port", "0")
+	if err == nil || !strings.Contains(err.Error(), "start harness") {
+		t.Fatalf("launch failure = %v", err)
+	}
+	if stdout != "" || stderr != "" {
+		t.Fatalf("announced startup after launch failure: %q %q", stdout, stderr)
+	}
+}
+
+func TestWrapInvalidHarness(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+
+	for _, args := range [][]string{
+		{"wrap"},
+		{"wrap", "unknown"},
+		{"wrap", "codex", "extra"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			stdout, stderr, err := executeRootCommand(t.Context(), args...)
+			if err == nil || strings.Contains(err.Error(), "start wrapper server") {
+				t.Fatalf("expected argument validation error, got %v", err)
+			}
+			if stdout != "" || stderr != "" {
+				t.Fatalf("announced startup for invalid harness: %q %q", stdout, stderr)
+			}
+		})
+	}
+}
+
+func useFakeCodex(t *testing.T) {
+	t.Helper()
+
+	script, err := os.ReadFile("../internal/harness/process/testdata/fake-harness")
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory := t.TempDir()
+	if err := os.WriteFile(filepath.Join(directory, "codex"), script, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
 }

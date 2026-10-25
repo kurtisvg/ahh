@@ -25,11 +25,12 @@ type wrapStartup struct {
 func newWrapCommand() *cobra.Command {
 	var opts wrapOpts
 	cmd := &cobra.Command{
-		Use:   "wrap",
-		Short: "Run the local harness wrapper",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runWrapCommand(cmd, opts)
+		Use:       "wrap <harness-name>",
+		Short:     "Run the local harness wrapper",
+		Args:      cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
+		ValidArgs: []string{"codex"},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runWrapCommand(cmd, opts, args[0])
 		},
 	}
 
@@ -38,9 +39,14 @@ func newWrapCommand() *cobra.Command {
 	return cmd
 }
 
-func runWrapCommand(cmd *cobra.Command, opts wrapOpts) error {
+func runWrapCommand(cmd *cobra.Command, opts wrapOpts, name string) error {
 	ctx := cmd.Context()
-	server, err := wrapper.Start(ctx, opts.address, opts.port)
+	server, err := wrapper.Start(
+		ctx,
+		opts.address,
+		opts.port,
+		name,
+	)
 	if err != nil {
 		return fmt.Errorf("start wrapper server: %w", err)
 	}
