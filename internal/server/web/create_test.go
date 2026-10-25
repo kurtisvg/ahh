@@ -79,7 +79,7 @@ func TestCreateWithoutHarness(t *testing.T) {
 			_, err = page.Reload()
 			requireNoError(t, err)
 			requireNoError(t,
-				expect.Locator(page.Locator("#project-name")).ToHaveText("alpha"),
+				expect.Locator(page.Locator("#project-name")).ToHaveValue("alpha"),
 			)
 		})
 	}
@@ -130,7 +130,7 @@ exec %q "$@"
 	requireNoError(t, expect.Page(page).ToHaveURL(strings.TrimRight(url, "/")+"/p"))
 	requireNoError(t, os.WriteFile(release, nil, 0o600))
 	requireNoError(t,
-		expect.Locator(page.Locator("#project-name")).ToHaveText("slow-setup"),
+		expect.Locator(page.Locator("#project-name")).ToHaveValue("slow-setup"),
 	)
 	requireNoError(t, expect.Locator(page.Locator("dialog[open]")).ToHaveCount(0))
 }

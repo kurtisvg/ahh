@@ -152,6 +152,7 @@ func start(
 	}
 	mux.HandleFunc("GET /api/projects", server.listProjects)
 	mux.HandleFunc("POST /api/projects", server.createProject)
+	mux.HandleFunc("PATCH /api/projects/{id}", server.renameProject)
 	mux.HandleFunc("GET /api/projects/{id}", server.getProject)
 	mux.HandleFunc("GET /pty", server.proxyPTY(protection))
 	mux.HandleFunc("GET /status", server.serveStatus)

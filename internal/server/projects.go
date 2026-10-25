@@ -101,3 +101,45 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusCreated, p)
 }
+
+func (s *Server) renameProject(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name    string `json:"name"`
+		Version int64  `json:"version"`
+	}
+	if !decodeBody(w, r, &body) {
+		return
+	}
+	if err := project.ValidateName(body.Name); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiError{
+			Code:    "invalid_request",
+			Message: err.Error(),
+		})
+		return
+	}
+	id := r.PathValue("id")
+	p, err := s.projects.Rename(r.Context(), id, body.Name, body.Version)
+	if errors.Is(err, store.ErrConflict) {
+		current, readErr := s.projects.Get(r.Context(), id)
+		if readErr != nil {
+			projectError(w, readErr)
+			return
+		}
+		writeJSON(w, http.StatusConflict, struct {
+			apiError
+			Current project.Project `json:"current"`
+		}{
+			apiError: apiError{
+				Code:    "conflict",
+				Message: "Project changed. Review the current saved values before trying again.",
+			},
+			Current: current,
+		})
+		return
+	}
+	if err != nil {
+		projectError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, p)
+}

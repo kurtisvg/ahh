@@ -7,6 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // Manager provides project operations independently of their backend.
@@ -20,11 +23,23 @@ type Manager interface {
 	// Get returns the registered project with the given ID.
 	Get(context.Context, string) (Project, error)
 
+	// Rename updates the display name if the stored version still matches.
+	Rename(context.Context, string, string, int64) (Project, error)
+
 	// Close releases resources after project operations have stopped.
 	Close() error
 }
 
 var idPattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+
+// ValidateName checks a project's display name, independently of its stable ID.
+func ValidateName(name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" || utf8.RuneCountInString(name) > 100 || strings.ContainsFunc(name, unicode.IsControl) {
+		return fmt.Errorf("use a name of 1–100 characters without control characters")
+	}
+	return nil
+}
 
 // ValidateID checks a project name for use as one URL segment and directory name.
 func ValidateID(id string) error {

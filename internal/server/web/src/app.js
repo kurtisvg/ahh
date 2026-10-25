@@ -81,5 +81,5 @@ const navigate = startRouter(async path => {
     detail.replaceChildren(document.createTextNode('Project not found. '), link('p', 'Open Projects'));
     return;
   }
-  renderProject({ detail, project });
+  renderProject({ detail, project, signal: requests.signal, refresh: () => navigate(path, true) });
 });
