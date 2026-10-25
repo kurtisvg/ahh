@@ -292,8 +292,16 @@ func TestProcessForcedShutdown(t *testing.T) {
 		t.Run(method, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
+
 			output := &readyWriter{ready: make(chan struct{})}
-			args := []string{"sh", fixturePath(t), "ignore-term"}
+			script := `
+				trap '' TERM
+				printf 'ready\n'
+				while IFS= read -r line; do
+					:
+				done
+			`
+			args := []string{"sh", "-c", script}
 			p, err := Start(ctx, args)
 			if err != nil {
 				t.Fatal(err)
