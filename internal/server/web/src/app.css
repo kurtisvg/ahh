@@ -30,3 +30,9 @@ dd { margin: 6px 0; overflow-wrap: anywhere; }
   #detail { grid-column: 2; }
   header, footer { padding: 8px; }
 }
+dialog { width: min(420px, 90vw); border: 1px solid #64748b; border-radius: 8px; padding: 24px; }
+dialog::backdrop { background: #0009; }
+label { display: grid; gap: 8px; }
+input, select { min-width: 0; max-width: 100%; }
+.actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+[role="alert"] { color: #fda4af; }

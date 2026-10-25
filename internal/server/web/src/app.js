@@ -2,6 +2,7 @@ import { renderShell } from './page-shell.js';
 import { renderProject } from './project-page.js';
 import { projectList } from './project-sidebar.js';
 import { link } from './navigation.js';
+import { addProject } from './project-create.js';
 import { mountTerminal } from './terminal.js';
 import { startRouter, appURL, baseURL } from './router.js';
 
@@ -70,6 +71,7 @@ const navigate = startRouter(async path => {
   }
   if (requests.signal.aborted) return;
   sidebar.innerHTML = '<h2>Projects</h2>';
+  addProject(sidebar, requests.signal, navigate);
   if (!id && projects.length) { navigate(`p/${projects[0].id}`, true); return; }
   if (!projects.length && !id) { detail.textContent = 'No Projects yet'; return; }
   const list = projectList(projects, id);
