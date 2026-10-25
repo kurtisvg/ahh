@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"syscall"
 	"testing"
@@ -154,6 +155,13 @@ func openTerminal(t *testing.T, page playwright.Page, url string) {
 	t.Helper()
 	_, err := page.Goto(url)
 	requireNoError(t, err)
+	expect := playwright.NewPlaywrightAssertions()
+	requireNoError(t, expect.Locator(page.Locator("#status")).ToHaveText(regexp.MustCompile(`^(Connected|Stopped)$`)))
+	state, err := page.Locator("#status").TextContent()
+	requireNoError(t, err)
+	if state == "Stopped" {
+		requireNoError(t, page.Locator("#start").Click())
+	}
 	requireNoError(t, playwright.NewPlaywrightAssertions().Locator(page.Locator("#status")).ToHaveText("Connected"))
 }
 
