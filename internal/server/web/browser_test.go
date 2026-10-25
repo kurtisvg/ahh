@@ -19,6 +19,8 @@ type browserTest struct {
 	page      playwright.Page
 	context   playwright.BrowserContext
 	url       string
+	baseURL   string
+	endpoint  string
 	directory string
 }
 
@@ -52,7 +54,16 @@ func testConnections(t *testing.T, script string, run func(*testing.T, browserTe
 			browser := newBrowserContext(t)
 			page, err := browser.NewPage()
 			requireNoError(t, err)
-			run(t, browserTest{page: page, context: browser, url: url, directory: directory})
+			project := createBrowserProject(t, page, url, "Fixture")
+			base := strings.TrimRight(url, "/")
+			run(t, browserTest{
+				page:      page,
+				context:   browser,
+				baseURL:   base,
+				url:       base + "/p/" + project.ID + "/c",
+				endpoint:  base + "/api/projects/" + project.ID + "/conversations/default/terminal",
+				directory: filepath.Join(directory, "workspace", "projects", project.ID, "repo"),
+			})
 		})
 	}
 }
@@ -157,9 +168,8 @@ func newBrowserContext(t *testing.T) playwright.BrowserContext {
 	return browserContext
 }
 
-func openTerminal(t *testing.T, page playwright.Page, baseURL string) {
+func openTerminal(t *testing.T, page playwright.Page, url string) {
 	t.Helper()
-	url := strings.TrimRight(baseURL, "/") + "/terminal"
 	_, err := page.Goto(url)
 	requireNoError(t, err)
 	expect := playwright.NewPlaywrightAssertions()

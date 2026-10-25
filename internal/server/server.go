@@ -30,7 +30,6 @@ type Server struct {
 	projects       project.Manager
 	workspaceLock  *os.File
 	executions     *executionManager
-	startupDir     string
 	cancelRequests context.CancelFunc
 	requestsMu     sync.Mutex // Prevents registration after shutdown starts.
 	requests       sync.WaitGroup
@@ -39,8 +38,8 @@ type Server struct {
 	err  error // Read after done closes.
 }
 
-// Start locks the workspace, opens storage, and binds HTTP without a harness. POST /start
-// launches wrap codex in the current directory. Port zero selects a free port.
+// Start locks the workspace, opens storage, and binds HTTP without a harness.
+// Conversation starts launch in project repositories. Port zero selects a free port.
 // Cancel ctx or call Shutdown to stop it. Failed startup releases all resources.
 // Workspace ownership is released before Wait returns.
 func Start(ctx context.Context, config Config) (*Server, error) {
@@ -126,7 +125,6 @@ func start(
 	mux := http.NewServeMux()
 	mux.Handle("GET /", serveAssets())
 	mux.Handle("GET /{$}", page)
-	mux.Handle("GET /terminal", page)
 	mux.Handle("GET /p", page)
 	mux.Handle("GET /c", page)
 	mux.Handle("GET /p/{id}/c", page)
@@ -151,12 +149,6 @@ func start(
 		cancelRequests: cancelRequests,
 		done:           make(chan struct{}),
 	}
-	server.startupDir, err = os.Getwd()
-	if err != nil {
-		cancelRequests()
-		_ = listener.Close()
-		return nil, err
-	}
 	mux.HandleFunc("GET /api/projects", server.listProjects)
 	mux.HandleFunc("POST /api/projects", server.createProject)
 	mux.HandleFunc("PATCH /api/projects/{id}", server.renameProject)
@@ -172,11 +164,6 @@ func start(
 			server.serveProjectTerminal(w, r, protection)
 		},
 	)
-	mux.HandleFunc("GET /pty", func(w http.ResponseWriter, r *http.Request) {
-		server.serveTerminal(w, r, protection)
-	})
-	mux.HandleFunc("GET /status", server.serveStatus)
-	mux.HandleFunc("POST /start", server.serveStart)
 	server.http.Handler = protection.Handler(server.trackRequests(requestCtx, mux))
 	go server.serve(ctx, listener)
 	return server, nil

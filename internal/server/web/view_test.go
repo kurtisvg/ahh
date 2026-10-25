@@ -1,7 +1,6 @@
 package web_test
 
 import (
-	"strings"
 	"testing"
 	"time"
 
@@ -25,7 +24,7 @@ func TestTerminalViewDisposal(t *testing.T) {
 		sendLine(t, page, "pending-render")
 		requireOutput(t, page, "received: pending-render")
 		polls := make(chan playwright.Route, 1)
-		requireNoError(t, page.Route("**/status", func(route playwright.Route) { polls <- route }))
+		requireNoError(t, page.Route("**/conversations/default/terminal", func(route playwright.Route) { polls <- route }))
 		var poll playwright.Route
 		select {
 		case poll = <-polls:
@@ -50,7 +49,7 @@ func TestTerminalViewDisposal(t *testing.T) {
 		if connectionCount(t, page) != 1 {
 			t.Fatal("disposed view reconnected")
 		}
-		response, err := page.Request().Get(strings.TrimRight(fixture.url, "/") + "/status")
+		response, err := page.Request().Get(fixture.endpoint)
 		requireNoError(t, err)
 		var state struct {
 			State string `json:"state"`

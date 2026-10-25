@@ -47,6 +47,7 @@ func startRunning(
 	if err != nil {
 		return nil, err
 	}
+	testTerminalRoutes(s)
 	response := httptest.NewRecorder()
 	s.http.Handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/start", nil))
 	if response.Code != http.StatusOK {
@@ -70,6 +71,7 @@ func TestStartOnDemand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	testTerminalRoutes(s)
 	t.Cleanup(func() { _ = s.Shutdown(t.Context()); _ = s.Wait() })
 	request := func(method, path string) *httptest.ResponseRecorder {
 		response := httptest.NewRecorder()
@@ -116,6 +118,7 @@ func TestFailedLaunchKeepsHTTPAvailable(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			testTerminalRoutes(s)
 			t.Cleanup(func() { _ = s.Shutdown(t.Context()); _ = s.Wait() })
 			for range 2 {
 				response := httptest.NewRecorder()
@@ -137,4 +140,61 @@ func TestFailedLaunchKeepsHTTPAvailable(t *testing.T) {
 			}
 		})
 	}
+}
+
+// currentWrapper returns the process used by transport tests.
+func (s *Server) currentWrapper() *wrapperProcess {
+	status := s.executions.Status("")
+	child, _ := s.executions.Process("", status.Invocation)
+	return child
+}
+
+func (s *Server) serveTerminal(
+	w http.ResponseWriter,
+	r *http.Request,
+	protection *http.CrossOriginProtection,
+) {
+	child := s.currentWrapper()
+	if child == nil {
+		http.Error(w, "terminal has not started", http.StatusConflict)
+		return
+	}
+	select {
+	case <-child.done:
+		http.Error(w, "invocation has ended", http.StatusGone)
+		return
+	default:
+	}
+	proxyPTY(
+		w,
+		r,
+		child.url,
+		protection,
+	)
+}
+
+func (s *Server) serveStart(w http.ResponseWriter, r *http.Request) {
+	err := s.executions.startAndWait(r.Context(), "", "")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	s.serveStatus(w, r)
+}
+
+func (s *Server) serveStatus(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, s.executions.Status(""))
+}
+
+// Unscoped routes exist only in tests of the isolated terminal transport.
+func testTerminalRoutes(s *Server) {
+	mux := http.NewServeMux()
+	mux.Handle("/", s.http.Handler)
+	mux.HandleFunc("GET /status", s.serveStatus)
+	mux.HandleFunc("POST /start", s.serveStart)
+	protection := http.NewCrossOriginProtection()
+	mux.HandleFunc("GET /pty", func(w http.ResponseWriter, r *http.Request) {
+		s.serveTerminal(w, r, protection)
+	})
+	s.http.Handler = protection.Handler(s.trackRequests(s.http.BaseContext(nil), mux))
 }

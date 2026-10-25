@@ -13,7 +13,7 @@ export function mountTerminal({ container, status, start, notice, baseURL = docu
     start.textContent = 'Starting…';
     setStatus('Starting…', 'waiting');
     try {
-      const response = await fetch(new URL(endpoint || 'start', baseURL), { method: 'POST', signal: requests.signal });
+      const response = await fetch(new URL(endpoint, baseURL), { method: 'POST', signal: requests.signal });
       if (!response.ok) throw new Error(await response.text());
       if (!disposed) await refreshStatus();
     } catch (error) {
@@ -78,7 +78,7 @@ export function mountTerminal({ container, status, start, notice, baseURL = docu
     if (disposed || exited || outputComplete) return;
 
     // Keep the page's path prefix when connecting through a proxy.
-    const url = new URL(endpoint ? `${endpoint}/${invocation}/pty` : 'pty', baseURL);
+    const url = new URL(`${endpoint}/${invocation}/pty`, baseURL);
     url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
     if (rendered !== null) url.searchParams.set('cursor', rendered.toString());
     const connection = new WebSocket(url);
@@ -148,7 +148,7 @@ export function mountTerminal({ container, status, start, notice, baseURL = docu
     refreshing = true;
     clearTimeout(pollTimer);
     try {
-      const response = await fetch(new URL(endpoint || 'status', baseURL), { cache: 'no-store', signal: AbortSignal.any([requests.signal, AbortSignal.timeout(5000)]) });
+      const response = await fetch(new URL(endpoint, baseURL), { cache: 'no-store', signal: AbortSignal.any([requests.signal, AbortSignal.timeout(5000)]) });
       if (disposed) return;
       if (response.status === 404 && endpoint) { onMissing(); return; }
       if (!response.ok) throw new Error('Status unavailable');

@@ -21,12 +21,12 @@ func TestCodexSmoke(t *testing.T) {
 	t.Logf("Codex version: %s", strings.TrimSpace(string(version)))
 	requireNoError(t, os.WriteFile(filepath.Join(t.ArtifactDir(), "codex-version.txt"), version, 0o600))
 	directory := t.TempDir()
-	runBrowserCommand(t, directory, "git", "init", "-q")
 	url, stop := startBrowserServer(t, buildBrowserBinary(t), directory, "/", "TERM=")
 	browser := newBrowserContext(t)
 	page, err := browser.NewPage()
 	requireNoError(t, err)
-	openTerminal(t, page, url)
+	p := createBrowserProject(t, page, url, "codex-smoke")
+	openTerminal(t, page, url+"/p/"+p.ID+"/c")
 
 	// A new directory may show the trust screen; leave that decision untouched.
 	ready := regexp.MustCompile(`OpenAI Codex|Trust this folder\?`)
@@ -35,7 +35,7 @@ func TestCodexSmoke(t *testing.T) {
 		playwright.LocatorAssertionsToContainTextOptions{Timeout: playwright.Float(20000)}))
 	requireNoError(t, page.SetViewportSize(900, 600))
 	requireTerminalFits(t, page)
-	response, err := page.Request().Get(url + "/status")
+	response, err := page.Request().Get(url + "/api/projects/" + p.ID + "/conversations/default/terminal")
 	requireNoError(t, err)
 	var status struct {
 		State string `json:"state"`
