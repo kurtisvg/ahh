@@ -159,7 +159,20 @@ func start(
 	mux.HandleFunc("POST /api/projects", server.createProject)
 	mux.HandleFunc("PATCH /api/projects/{id}", server.renameProject)
 	mux.HandleFunc("GET /api/projects/{id}", server.getProject)
-	mux.HandleFunc("GET /pty", server.proxyPTY(protection))
+	const conversations = "/api/projects/{id}/conversations"
+	const terminal = conversations + "/default/terminal"
+	mux.HandleFunc("GET "+conversations, server.listConversations)
+	mux.HandleFunc("GET "+terminal, server.conversationStatus)
+	mux.HandleFunc("POST "+terminal, server.startConversation)
+	mux.HandleFunc(
+		"GET "+terminal+"/{invocation}/pty",
+		func(w http.ResponseWriter, r *http.Request) {
+			server.serveProjectTerminal(w, r, protection)
+		},
+	)
+	mux.HandleFunc("GET /pty", func(w http.ResponseWriter, r *http.Request) {
+		server.serveTerminal(w, r, protection)
+	})
 	mux.HandleFunc("GET /status", server.serveStatus)
 	mux.HandleFunc("POST /start", server.serveStart)
 	server.http.Handler = protection.Handler(server.trackRequests(requestCtx, mux))

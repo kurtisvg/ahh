@@ -49,6 +49,12 @@ func projectError(w http.ResponseWriter, err error) {
 			Code:    "not_found",
 			Message: "Project not found",
 		}
+	} else if errors.Is(err, store.ErrConflict) {
+		status = http.StatusConflict
+		response = apiError{
+			Code:    "conflict",
+			Message: "Project changed or an operation is in progress. Reload and try again.",
+		}
 	} else {
 		slog.Error("project operation failed", "error", err)
 	}
