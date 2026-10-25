@@ -246,6 +246,9 @@ func TestTerminalConnectionCloses(t *testing.T) {
 				if err != nil {
 					break
 				}
+				if kind == websocket.MessageText {
+					continue // The end marker is separate from terminal bytes.
+				}
 				if kind != websocket.MessageBinary || len(data) < 8 {
 					t.Fatalf("expected terminal bytes, got message type %v", kind)
 				}
