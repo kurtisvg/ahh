@@ -87,3 +87,16 @@ Use `-short` to skip browser tests, or `-run TestTerminalReconnect` to select a
 scenario. Keep `-count=1` because the browser tests build the application as a
 subprocess. Add `-artifacts -outputdir <existing-directory>` to retain screenshots
 and failure traces.
+
+### Test with installed harnesses
+
+Harness integration tests are opt-in. With Codex installed and logged in,
+include its smoke test with:
+
+```sh
+go generate ./...
+go test -tags=integration_codex -count=1 -race -shuffle=on -timeout 5m ./...
+```
+
+The Codex test checks startup, terminal rendering, resizing, and shutdown in a
+temporary Git directory. It sends no model prompt.

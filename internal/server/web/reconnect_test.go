@@ -88,6 +88,18 @@ func TestTerminalReconnectHistoryGap(t *testing.T) {
 		reconnect := controlReconnect(t, page)
 		openTerminal(t, page, fixture.url)
 		requireOutput(t, page, "ready for flood")
+
+		// Exercise the history gap after an earlier successful reconnect.
+		attempts := connectionCount(t, page)
+		_, err := page.Evaluate("() => window.connections.at(-1).close()")
+		requireNoError(t, err)
+		handle, err := page.WaitForFunction(`previous =>
+			window.connections.length > previous &&
+			window.connections.at(-1).readyState === WebSocket.OPEN`, attempts)
+		requireNoError(t, err)
+		requireNoError(t, handle.Dispose())
+		requireStatus(t, page, "Connected")
+
 		reconnect.Store(false)
 		disconnect(t, page)
 
@@ -138,7 +150,7 @@ func TestTerminalStopsReconnectAfterExit(t *testing.T) {
 
 func disconnect(t *testing.T, page playwright.Page) {
 	t.Helper()
-	_, err := page.Evaluate("() => window.connections[0].close()")
+	_, err := page.Evaluate("() => window.connections.at(-1).close()")
 	requireNoError(t, err)
 	requireStatus(t, page, "Disconnected; reconnecting")
 }
