@@ -1,6 +1,6 @@
 # Development
 
-Ahh currently provides CLI help and version reporting. Run the commands below
+Ahh provides CLI help, version reporting, and a local wrapper HTTP server. Run the commands below
 from the repository root.
 
 ## Setup
@@ -13,6 +13,7 @@ from the repository root.
 ```sh
 go run . --help
 go run . --version
+go run . wrap --address 127.0.0.1 --port 8081
 ```
 
 ## Build
@@ -36,6 +37,7 @@ The project uses one Go module. Tests live beside the code they exercise.
 | `main.go` | Process entry point; calls `cmd.Execute()`. |
 | `cmd/` | Cobra commands, arguments, I/O, and exit handling. |
 | `internal/version/` | Version text embedded in the binary. |
+| `internal/wrapper/` | Wrapper HTTP server startup, serving, and shutdown. |
 
 Keep commands thin. Add application behavior under `internal/` when it has an
 owner and a concrete need. Add subcommands through their own constructors when

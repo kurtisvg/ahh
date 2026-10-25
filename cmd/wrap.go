@@ -1,0 +1,70 @@
+package cmd
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net"
+	"strconv"
+	"time"
+
+	"github.com/kurtisvg/ahh/internal/wrapper"
+	"github.com/spf13/cobra"
+)
+
+type wrapOpts struct {
+	address string
+	port    int
+}
+
+type wrapStartup struct {
+	Address string `json:"address"`
+	Port    int    `json:"port"`
+}
+
+func newWrapCommand() *cobra.Command {
+	var opts wrapOpts
+	cmd := &cobra.Command{
+		Use:   "wrap",
+		Short: "Run the local harness wrapper",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runWrapCommand(cmd, opts)
+		},
+	}
+
+	cmd.Flags().StringVar(&opts.address, "address", "127.0.0.1", "Address to bind")
+	cmd.Flags().IntVar(&opts.port, "port", 8081, "Port to bind (0 chooses an available port)")
+	return cmd
+}
+
+func runWrapCommand(cmd *cobra.Command, opts wrapOpts) error {
+	ctx := cmd.Context()
+	server, err := wrapper.Start(ctx, opts.address, opts.port)
+	if err != nil {
+		return fmt.Errorf("start wrapper server: %w", err)
+	}
+	defer func() {
+		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = server.Shutdown(shutdown)
+		_ = server.Wait()
+	}()
+
+	started := wrapStartup{
+		Address: server.Address,
+		Port:    server.Port,
+	}
+	if err := json.NewEncoder(cmd.OutOrStdout()).Encode(started); err != nil {
+		return fmt.Errorf("report wrapper startup: %w", err)
+	}
+	address := net.JoinHostPort(server.Address, strconv.Itoa(server.Port))
+	if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "wrapper listening at http://%s\n", address); err != nil {
+		return err
+	}
+
+	if err := server.Wait(); err != nil {
+		return fmt.Errorf("serve wrapper: %w", err)
+	}
+	return nil
+}

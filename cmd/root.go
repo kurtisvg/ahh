@@ -2,8 +2,11 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/kurtisvg/ahh/internal/version"
 	"github.com/spf13/cobra"
@@ -11,7 +14,9 @@ import (
 
 // Execute runs the root ahh command.
 func Execute() {
-	if err := NewCommand().Execute(); err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := NewCommand().ExecuteContext(ctx); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, "ahh:", err)
 		os.Exit(1)
 	}
@@ -31,5 +36,6 @@ func NewCommand() *cobra.Command {
 		},
 		CompletionOptions: cobra.CompletionOptions{DisableDefaultCmd: true},
 	}
+	cmd.AddCommand(newWrapCommand())
 	return cmd
 }
