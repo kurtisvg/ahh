@@ -1,3 +1,4 @@
+import { link } from './navigation.js';
 import { editName } from './project-actions.js';
 
 export function renderProject({ detail, project, signal, refresh, onDeleted }) {
@@ -13,5 +14,8 @@ export function renderProject({ detail, project, signal, refresh, onDeleted }) {
   `;
   const panel = detail.firstElementChild;
   panel.querySelector('h2 span').textContent = project.name;
+  const open = link(`p/${project.id}/c`, 'Open conversations');
+  open.className = 'button secondary';
+  panel.querySelector('.section-heading').append(open);
   editName(panel, project, signal, refresh);
 }

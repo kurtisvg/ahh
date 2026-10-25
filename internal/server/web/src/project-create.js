@@ -12,7 +12,7 @@ export function addProject(sidebar, signal, navigate) {
   button.className = 'icon-button';
   button.title = 'Add Project';
   button.setAttribute('aria-label', 'Add Project');
-  sidebar.querySelector('h2').append(button);
+  sidebar.querySelector('.sidebar-heading').append(button);
   const dialog = document.createElement('dialog');
   dialog.setAttribute('aria-label', 'Add Project');
   dialog.innerHTML = `

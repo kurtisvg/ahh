@@ -152,7 +152,7 @@ func disconnect(t *testing.T, page playwright.Page) {
 	t.Helper()
 	_, err := page.Evaluate("() => window.connections.at(-1).close()")
 	requireNoError(t, err)
-	requireStatus(t, page, "Disconnected; reconnecting")
+	requireStatus(t, page, "Reconnecting")
 }
 
 func controlReconnect(t *testing.T, page playwright.Page) *atomic.Bool {

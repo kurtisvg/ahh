@@ -1,13 +1,16 @@
 import { renderShell } from './page-shell.js';
 import { renderProject } from './project-page.js';
-import { projectList } from './project-sidebar.js';
+import { projectList, renderProjectPicker } from './project-sidebar.js';
 import { link } from './navigation.js';
-import { addProject } from './project-create.js';
+import { renderConversation } from './conversation-page.js';
 import { mountTerminal } from './terminal.js';
+import { icon } from './icons.js';
+import { addProject } from './project-create.js';
 import { startRouter, appURL, baseURL } from './router.js';
 
 const app = document.querySelector('#app');
 let activeView = () => {};
+let focusProjects = false;
 export const dispose = () => activeView();
 
 const navigate = startRouter(async path => {
@@ -16,44 +19,26 @@ const navigate = startRouter(async path => {
   let terminalDispose = () => {};
   activeView = () => { requests.abort(); terminalDispose(); };
   if (!path) { navigate('p', true); return; }
-  const { sidebar, detail, projectsLink } = renderShell(app);
-  document.querySelector('#terminal-link').href = appURL('terminal');
-
+  const match = /^p(?:\/([^/]+))?(\/c)?$/.exec(path);
+  const id = match?.[1];
+  const conversations = path === 'c' || !!match?.[2];
+  document.title = `${conversations ? 'Conversations' : 'Settings'} · Ahh`;
+  const { sidebar, detail, projectsLink, conversationsLink } = renderShell(app, {
+    id,
+    conversations: conversations || path === 'terminal',
+  });
+  detail.tabIndex = -1;
+  detail.focus();
   if (path === 'terminal') {
     sidebar.textContent = 'Local terminal (startup directory)';
-    detail.innerHTML = `
-      <div class="toolbar">
-        <p id="status" role="status">Loading…</p>
-        <button id="start" hidden>Start terminal</button>
-      </div>
-      <button id="focus-terminal">Focus terminal</button>
-      <div id="terminal" aria-label="Codex terminal"></div>
-      <p id="notice" role="status"></p>
-    `;
-    detail.focus();
-    terminalDispose = mountTerminal({
-      container: detail.querySelector('#terminal'),
-      status: detail.querySelector('#status'),
-      start: detail.querySelector('#start'),
-      notice: detail.querySelector('#notice'),
-      baseURL,
-    });
-    detail.querySelector('#focus-terminal').onclick = () => detail.querySelector('.xterm-helper-textarea')?.focus();
+    detail.innerHTML = '<div class="toolbar"><p id="status" role="status">Loading…</p><button id="start" hidden>Start terminal</button></div><div id="terminal" aria-label="Codex terminal"></div><p id="notice" role="status"></p>';
+    terminalDispose = mountTerminal({ container: detail.querySelector('#terminal'), status: detail.querySelector('#status'), start: detail.querySelector('#start'), notice: detail.querySelector('#notice'), baseURL });
     return;
   }
-  detail.setAttribute('aria-live', 'polite');
-  projectsLink.setAttribute('aria-current', 'page');
-  const match = /^p(?:\/([^/]+))?$/.exec(path);
-  if (!match) {
-    detail.textContent = 'Page not found';
-    detail.focus();
-    return;
-  }
-  const id = match[1];
-  sidebar.innerHTML = '<h2>Projects</h2><p>Loading Projects…</p>';
+  (conversations ? conversationsLink : projectsLink).setAttribute('aria-current', 'page');
+  if (!match && !conversations) { document.title = 'Page not found · Ahh'; detail.textContent = 'Page not found'; return; }
+  sidebar.innerHTML = '<div class="sidebar-heading"><h2>Projects</h2></div><p>Loading Projects…</p>';
   detail.textContent = 'Loading…';
-  // Keep focus on the content container while its asynchronous content changes.
-  detail.focus();
   let projects;
   try {
     const response = await fetch(appURL('api/projects'), { cache: 'no-store', signal: requests.signal });
@@ -61,25 +46,50 @@ const navigate = startRouter(async path => {
     projects = await response.json();
   } catch (error) {
     if (requests.signal.aborted) return;
-    sidebar.innerHTML = '<h2>Projects</h2>';
-    detail.textContent = error.message;
+    sidebar.innerHTML = '<div class="sidebar-heading"><h2 tabindex="-1">Projects</h2></div>';
+    detail.innerHTML = '<div class="empty-state"><h2>Could not load Projects</h2><p role="alert"></p></div>';
+    const empty = detail.firstElementChild;
+    empty.querySelector('p').textContent = 'Check your connection and try again.';
     const retry = document.createElement('button');
     retry.textContent = 'Retry';
     retry.onclick = () => navigate(path, true);
-    detail.append(retry);
+    empty.append(retry);
     return;
   }
   if (requests.signal.aborted) return;
-  sidebar.innerHTML = '<h2>Projects</h2>';
-  addProject(sidebar, requests.signal, navigate);
-  if (!id && projects.length) { navigate(`p/${projects[0].id}`, true); return; }
-  if (!projects.length && !id) { detail.textContent = 'No Projects yet'; return; }
-  const list = projectList(projects, id);
-  sidebar.append(list);
-  const project = projects.find(project => project.id === id);
-  if (!project) {
-    detail.replaceChildren(document.createTextNode('Project not found. '), link('p', 'Open Projects'));
+  sidebar.innerHTML = '<div class="sidebar-heading"><h2 tabindex="-1">Projects</h2></div>';
+  if (!conversations) addProject(sidebar, requests.signal, navigate);
+  if (!id && projects.length) { navigate(`p/${projects[0].id}${conversations ? "/c" : ""}`, true); return; }
+  const key = id;
+  const project = projects.find(project => project.id === key);
+  if (focusProjects) {
+    const heading = sidebar.querySelector('h2');
+    heading.tabIndex = -1;
+    heading.focus();
+    focusProjects = false;
+  }
+  const list = projectList(projects, project?.id);
+  if (conversations) renderProjectPicker(sidebar, projects, project?.id, navigate); else sidebar.append(list);
+  if (!projects.length && !id) {
+    detail.innerHTML = '<div class="empty-state"><h2>No Projects yet</h2><p></p></div>';
+    const empty = detail.firstElementChild;
+    empty.prepend(icon('folder'));
+    empty.querySelector('p').textContent = conversations ? 'Create a Project to start a conversation.' : 'Use the + beside Projects to add your first repository.';
+    if (conversations) { const open = link('p', 'Open Projects'); open.className = 'button'; empty.append(open); }
     return;
   }
-  renderProject({ detail, project, signal: requests.signal, refresh: () => navigate(path, true) });
+  if (!project) {
+    document.title = 'Project not found · Ahh';
+    detail.innerHTML = '<div class="empty-state"><h2>Project not found</h2><p>This Project may have been removed.</p></div>';
+    const open = link('p', 'Open Projects');
+    open.className = 'button';
+    detail.firstElementChild.append(open);
+    return;
+  }
+  document.title = `${project.name}${conversations ? '' : ' · Settings'} · Ahh`;
+  if (conversations) {
+    terminalDispose = renderConversation({ detail, sidebar, project, refresh: () => navigate(path, true) });
+    return;
+  }
+  renderProject({ detail, project, signal: requests.signal, refresh: () => navigate(path, true), onDeleted: (path, replace) => { focusProjects = true; navigate(path, replace); } });
 });
