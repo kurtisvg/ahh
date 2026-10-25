@@ -1,2 +1,4 @@
 .project/
 /ahh
+/internal/server/web/node_modules/
+/internal/server/web/dist/
