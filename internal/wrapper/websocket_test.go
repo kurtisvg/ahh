@@ -224,8 +224,10 @@ func TestTerminalConnectionCloses(t *testing.T) {
 				if err := wsjson.Write(ctx, conn, msg); err != nil {
 					t.Fatal(err)
 				}
-				// Receive the last output before the connection closes.
-				readUntil(t, ctx, conn, "received: last output")
+				// Exercise a client reading buffered output after wrapper cleanup.
+				if err := server.Wait(); err != nil {
+					t.Fatal(err)
+				}
 			case "binary input":
 				if err := conn.Write(ctx, websocket.MessageBinary, []byte("input")); err != nil {
 					t.Fatal(err)
@@ -236,14 +238,24 @@ func TestTerminalConnectionCloses(t *testing.T) {
 				}
 			}
 
-			// The connection must close before the test times out.
+			// Drain without acknowledgments: exit may already have closed the socket.
+			// The small final output fits within the unacknowledged output budget.
+			var output strings.Builder
 			for {
-				if _, _, err := conn.Read(ctx); err != nil {
+				kind, data, err := conn.Read(ctx)
+				if err != nil {
 					break
 				}
+				if kind != websocket.MessageBinary || len(data) < 8 {
+					t.Fatalf("expected terminal bytes, got message type %v", kind)
+				}
+				output.Write(data[8:])
 			}
 			if err := ctx.Err(); err != nil {
 				t.Fatalf("connection remained open: %v", err)
+			}
+			if reason == "exit" && !strings.Contains(output.String(), "received: last output") {
+				t.Fatalf("missing final output: %q", output.String())
 			}
 		})
 	}
