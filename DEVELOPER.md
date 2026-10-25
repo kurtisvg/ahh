@@ -5,7 +5,7 @@ Run the commands below from the repository root.
 
 ## Setup
 
-- [Go](https://go.dev/doc/install) >= 1.27.2.
+- [Go](https://go.dev/doc/install) >= 1.27.3.
 - [golangci-lint](https://golangci-lint.run/docs/welcome/install/) v2.14.0.
 
 ## Run
