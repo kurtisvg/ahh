@@ -1,8 +1,5 @@
 #!/bin/sh
 # A terminal fixture: reports its working directory/size and echoes input.
-if [ "${1:-}" = ignore-term ]; then
-  trap '' TERM
-fi
 printf 'fake harness ready pid=%s cwd=%s\n' "$$" "$PWD"
 stty size
 if [ "${1:-}" = exit ]; then
