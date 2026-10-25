@@ -1,8 +1,10 @@
 package codex
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,7 +14,12 @@ import (
 
 func TestStart(t *testing.T) {
 	directory := t.TempDir()
-	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" \"$PWD\" \"$TERM\" > report\nexit 7\n"
+	script := `#!/bin/sh
+		printf '%s\n' "$*" "$PWD" "$TERM" > report
+		printf 'codex output'
+		exit 7
+	`
+
 	if err := os.WriteFile(filepath.Join(directory, "codex"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -22,6 +29,7 @@ func TestStart(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 	defer cancel()
+	var output bytes.Buffer
 	p, err := Start(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -30,6 +38,10 @@ func TestStart(t *testing.T) {
 		_ = p.Shutdown(context.Background())
 		_ = p.Wait()
 	}()
+
+	if _, err := io.Copy(&output, p); err != nil {
+		t.Fatal(err)
+	}
 
 	// Codex startup preserves its exit status and uses the caller's directory.
 	var exitError *exec.ExitError
@@ -43,5 +55,8 @@ func TestStart(t *testing.T) {
 	want := "--no-daemon\n" + directory + "\nxterm-256color\n"
 	if string(report) != want {
 		t.Fatalf("launch arguments, directory, and terminal = %q, want %q", report, want)
+	}
+	if output.String() != "codex output" {
+		t.Fatalf("output = %q", output.String())
 	}
 }
