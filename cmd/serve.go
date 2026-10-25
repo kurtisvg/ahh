@@ -7,13 +7,15 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/kurtisvg/ahh/internal/project/local"
 	"github.com/kurtisvg/ahh/internal/server"
 	"github.com/spf13/cobra"
 )
 
 type serveOpts struct {
-	address string
-	port    int
+	address   string
+	port      int
+	workspace string
 }
 
 func newServeCommand() *cobra.Command {
@@ -29,11 +31,17 @@ func newServeCommand() *cobra.Command {
 
 	cmd.Flags().StringVar(&opts.address, "address", "127.0.0.1", "Address to bind")
 	cmd.Flags().IntVar(&opts.port, "port", 8080, "Port to bind (0 chooses an available port)")
+	cmd.Flags().StringVar(&opts.workspace, "workspace", "./ahh-workspace", "Directory for Project repositories and metadata")
 	return cmd
 }
 
 func runServeCommand(cmd *cobra.Command, opts serveOpts) error {
 	ctx := cmd.Context()
+	workspace, err := local.Open(opts.workspace)
+	if err != nil {
+		return fmt.Errorf("open workspace: %w", err)
+	}
+	defer func() { _ = workspace.Close() }()
 	srv, err := server.Start(ctx, opts.address, opts.port)
 	if err != nil {
 		return fmt.Errorf("start server: %w", err)
@@ -45,6 +53,9 @@ func runServeCommand(cmd *cobra.Command, opts serveOpts) error {
 		_ = srv.Wait()
 	}()
 
+	if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "Workspace: %s\n", workspace.Path()); err != nil {
+		return err
+	}
 	address := net.JoinHostPort(srv.Address, strconv.Itoa(srv.Port))
 	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "http://%s\n", address); err != nil {
 		return fmt.Errorf("report server startup: %w", err)

@@ -32,7 +32,7 @@ func TestServeStartup(t *testing.T) {
 	defer stdout.Close()
 
 	cmd := NewCommand()
-	cmd.SetArgs([]string{"serve", "--address", "localhost", "--port", "0"})
+	cmd.SetArgs([]string{"serve", "--address", "localhost", "--port", "0", "--workspace", t.TempDir()})
 	cmd.SetOut(writer)
 	cmd.SetErr(io.Discard)
 
@@ -82,8 +82,9 @@ func TestServeStartupOutputFailureStopsServer(t *testing.T) {
 	cmd.SetOut(&output)
 
 	opts := serveOpts{
-		address: "127.0.0.1",
-		port:    0,
+		address:   "127.0.0.1",
+		port:      0,
+		workspace: t.TempDir(),
 	}
 	if err := runServeCommand(cmd, opts); !errors.Is(err, io.ErrClosedPipe) {
 		t.Fatalf("startup output failure = %v", err)
@@ -104,6 +105,7 @@ func TestServeInvalidInput(t *testing.T) {
 		{"serve", "--port", "65536"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			args = append(args, "--workspace", t.TempDir())
 			stdout, stderr, err := executeRootCommand(t.Context(), args...)
 			if err == nil {
 				t.Fatal("expected invalid input error")

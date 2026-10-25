@@ -27,9 +27,23 @@ the generated files, so Node and npm are only needed during development and buil
 go generate ./...
 go run . --help
 go run . --version
-go run . serve --address 127.0.0.1 --port 8080
+go run . serve --address 127.0.0.1 --port 8080 --workspace /tmp/workspace
 go run . wrap codex --address 127.0.0.1 --port 8081
 ```
+
+### Workspace
+
+The workspace is Ahh's storage root for Project repositories and metadata.
+`serve` creates it if needed, with this initial structure:
+
+```text
+<workspace>/
+  .ahh.lock   # Server ownership lock
+  projects/   # Project repository storage
+```
+
+Select it with `--workspace PATH` (default: `./ahh-workspace`). Relative paths
+resolve from the startup directory; the resolved path is printed on stderr.
 
 ## Build
 
