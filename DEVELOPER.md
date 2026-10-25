@@ -1,7 +1,7 @@
 # Development
 
-Ahh provides CLI help, version reporting, and a local wrapper HTTP server. Run the commands below
-from the repository root.
+Ahh provides CLI help, version reporting, and local orchestrator and wrapper servers.
+Run the commands below from the repository root.
 
 ## Setup
 
@@ -13,6 +13,7 @@ from the repository root.
 ```sh
 go run . --help
 go run . --version
+go run . serve --address 127.0.0.1 --port 8080
 go run . wrap codex --address 127.0.0.1 --port 8081
 ```
 
@@ -37,6 +38,7 @@ The project uses one Go module. Tests live beside the code they exercise.
 | `main.go` | Process entry point; calls `cmd.Execute()`. |
 | `cmd/` | Cobra commands, arguments, I/O, and exit handling. |
 | `internal/version/` | Version text embedded in the binary. |
+| `internal/server/` | Orchestrator HTTP server and its lifetime. |
 | `internal/wrapper/` | HTTP/WebSocket server, terminal attachments, and harness lifetime. |
 | `internal/harness/` | Harness selection and lifecycle interface. |
 | `internal/harness/codex/` | Codex startup and configuration. |
