@@ -40,18 +40,18 @@ type Config struct {
 // Operations may run concurrently. Reads return independent metadata values.
 // GetProject returns ErrNotFound for a missing Project, not for storage failures.
 type Store interface {
-	ListProjects(context.Context) ([]project.Metadata, error)
-	GetProject(context.Context, string) (project.Metadata, error)
+	ListProjects(context.Context) ([]project.Project, error)
+	GetProject(context.Context, string) (project.Project, error)
 
 	// InsertProject inserts creating metadata with version 1 and a CreatorToken.
 	// An existing ID or invalid state, version, or token returns ErrConflict.
-	InsertProject(context.Context, project.Metadata) error
+	InsertProject(context.Context, project.Project) error
 
 	// UpdateProject atomically matches the prior ID, version, state, and
 	// CreatorToken, then applies changes and increments the stored version.
 	// The supplied after.Version is ignored.
 	// ID and Type cannot change. A mismatch returns ErrConflict without writing.
-	UpdateProject(ctx context.Context, before, after project.Metadata) (project.Metadata, error)
+	UpdateProject(ctx context.Context, before, after project.Project) (project.Project, error)
 
 	Close() error
 }

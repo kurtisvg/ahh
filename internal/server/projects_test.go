@@ -16,19 +16,19 @@ type testProjects struct{ err error }
 
 func (p testProjects) Close() error { return nil }
 
-func (p testProjects) ListProjects(context.Context) ([]project.Metadata, error) {
-	return []project.Metadata{}, p.err
+func (p testProjects) ListProjects(context.Context) ([]project.Project, error) {
+	return []project.Project{}, p.err
 }
-func (p testProjects) GetProject(context.Context, string) (project.Metadata, error) {
-	return project.Metadata{}, p.err
+func (p testProjects) GetProject(context.Context, string) (project.Project, error) {
+	return project.Project{}, p.err
 }
 
-func (p testProjects) InsertProject(context.Context, project.Metadata) error {
+func (p testProjects) InsertProject(context.Context, project.Project) error {
 	return errors.New("unexpected InsertProject call")
 }
 
-func (p testProjects) UpdateProject(context.Context, project.Metadata, project.Metadata) (project.Metadata, error) {
-	return project.Metadata{}, errors.New("unexpected UpdateProject call")
+func (p testProjects) UpdateProject(context.Context, project.Project, project.Project) (project.Project, error) {
+	return project.Project{}, errors.New("unexpected UpdateProject call")
 }
 
 func TestProjectReads(t *testing.T) {

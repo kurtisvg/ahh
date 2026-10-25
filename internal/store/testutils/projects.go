@@ -10,8 +10,8 @@ import (
 	"github.com/kurtisvg/ahh/internal/store"
 )
 
-func testProject() project.Metadata {
-	return project.Metadata{
+func testProject() project.Project {
+	return project.Project{
 		ID: "project", Name: "Example", Type: "git",
 		State: project.StateCreating, Version: 1, CreatorToken: "first",
 	}
@@ -55,7 +55,7 @@ func TestGetProject(t *testing.T, s store.Store) {
 		t.Fatalf("get: %+v, %v; want %+v", got, err, p)
 	}
 	got, err = s.GetProject(t.Context(), "' OR 1=1 --")
-	if !errors.Is(err, store.ErrNotFound) || got != (project.Metadata{}) {
+	if !errors.Is(err, store.ErrNotFound) || got != (project.Project{}) {
 		t.Fatalf("missing project: %+v, %v", got, err)
 	}
 }
@@ -106,47 +106,47 @@ func TestUpdateProjectRejectsChanges(t *testing.T, s store.Store) {
 	}
 	tests := []struct {
 		name     string
-		mutate   func(before, after *project.Metadata)
+		mutate   func(before, after *project.Project)
 		conflict bool
 	}{
 		{
 			name: "stale version",
-			mutate: func(before, _ *project.Metadata) {
+			mutate: func(before, _ *project.Project) {
 				before.Version = 99
 			},
 			conflict: true,
 		},
 		{
 			name: "wrong state",
-			mutate: func(before, _ *project.Metadata) {
+			mutate: func(before, _ *project.Project) {
 				before.State = project.StateReady
 			},
 			conflict: true,
 		},
 		{
 			name: "wrong token",
-			mutate: func(before, _ *project.Metadata) {
+			mutate: func(before, _ *project.Project) {
 				before.CreatorToken = "other"
 			},
 			conflict: true,
 		},
 		{
 			name: "changed ID",
-			mutate: func(_, after *project.Metadata) {
+			mutate: func(_, after *project.Project) {
 				after.ID = "other"
 			},
 			conflict: true,
 		},
 		{
 			name: "changed type",
-			mutate: func(_, after *project.Metadata) {
+			mutate: func(_, after *project.Project) {
 				after.Type = "other"
 			},
 			conflict: true,
 		},
 		{
 			name: "unset state",
-			mutate: func(_, after *project.Metadata) {
+			mutate: func(_, after *project.Project) {
 				after.State = project.State{}
 			},
 		},
@@ -156,7 +156,7 @@ func TestUpdateProjectRejectsChanges(t *testing.T, s store.Store) {
 			before, after := p, p
 			test.mutate(&before, &after)
 			got, err := s.UpdateProject(t.Context(), before, after)
-			if err == nil || got != (project.Metadata{}) {
+			if err == nil || got != (project.Project{}) {
 				t.Fatalf("rejected update: %+v, %v", got, err)
 			}
 			if test.conflict && !errors.Is(err, store.ErrConflict) {

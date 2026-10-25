@@ -19,10 +19,10 @@ type lifecycleStore struct {
 	closes                   atomic.Int32
 }
 
-func (p *lifecycleStore) ListProjects(context.Context) ([]project.Metadata, error) {
+func (p *lifecycleStore) ListProjects(context.Context) ([]project.Project, error) {
 	close(p.entered)
 	<-p.release
-	return []project.Metadata{}, nil
+	return []project.Project{}, nil
 }
 
 func (p *lifecycleStore) Close() error {

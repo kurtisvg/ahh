@@ -9,31 +9,31 @@ import (
 	"github.com/kurtisvg/ahh/internal/store"
 )
 
-func (s *Store) GetProject(ctx context.Context, id string) (project.Metadata, error) {
+func (s *Store) GetProject(ctx context.Context, id string) (project.Project, error) {
 	query := `
 		SELECT *
 		FROM projects
 		WHERE id = ?`
 
-	var p project.Metadata
+	var p project.Project
 	err := s.db.GetContext(ctx, &p, query, id)
 	if errors.Is(err, sql.ErrNoRows) {
-		return project.Metadata{}, store.ErrNotFound
+		return project.Project{}, store.ErrNotFound
 	}
 	if err != nil {
-		return project.Metadata{}, err
+		return project.Project{}, err
 	}
 
 	return p, nil
 }
 
-func (s *Store) ListProjects(ctx context.Context) ([]project.Metadata, error) {
+func (s *Store) ListProjects(ctx context.Context) ([]project.Project, error) {
 	query := `
 		SELECT *
 		FROM projects
 		ORDER BY name, id`
 
-	projects := []project.Metadata{}
+	projects := []project.Project{}
 	err := s.db.SelectContext(ctx, &projects, query)
 	if err != nil {
 		return nil, err
@@ -42,7 +42,7 @@ func (s *Store) ListProjects(ctx context.Context) ([]project.Metadata, error) {
 	return projects, nil
 }
 
-func (s *Store) InsertProject(ctx context.Context, p project.Metadata) error {
+func (s *Store) InsertProject(ctx context.Context, p project.Project) error {
 	if p.State != project.StateCreating || p.Version != 1 || p.CreatorToken == "" {
 		return store.ErrConflict
 	}
@@ -71,13 +71,13 @@ func (s *Store) InsertProject(ctx context.Context, p project.Metadata) error {
 	return nil
 }
 
-func (s *Store) UpdateProject(ctx context.Context, before, after project.Metadata) (project.Metadata, error) {
+func (s *Store) UpdateProject(ctx context.Context, before, after project.Project) (project.Project, error) {
 	if after.ID != before.ID || after.Type != before.Type {
-		return project.Metadata{}, store.ErrConflict
+		return project.Project{}, store.ErrConflict
 	}
 
 	params := struct {
-		Before, After project.Metadata
+		Before, After project.Project
 	}{
 		Before: before,
 		After:  after,
@@ -97,16 +97,16 @@ func (s *Store) UpdateProject(ctx context.Context, before, after project.Metadat
 			AND creator_token = :before.creator_token
 		RETURNING *`, params)
 	if err != nil {
-		return project.Metadata{}, err
+		return project.Project{}, err
 	}
 
-	var p project.Metadata
+	var p project.Project
 	err = s.db.GetContext(ctx, &p, query, args...)
 	if errors.Is(err, sql.ErrNoRows) {
-		return project.Metadata{}, store.ErrConflict
+		return project.Project{}, store.ErrConflict
 	}
 	if err != nil {
-		return project.Metadata{}, err
+		return project.Project{}, err
 	}
 
 	return p, nil
