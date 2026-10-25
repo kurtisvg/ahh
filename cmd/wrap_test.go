@@ -137,8 +137,12 @@ func TestWrapInvalidAddress(t *testing.T) {
 				t.Fatalf("invalid bind address error = %v", err)
 			}
 
-			if stdout != "" || stderr != "" {
-				t.Fatalf("announced startup for invalid address: %q %q", stdout, stderr)
+			var report wrapStartup
+			if err := json.Unmarshal([]byte(stdout), &report); err != nil {
+				t.Fatal(err)
+			}
+			if report.Error == "" || report.Address != "" || stderr != "" {
+				t.Fatalf("invalid startup failure report: %q %q", stdout, stderr)
 			}
 		})
 	}
@@ -151,8 +155,12 @@ func TestWrapLaunchFailure(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "start harness") {
 		t.Fatalf("launch failure = %v", err)
 	}
-	if stdout != "" || stderr != "" {
-		t.Fatalf("announced startup after launch failure: %q %q", stdout, stderr)
+	var report wrapStartup
+	if err := json.Unmarshal([]byte(stdout), &report); err != nil {
+		t.Fatal(err)
+	}
+	if report.Error == "" || report.Address != "" || stderr != "" {
+		t.Fatalf("invalid startup failure report: %q %q", stdout, stderr)
 	}
 }
 

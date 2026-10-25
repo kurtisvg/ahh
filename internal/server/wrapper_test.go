@@ -61,7 +61,7 @@ func TestChildWrapper(t *testing.T) {
 func TestWrapperSubprocessAndShutdown(t *testing.T) {
 	useTestWrapper(t)
 
-	p, err := startWrapper(t.Context(), os.Args[0], "-test.run=^TestChildWrapper$")
+	p, err := startWrapper(t.Context(), "", os.Args[0], "-test.run=^TestChildWrapper$")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestWrapperStartupFailure(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 			defer cancel()
 
-			if _, err := startWrapper(ctx, "sh", "-c", script); err == nil {
+			if _, err := startWrapper(ctx, "", "sh", "-c", script); err == nil {
 				t.Fatal("expected startup failure")
 			}
 		})
