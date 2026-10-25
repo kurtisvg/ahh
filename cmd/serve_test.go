@@ -7,12 +7,25 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 	"time"
 )
 
+func TestMain(m *testing.M) {
+	// serve runs its own executable with "wrap codex". During tests, that is
+	// this test binary, so handle the child invocation with the real CLI.
+	if len(os.Args) > 1 && os.Args[1] == "wrap" {
+		Execute()
+		os.Exit(0)
+	}
+	os.Exit(m.Run())
+}
+
 func TestServeStartup(t *testing.T) {
+	useFakeCodex(t)
+
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	stdout, writer := io.Pipe()
@@ -61,6 +74,8 @@ func TestServeStartup(t *testing.T) {
 }
 
 func TestServeStartupOutputFailureStopsServer(t *testing.T) {
+	useFakeCodex(t)
+
 	var output failedOutput
 	cmd := newServeCommand()
 	cmd.SetContext(t.Context())
@@ -97,5 +112,17 @@ func TestServeInvalidInput(t *testing.T) {
 				t.Fatalf("announced startup for invalid input: %q %q", stdout, stderr)
 			}
 		})
+	}
+}
+
+func TestServeWrapperLaunchFailure(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+
+	stdout, _, err := executeRootCommand(t.Context(), "serve", "--port", "0")
+	if err == nil || !strings.Contains(err.Error(), "wrapper startup") {
+		t.Fatalf("expected wrapper launch failure, got %v", err)
+	}
+	if stdout != "" {
+		t.Fatalf("announced startup after launch failure: %q", stdout)
 	}
 }

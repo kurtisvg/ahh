@@ -6,17 +6,20 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"testing"
 	"time"
 )
 
 func TestServerLifecycle(t *testing.T) {
+	useTestWrapper(t)
+
 	for _, method := range []string{"cancel", "shutdown"} {
 		t.Run(method, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
-			server, err := Start(ctx, "127.0.0.1", 0)
+			server, err := start(ctx, "127.0.0.1", 0, os.Args[0], "-test.run=^TestChildWrapper$")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -60,6 +63,9 @@ func TestServerLifecycle(t *testing.T) {
 				t.Fatal("server did not stop")
 			}
 
+			if server.wrapper.command.ProcessState == nil {
+				t.Fatal("Wait returned before the wrapper was reaped")
+			}
 			if conn, err := net.DialTimeout("tcp", address, time.Second); err == nil {
 				conn.Close()
 				t.Fatal("listener remained open")
@@ -69,9 +75,11 @@ func TestServerLifecycle(t *testing.T) {
 }
 
 func TestStartFailure(t *testing.T) {
+	useTestWrapper(t)
+
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	server, err := Start(ctx, "127.0.0.1", 0)
+	server, err := start(ctx, "127.0.0.1", 0, os.Args[0], "-test.run=^TestChildWrapper$")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +88,7 @@ func TestStartFailure(t *testing.T) {
 		_ = server.Wait()
 	})
 
-	second, err := Start(ctx, server.Address, server.Port)
+	second, err := start(ctx, server.Address, server.Port, os.Args[0], "-test.run=^TestChildWrapper$")
 	if err == nil {
 		_ = second.Shutdown(t.Context())
 		_ = second.Wait()
@@ -88,7 +96,19 @@ func TestStartFailure(t *testing.T) {
 	}
 
 	cancel()
-	if _, err := Start(ctx, "127.0.0.1", 0); !errors.Is(err, context.Canceled) {
+	if _, err := start(ctx, "127.0.0.1", 0, os.Args[0], "-test.run=^TestChildWrapper$"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled startup = %v", err)
 	}
+	_ = server.Wait()
+
+	// A failed wrapper handshake must release the already-bound public listener.
+	if _, err := start(t.Context(), server.Address, server.Port, "sh", "-c", "echo invalid"); err == nil {
+		t.Fatal("started with invalid wrapper startup output")
+	}
+	address := net.JoinHostPort(server.Address, strconv.Itoa(server.Port))
+	listener, err := net.Listen("tcp", address)
+	if err != nil {
+		t.Fatalf("failed startup left listener open: %v", err)
+	}
+	_ = listener.Close()
 }
