@@ -57,6 +57,9 @@ jobs:
         run: go build ./...
       - name: Compile harness integration tests
         run: go test -tags=integration_codex -run '^$' ./...
+      - name: Use Ubuntu archive mirror
+        # Avoid slow downloads from the runner's preferred Azure mirror.
+        run: echo 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt
       - name: Install browser
         run: go run github.com/mxschmitt/playwright-go/cmd/playwright install --with-deps chromium
       - name: Test
