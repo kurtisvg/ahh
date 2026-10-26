@@ -9,18 +9,8 @@ import (
 )
 
 // proxyPTY forwards terminal connections and closes them when requests are canceled.
-func (s *Server) proxyPTY(ctx context.Context, protection *http.CrossOriginProtection) http.HandlerFunc {
+func (s *Server) proxyPTY(protection *http.CrossOriginProtection) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		s.requestsMu.Lock()
-		if ctx.Err() != nil {
-			s.requestsMu.Unlock()
-			http.Error(w, "server is shutting down", http.StatusServiceUnavailable)
-			return
-		}
-		s.requests.Add(1)
-		s.requestsMu.Unlock()
-		defer s.requests.Done()
-
 		child := s.currentWrapper()
 		if child == nil {
 			http.Error(w, "terminal has not started", http.StatusConflict)

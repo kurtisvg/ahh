@@ -11,15 +11,18 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/kurtisvg/ahh/internal/store"
 )
 
-// Server owns the orchestrator HTTP server, wrapper subprocess, and terminal proxies.
+// Server owns HTTP, metadata storage, the wrapper subprocess, and terminal proxies.
 // Create one with Start. Wait joins serving and all owned resources.
 type Server struct {
 	Address string
 	Port    int
 
 	http           *http.Server
+	store          store.Store
 	wrapperMu      sync.Mutex // Serializes launch and shutdown; proxies snapshot the process.
 	wrapper        *wrapperProcess
 	launch         func() (*wrapperProcess, error)
@@ -31,19 +34,30 @@ type Server struct {
 	err  error // Read after done closes.
 }
 
-// Start binds address and port without launching a harness. POST /start launches
-// wrap codex in the current directory. Port zero selects a free port.
+// Start opens storage and binds HTTP without launching a harness. POST /start
+// launches wrap codex in the current directory. Port zero selects a free port.
 // Cancel ctx or call Shutdown to stop it. Failed startup releases all resources.
-func Start(ctx context.Context, address string, port int) (*Server, error) {
+// The caller must hold workspace ownership until Wait returns.
+func Start(ctx context.Context, config Config) (*Server, error) {
 	executable, err := os.Executable()
 	if err != nil {
 		return nil, fmt.Errorf("locate executable: %w", err)
 	}
+	storage, err := openStore(ctx, config.Store)
+	if err != nil {
+		return nil, fmt.Errorf("open store: %w", err)
+	}
 	args := []string{"wrap", "codex", "--address", "127.0.0.1", "--port", "0"}
-	return start(ctx, address, port, executable, args...)
+	return start(ctx, config.Address, config.Port, storage, executable, args...)
 }
 
-func start(ctx context.Context, address string, port int, executable string, args ...string) (*Server, error) {
+// start requires a non-nil store and takes ownership of it, including on failure.
+func start(ctx context.Context, address string, port int, storage store.Store, executable string, args ...string) (srv *Server, err error) {
+	defer func() {
+		if err != nil {
+			err = errors.Join(err, storage.Close())
+		}
+	}()
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -74,8 +88,8 @@ func start(ctx context.Context, address string, port int, executable string, arg
 	server := &Server{
 		Address: actualAddress,
 		Port:    actualPort,
+		store:   storage,
 		http: &http.Server{
-			Handler:           protection.Handler(mux),
 			ReadHeaderTimeout: 5 * time.Second,
 			BaseContext:       func(net.Listener) context.Context { return requestCtx },
 		},
@@ -88,9 +102,12 @@ func start(ctx context.Context, address string, port int, executable string, arg
 		cancelRequests: cancelRequests,
 		done:           make(chan struct{}),
 	}
-	mux.HandleFunc("GET /pty", server.proxyPTY(requestCtx, protection))
+	mux.HandleFunc("GET /api/projects", server.listProjects)
+	mux.HandleFunc("GET /api/projects/{id}", server.getProject)
+	mux.HandleFunc("GET /pty", server.proxyPTY(protection))
 	mux.HandleFunc("GET /status", server.serveStatus)
 	mux.HandleFunc("POST /start", server.serveStart)
+	server.http.Handler = protection.Handler(server.trackRequests(requestCtx, mux))
 	go server.serve(ctx, listener)
 	return server, nil
 }
@@ -108,6 +125,7 @@ func (s *Server) serve(ctx context.Context, listener net.Listener) {
 		}
 		s.wrapperMu.Unlock()
 		s.requests.Wait()
+		s.err = errors.Join(s.err, s.store.Close())
 	}()
 
 	serveErr := make(chan error, 1)
@@ -131,8 +149,8 @@ func (s *Server) serve(ctx context.Context, listener net.Listener) {
 	}
 }
 
-// Wait joins the HTTP server, wrapper subprocess, and terminal proxy handlers.
-// It returns any unexpected HTTP server error.
+// Wait joins serving, handlers, and wrapper cleanup, then closes storage.
+// It reports serving and storage cleanup errors.
 func (s *Server) Wait() error {
 	<-s.done
 	return s.err
@@ -154,4 +172,21 @@ func (s *Server) stopRequests() {
 	s.requestsMu.Lock()
 	defer s.requestsMu.Unlock()
 	s.cancelRequests()
+}
+
+// Count all handlers so even a forced HTTP shutdown leaves storage open until
+// requests finish. The mutex prevents registration after shutdown starts.
+func (s *Server) trackRequests(ctx context.Context, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.requestsMu.Lock()
+		if ctx.Err() != nil {
+			s.requestsMu.Unlock()
+			http.Error(w, "server is shutting down", http.StatusServiceUnavailable)
+			return
+		}
+		s.requests.Add(1)
+		s.requestsMu.Unlock()
+		defer s.requests.Done()
+		next.ServeHTTP(w, r)
+	})
 }

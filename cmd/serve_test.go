@@ -65,6 +65,15 @@ func TestServeStartup(t *testing.T) {
 	if err != nil || !strings.Contains(string(body), "Ahh terminal") {
 		t.Fatalf("response = %q, error = %v", body, err)
 	}
+	resp, err = client.Get(url + "/api/projects")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err = io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if err != nil || resp.StatusCode != http.StatusOK || strings.TrimSpace(string(body)) != "[]" {
+		t.Fatalf("project listing without Codex: %s, %v", body, err)
+	}
 
 	cancel()
 	<-done

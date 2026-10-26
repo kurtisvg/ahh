@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"path/filepath"
 	"strconv"
 	"time"
 
 	"github.com/kurtisvg/ahh/internal/project/local"
 	"github.com/kurtisvg/ahh/internal/server"
+	"github.com/kurtisvg/ahh/internal/store"
 	"github.com/spf13/cobra"
 )
 
@@ -42,7 +44,14 @@ func runServeCommand(cmd *cobra.Command, opts serveOpts) error {
 		return fmt.Errorf("open workspace: %w", err)
 	}
 	defer func() { _ = workspace.Close() }()
-	srv, err := server.Start(ctx, opts.address, opts.port)
+	srv, err := server.Start(ctx, server.Config{
+		Address: opts.address,
+		Port:    opts.port,
+		Store: store.Config{
+			Backend: store.SQLite,
+			Path:    filepath.Join(workspace.Path(), "ahh.db"),
+		},
+	})
 	if err != nil {
 		return fmt.Errorf("start server: %w", err)
 	}
