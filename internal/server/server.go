@@ -85,6 +85,8 @@ func start(ctx context.Context, address string, port int, storage store.Store, e
 	protection := http.NewCrossOriginProtection()
 	mux := http.NewServeMux()
 	mux.Handle("GET /", serveAssets())
+	mux.HandleFunc("GET /{$}", servePage)
+	mux.HandleFunc("GET /terminal", servePage)
 	server := &Server{
 		Address: actualAddress,
 		Port:    actualPort,
