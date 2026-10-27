@@ -86,7 +86,9 @@ func startBrowserServer(t *testing.T, binary, directory, basePath string, env ..
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	t.Cleanup(cancel)
-	command := exec.CommandContext(ctx, binary, "serve", "--port", "0", "--base-path", basePath)
+	command := exec.CommandContext(ctx, binary, "serve", "--port", "0",
+		"--base-path", basePath,
+		"--workspace", filepath.Join(directory, "workspace"))
 	command.Dir = directory
 	command.Env = append(os.Environ(), env...)
 	command.Stderr = os.Stderr
@@ -155,8 +157,9 @@ func newBrowserContext(t *testing.T) playwright.BrowserContext {
 	return browserContext
 }
 
-func openTerminal(t *testing.T, page playwright.Page, url string) {
+func openTerminal(t *testing.T, page playwright.Page, baseURL string) {
 	t.Helper()
+	url := strings.TrimRight(baseURL, "/") + "/terminal"
 	_, err := page.Goto(url)
 	requireNoError(t, err)
 	expect := playwright.NewPlaywrightAssertions()
