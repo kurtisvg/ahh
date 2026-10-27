@@ -22,7 +22,7 @@ func TestCodexSmoke(t *testing.T) {
 	requireNoError(t, os.WriteFile(filepath.Join(t.ArtifactDir(), "codex-version.txt"), version, 0o600))
 	directory := t.TempDir()
 	runBrowserCommand(t, directory, "git", "init", "-q")
-	url, stop := startBrowserServer(t, buildBrowserBinary(t), directory, "TERM=")
+	url, stop := startBrowserServer(t, buildBrowserBinary(t), directory, "/", "TERM=")
 	browser := newBrowserContext(t)
 	page, err := browser.NewPage()
 	requireNoError(t, err)

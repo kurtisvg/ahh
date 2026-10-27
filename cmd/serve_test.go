@@ -112,6 +112,7 @@ func TestServeInvalidInput(t *testing.T) {
 		{"serve", "--address", "[invalid]", "--port", "0"},
 		{"serve", "--port", "-1"},
 		{"serve", "--port", "65536"},
+		{"serve", "--base-path", "relative/path"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			args = append(args, "--workspace", t.TempDir())

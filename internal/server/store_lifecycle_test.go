@@ -40,7 +40,7 @@ func TestStartFailureClosesStore(t *testing.T) {
 		}
 		closeErr := errors.New("close failed")
 		p := &lifecycleStore{closed: make(chan struct{}), closeErr: closeErr}
-		_, err := start(ctx, "127.0.0.1", -1, p, "unused")
+		_, err := start(ctx, Config{Address: "127.0.0.1", Port: -1}, p, "unused")
 		cancel()
 		if !errors.Is(err, closeErr) || p.closes.Load() != 1 {
 			t.Fatalf("startup error = %v, close calls = %d", err, p.closes.Load())
@@ -56,7 +56,7 @@ func TestWaitClosesStoreAfterRequests(t *testing.T) {
 		entered: make(chan struct{}), release: make(chan struct{}),
 		closed: make(chan struct{}), closeErr: errors.New("close failed"),
 	}
-	s, err := start(t.Context(), "127.0.0.1", 0, p, "unused")
+	s, err := start(t.Context(), Config{Address: "127.0.0.1"}, p, "unused")
 	if err != nil {
 		t.Fatal(err)
 	}

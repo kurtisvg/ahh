@@ -48,11 +48,11 @@ func Start(ctx context.Context, config Config) (*Server, error) {
 		return nil, fmt.Errorf("open store: %w", err)
 	}
 	args := []string{"wrap", "codex", "--address", "127.0.0.1", "--port", "0"}
-	return start(ctx, config.Address, config.Port, storage, executable, args...)
+	return start(ctx, config, storage, executable, args...)
 }
 
 // start requires a non-nil store and takes ownership of it, including on failure.
-func start(ctx context.Context, address string, port int, storage store.Store, executable string, args ...string) (srv *Server, err error) {
+func start(ctx context.Context, config Config, storage store.Store, executable string, args ...string) (srv *Server, err error) {
 	defer func() {
 		if err != nil {
 			err = errors.Join(err, storage.Close())
@@ -61,10 +61,18 @@ func start(ctx context.Context, address string, port int, storage store.Store, e
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	basePath, err := normalizeBasePath(config.BasePath)
+	if err != nil {
+		return nil, err
+	}
+	page, err := servePage(basePath)
+	if err != nil {
+		return nil, fmt.Errorf("prepare page: %w", err)
+	}
 
-	listenAddress := net.JoinHostPort(address, strconv.Itoa(port))
-	var config net.ListenConfig
-	listener, err := config.Listen(ctx, "tcp", listenAddress)
+	listenAddress := net.JoinHostPort(config.Address, strconv.Itoa(config.Port))
+	var listenConfig net.ListenConfig
+	listener, err := listenConfig.Listen(ctx, "tcp", listenAddress)
 	if err != nil {
 		return nil, fmt.Errorf("listen: %w", err)
 	}
@@ -85,8 +93,8 @@ func start(ctx context.Context, address string, port int, storage store.Store, e
 	protection := http.NewCrossOriginProtection()
 	mux := http.NewServeMux()
 	mux.Handle("GET /", serveAssets())
-	mux.HandleFunc("GET /{$}", servePage)
-	mux.HandleFunc("GET /terminal", servePage)
+	mux.Handle("GET /{$}", page)
+	mux.Handle("GET /terminal", page)
 	server := &Server{
 		Address: actualAddress,
 		Port:    actualPort,

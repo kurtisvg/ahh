@@ -13,7 +13,7 @@ import (
 
 // Existing terminal tests opt into launch; production startup remains lazy.
 func startRunning(ctx context.Context, address string, port int, executable string, args ...string) (*Server, error) {
-	s, err := start(ctx, address, port, testProjects{}, executable, args...)
+	s, err := start(ctx, Config{Address: address, Port: port}, testProjects{}, executable, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -29,7 +29,7 @@ func startRunning(ctx context.Context, address string, port int, executable stri
 
 func TestStartOnDemand(t *testing.T) {
 	useTestWrapper(t)
-	s, err := start(t.Context(), "127.0.0.1", 0, testProjects{}, os.Args[0], "-test.run=^TestChildWrapper$")
+	s, err := start(t.Context(), Config{Address: "127.0.0.1"}, testProjects{}, os.Args[0], "-test.run=^TestChildWrapper$")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +75,7 @@ func TestStartOnDemand(t *testing.T) {
 func TestFailedLaunchKeepsHTTPAvailable(t *testing.T) {
 	for _, command := range []string{"/does-not-exist/codex", "sh"} {
 		t.Run(command, func(t *testing.T) {
-			s, err := start(t.Context(), "127.0.0.1", 0, testProjects{}, command, "-c", "echo invalid")
+			s, err := start(t.Context(), Config{Address: "127.0.0.1"}, testProjects{}, command, "-c", "echo invalid")
 			if err != nil {
 				t.Fatal(err)
 			}

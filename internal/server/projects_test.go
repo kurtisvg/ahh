@@ -35,7 +35,7 @@ func TestProjectReads(t *testing.T) {
 		{"/api/projects", errors.New("private database path"), 503, "storage_unavailable"},
 	} {
 		t.Run(test.body, func(t *testing.T) {
-			s, err := start(t.Context(), "127.0.0.1", 0, testProjects{err: test.err}, "unused")
+			s, err := start(t.Context(), Config{Address: "127.0.0.1"}, testProjects{err: test.err}, "unused")
 			if err != nil {
 				t.Fatal(err)
 			}

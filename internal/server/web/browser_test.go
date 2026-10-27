@@ -41,7 +41,11 @@ func testConnections(t *testing.T, script string, run func(*testing.T, browserTe
 			bin := filepath.Join(directory, "bin")
 			requireNoError(t, os.Mkdir(bin, 0o700))
 			requireNoError(t, os.WriteFile(filepath.Join(bin, "codex"), []byte(script), 0o700))
-			url, _ := startBrowserServer(t, binary, directory, "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+			basePath := "/"
+			if mode == "proxy" {
+				basePath = browserProxyPath
+			}
+			url, _ := startBrowserServer(t, binary, directory, basePath, "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 			if mode == "proxy" {
 				url = startBrowserProxy(t, url)
 			}
@@ -78,11 +82,11 @@ func runBrowserCommand(t *testing.T, directory string, args ...string) []byte {
 
 // startBrowserServer returns the ready URL and a graceful stop function.
 // Cleanup cancels and reaps the process even when a test fails before stopping it.
-func startBrowserServer(t *testing.T, binary, directory string, env ...string) (string, func()) {
+func startBrowserServer(t *testing.T, binary, directory, basePath string, env ...string) (string, func()) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	t.Cleanup(cancel)
-	command := exec.CommandContext(ctx, binary, "serve", "--port", "0")
+	command := exec.CommandContext(ctx, binary, "serve", "--port", "0", "--base-path", basePath)
 	command.Dir = directory
 	command.Env = append(os.Environ(), env...)
 	command.Stderr = os.Stderr
