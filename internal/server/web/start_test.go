@@ -11,7 +11,7 @@ func TestTerminalWithoutInstalledHarness(t *testing.T) {
 		t.Skip("browser tests are excluded in short mode")
 	}
 	directory := t.TempDir()
-	url, _ := startBrowserServer(t, buildBrowserBinary(t), directory, "PATH="+directory)
+	url, _ := startBrowserServer(t, buildBrowserBinary(t), directory, "/", "PATH="+directory)
 	browser := newBrowserContext(t)
 	page, err := browser.NewPage()
 	requireNoError(t, err)

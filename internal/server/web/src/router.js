@@ -1,7 +1,5 @@
-// Resolve every application URL against the document base, including behind a proxy.
+// The server sets the document base from its public URL prefix.
 export const baseURL = new URL(document.baseURI);
-// Relative bases would otherwise change meaning after pushState to a new depth.
-document.querySelector('base').href = baseURL.href;
 export const appURL = path => new URL(path.replace(/^\//, ''), baseURL);
 
 export function currentPath() {

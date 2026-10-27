@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
+	"path"
+	"strings"
 
 	"github.com/kurtisvg/ahh/internal/store"
 	"github.com/kurtisvg/ahh/internal/store/sqlite"
@@ -14,6 +17,27 @@ type Config struct {
 	Address string
 	Port    int
 	Store   store.Config
+
+	// BasePath is the public URL prefix, stripped by the proxy. Empty means root.
+	BasePath string
+}
+
+func normalizeBasePath(value string) (string, error) {
+	if value == "" || value == "/" {
+		return "/", nil
+	}
+	u, err := url.Parse(value)
+	if err != nil {
+		return "", fmt.Errorf("parse base path: %w", err)
+	}
+	absPath := strings.HasPrefix(value, "/") && !strings.HasPrefix(value, "//")
+	plainPath := !strings.ContainsAny(value, "\\?#%")
+	cleanPath := path.Clean(u.Path) == strings.TrimSuffix(u.Path, "/")
+	if !absPath || !plainPath || !cleanPath {
+		return "", fmt.Errorf("invalid base path %q: use a path such as / or /proxy/40443/", value)
+	}
+	u.Path = strings.TrimSuffix(u.Path, "/") + "/"
+	return u.EscapedPath(), nil
 }
 
 func openStore(ctx context.Context, config store.Config) (store.Store, error) {

@@ -18,6 +18,7 @@ type serveOpts struct {
 	address   string
 	port      int
 	workspace string
+	basePath  string
 }
 
 func newServeCommand() *cobra.Command {
@@ -34,6 +35,7 @@ func newServeCommand() *cobra.Command {
 	cmd.Flags().StringVar(&opts.address, "address", "127.0.0.1", "Address to bind")
 	cmd.Flags().IntVar(&opts.port, "port", 8080, "Port to bind (0 chooses an available port)")
 	cmd.Flags().StringVar(&opts.workspace, "workspace", "./ahh-workspace", "Directory for Project repositories and metadata")
+	cmd.Flags().StringVar(&opts.basePath, "base-path", "/", "Public URL path prefix (reverse proxy must strip it)")
 	return cmd
 }
 
@@ -45,8 +47,9 @@ func runServeCommand(cmd *cobra.Command, opts serveOpts) error {
 	}
 	defer func() { _ = workspace.Close() }()
 	srv, err := server.Start(ctx, server.Config{
-		Address: opts.address,
-		Port:    opts.port,
+		Address:  opts.address,
+		Port:     opts.port,
+		BasePath: opts.basePath,
 		Store: store.Config{
 			Backend: store.SQLite,
 			Path:    filepath.Join(workspace.Path(), "ahh.db"),

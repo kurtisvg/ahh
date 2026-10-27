@@ -11,13 +11,15 @@ import (
 	"testing"
 )
 
+const browserProxyPath = "/proxy/8082/"
+
 // Model code-server: require a path prefix, strip it, and preserve Host/Origin.
 func startBrowserProxy(t *testing.T, target string) string {
 	t.Helper()
 	upstream, err := url.Parse(target)
 	requireNoError(t, err)
 	proxy := httputil.NewSingleHostReverseProxy(upstream)
-	const prefix = "/proxy/8082"
+	prefix := strings.TrimSuffix(browserProxyPath, "/")
 	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasPrefix(r.URL.Path, prefix+"/") {
 			http.NotFound(w, r)
