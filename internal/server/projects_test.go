@@ -23,6 +23,14 @@ func (p testProjects) GetProject(context.Context, string) (project.Metadata, err
 	return project.Metadata{}, p.err
 }
 
+func (p testProjects) InsertProject(context.Context, project.Metadata) error {
+	return errors.New("unexpected InsertProject call")
+}
+
+func (p testProjects) UpdateProject(context.Context, project.Metadata, project.Metadata) (project.Metadata, error) {
+	return project.Metadata{}, errors.New("unexpected UpdateProject call")
+}
+
 func TestProjectReads(t *testing.T) {
 	for _, test := range []struct {
 		path   string
