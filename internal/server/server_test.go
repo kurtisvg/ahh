@@ -26,7 +26,7 @@ func TestServerLifecycle(t *testing.T) {
 		t.Run(method, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
-			server, err := startRunning(ctx, "127.0.0.1", 0, os.Args[0], "-test.run=^TestChildWrapper$")
+			server, err := startRunning(t, ctx, "127.0.0.1", 0, os.Args[0], "-test.run=^TestChildWrapper$")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -150,7 +150,7 @@ func TestStartFailure(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	server, err := startRunning(ctx, "127.0.0.1", 0, os.Args[0], "-test.run=^TestChildWrapper$")
+	server, err := startRunning(t, ctx, "127.0.0.1", 0, os.Args[0], "-test.run=^TestChildWrapper$")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +159,7 @@ func TestStartFailure(t *testing.T) {
 		_ = server.Wait()
 	})
 
-	second, err := startRunning(ctx, server.Address, server.Port, os.Args[0], "-test.run=^TestChildWrapper$")
+	second, err := startRunning(t, ctx, server.Address, server.Port, os.Args[0], "-test.run=^TestChildWrapper$")
 	if err == nil {
 		_ = second.Shutdown(t.Context())
 		_ = second.Wait()
@@ -167,13 +167,13 @@ func TestStartFailure(t *testing.T) {
 	}
 
 	cancel()
-	if _, err := startRunning(ctx, "127.0.0.1", 0, os.Args[0], "-test.run=^TestChildWrapper$"); !errors.Is(err, context.Canceled) {
+	if _, err := startRunning(t, ctx, "127.0.0.1", 0, os.Args[0], "-test.run=^TestChildWrapper$"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled startup = %v", err)
 	}
 	_ = server.Wait()
 
 	// A failed wrapper handshake must release the already-bound public listener.
-	if _, err := startRunning(t.Context(), server.Address, server.Port, "sh", "-c", "echo invalid"); err == nil {
+	if _, err := startRunning(t, t.Context(), server.Address, server.Port, "sh", "-c", "echo invalid"); err == nil {
 		t.Fatal("started with invalid wrapper startup output")
 	}
 	address := net.JoinHostPort(server.Address, strconv.Itoa(server.Port))

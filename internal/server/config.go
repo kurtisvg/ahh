@@ -12,11 +12,12 @@ import (
 	"github.com/kurtisvg/ahh/internal/store/sqlite"
 )
 
-// Config selects the HTTP listener and metadata backend.
+// Config selects the workspace, HTTP listener, and metadata backend.
 type Config struct {
-	Address string
-	Port    int
-	Store   store.Config
+	Address   string
+	Port      int
+	Workspace string       // Required workspace directory; relative to the startup directory.
+	Store     store.Config // Relative SQLite paths resolve within Workspace.
 
 	// BasePath is the public URL prefix, stripped by the proxy. Empty means root.
 	BasePath string

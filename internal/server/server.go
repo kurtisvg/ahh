@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
@@ -15,14 +16,16 @@ import (
 	"github.com/kurtisvg/ahh/internal/store"
 )
 
-// Server owns HTTP, metadata storage, the wrapper subprocess, and terminal proxies.
+// Server owns the workspace lock, HTTP, storage, wrapper, and terminal proxies.
 // Create one with Start. Wait joins serving and all owned resources.
 type Server struct {
-	Address string
-	Port    int
+	Address   string
+	Port      int
+	Workspace string // Canonical workspace path.
 
 	http           *http.Server
 	store          store.Store
+	workspaceLock  *os.File
 	wrapperMu      sync.Mutex // Serializes launch and shutdown; proxies snapshot the process.
 	wrapper        *wrapperProcess
 	launch         func() (*wrapperProcess, error)
@@ -34,28 +37,46 @@ type Server struct {
 	err  error // Read after done closes.
 }
 
-// Start opens storage and binds HTTP without launching a harness. POST /start
+// Start locks the workspace, opens storage, and binds HTTP without a harness. POST /start
 // launches wrap codex in the current directory. Port zero selects a free port.
 // Cancel ctx or call Shutdown to stop it. Failed startup releases all resources.
-// The caller must hold workspace ownership until Wait returns.
+// Workspace ownership is released before Wait returns.
 func Start(ctx context.Context, config Config) (*Server, error) {
 	executable, err := os.Executable()
 	if err != nil {
 		return nil, fmt.Errorf("locate executable: %w", err)
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	lock, err := lockWorkspace(config.Workspace)
+	if err != nil {
+		return nil, err
+	}
+	config.Workspace = filepath.Dir(lock.Name())
+	if config.Store.Backend == store.SQLite && config.Store.Path != "" && !filepath.IsAbs(config.Store.Path) {
+		config.Store.Path = filepath.Join(config.Workspace, config.Store.Path)
+	}
 	storage, err := openStore(ctx, config.Store)
 	if err != nil {
-		return nil, fmt.Errorf("open store: %w", err)
+		return nil, errors.Join(fmt.Errorf("open store: %w", err), lock.Close())
 	}
 	args := []string{"wrap", "codex", "--address", "127.0.0.1", "--port", "0"}
-	return start(ctx, config, storage, executable, args...)
+	return start(ctx, config, storage, lock, executable, args...)
 }
 
-// start requires a non-nil store and takes ownership of it, including on failure.
-func start(ctx context.Context, config Config, storage store.Store, executable string, args ...string) (srv *Server, err error) {
+// start takes ownership of the required store and lock, including on failure.
+func start(
+	ctx context.Context,
+	config Config,
+	storage store.Store,
+	lock *os.File,
+	executable string,
+	args ...string,
+) (srv *Server, err error) {
 	defer func() {
 		if err != nil {
-			err = errors.Join(err, storage.Close())
+			err = errors.Join(err, storage.Close(), lock.Close())
 		}
 	}()
 	if err := ctx.Err(); err != nil {
@@ -98,9 +119,11 @@ func start(ctx context.Context, config Config, storage store.Store, executable s
 	mux.Handle("GET /p", page)
 	mux.Handle("GET /p/{id}", page)
 	server := &Server{
-		Address: actualAddress,
-		Port:    actualPort,
-		store:   storage,
+		Address:       actualAddress,
+		Port:          actualPort,
+		Workspace:     filepath.Dir(lock.Name()),
+		store:         storage,
+		workspaceLock: lock,
 		http: &http.Server{
 			ReadHeaderTimeout: 5 * time.Second,
 			BaseContext:       func(net.Listener) context.Context { return requestCtx },
@@ -137,7 +160,7 @@ func (s *Server) serve(ctx context.Context, listener net.Listener) {
 		}
 		s.wrapperMu.Unlock()
 		s.requests.Wait()
-		s.err = errors.Join(s.err, s.store.Close())
+		s.err = errors.Join(s.err, s.store.Close(), s.workspaceLock.Close())
 	}()
 
 	serveErr := make(chan error, 1)
@@ -161,8 +184,8 @@ func (s *Server) serve(ctx context.Context, listener net.Listener) {
 	}
 }
 
-// Wait joins serving, handlers, and wrapper cleanup, then closes storage.
-// It reports serving and storage cleanup errors.
+// Wait joins serving, handlers, and wrapper cleanup, then closes storage and
+// releases the workspace lock. It reports serving and cleanup errors.
 func (s *Server) Wait() error {
 	<-s.done
 	return s.err

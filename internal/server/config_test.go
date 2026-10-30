@@ -19,7 +19,7 @@ func TestStartRejectsInvalidStorage(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			s, err := Start(t.Context(), Config{
-				Address: "127.0.0.1", Store: tt.config,
+				Address: "127.0.0.1", Workspace: t.TempDir(), Store: tt.config,
 			})
 			if s != nil {
 				_ = s.Shutdown(t.Context())

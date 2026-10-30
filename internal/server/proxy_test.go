@@ -19,7 +19,7 @@ func TestShutdownWithStalledTerminalClient(t *testing.T) {
 		t.Run(method, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
-			server, err := startRunning(
+			server, err := startRunning(t,
 				ctx,
 				"127.0.0.1",
 				0,

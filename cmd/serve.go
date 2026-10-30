@@ -4,11 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"path/filepath"
 	"strconv"
 	"time"
 
-	"github.com/kurtisvg/ahh/internal/project/local"
 	"github.com/kurtisvg/ahh/internal/server"
 	"github.com/kurtisvg/ahh/internal/store"
 	"github.com/spf13/cobra"
@@ -41,18 +39,14 @@ func newServeCommand() *cobra.Command {
 
 func runServeCommand(cmd *cobra.Command, opts serveOpts) error {
 	ctx := cmd.Context()
-	workspace, err := local.Open(opts.workspace)
-	if err != nil {
-		return fmt.Errorf("open workspace: %w", err)
-	}
-	defer func() { _ = workspace.Close() }()
 	srv, err := server.Start(ctx, server.Config{
-		Address:  opts.address,
-		Port:     opts.port,
-		BasePath: opts.basePath,
+		Address:   opts.address,
+		Port:      opts.port,
+		BasePath:  opts.basePath,
+		Workspace: opts.workspace,
 		Store: store.Config{
 			Backend: store.SQLite,
-			Path:    filepath.Join(workspace.Path(), "ahh.db"),
+			Path:    "ahh.db",
 		},
 	})
 	if err != nil {
@@ -65,7 +59,7 @@ func runServeCommand(cmd *cobra.Command, opts serveOpts) error {
 		_ = srv.Wait()
 	}()
 
-	if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "Workspace: %s\n", workspace.Path()); err != nil {
+	if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "Workspace: %s\n", srv.Workspace); err != nil {
 		return err
 	}
 	address := net.JoinHostPort(srv.Address, strconv.Itoa(srv.Port))
