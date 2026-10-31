@@ -53,7 +53,7 @@ type Store interface {
 	// ID and Type cannot change. A mismatch returns ErrConflict without writing.
 	UpdateProject(ctx context.Context, before, after project.Project) (project.Project, error)
 
-	// DeleteProject removes an unchanged creating record after failed setup.
+	// DeleteProject removes an unchanged creating or deleting record after cleanup.
 	// It matches ID, Type, Version, State, and CreatorToken; mismatches return ErrConflict.
 	DeleteProject(context.Context, project.Project) error
 

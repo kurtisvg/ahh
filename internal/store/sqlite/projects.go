@@ -113,7 +113,10 @@ func (s *Store) UpdateProject(ctx context.Context, before, after project.Project
 }
 
 func (s *Store) DeleteProject(ctx context.Context, before project.Project) error {
-	if before.State != project.StateCreating || before.Version < 1 || before.CreatorToken == "" {
+	if before.State != project.StateCreating && before.State != project.StateDeleting {
+		return store.ErrConflict
+	}
+	if before.Version < 1 || before.CreatorToken == "" {
 		return store.ErrConflict
 	}
 
@@ -123,7 +126,7 @@ func (s *Store) DeleteProject(ctx context.Context, before project.Project) error
 			AND type = :type
 			AND version = :version
 			AND state = :state
-			AND state = 'creating'
+			AND state IN ('creating', 'deleting')
 			AND creator_token = :creator_token`
 	result, err := s.db.NamedExecContext(ctx, query, before)
 	if err != nil {
