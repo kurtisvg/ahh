@@ -20,6 +20,7 @@ export async function mutate(path, body, signal, method = 'POST') {
 // the original read so another tab's changes cannot be silently overwritten.
 const drafts = new Map();
 const saved = new Set();
+export function forgetProject(id) { drafts.delete(id); saved.delete(id); }
 export function editName(detail, project, signal, refresh) {
   const form = document.createElement('form');
   form.id = 'project-form';
