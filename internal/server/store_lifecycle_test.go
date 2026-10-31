@@ -40,7 +40,8 @@ func TestStartFailureClosesStore(t *testing.T) {
 		}
 		closeErr := errors.New("close failed")
 		p := &lifecycleStore{closed: make(chan struct{}), closeErr: closeErr}
-		_, err := start(ctx, Config{Address: "127.0.0.1", Port: -1}, p, "unused")
+		path := t.TempDir()
+		_, err := startWithStore(t, ctx, Config{Address: "127.0.0.1", Port: -1, Workspace: path}, p, "unused")
 		cancel()
 		if !errors.Is(err, closeErr) || p.closes.Load() != 1 {
 			t.Fatalf("startup error = %v, close calls = %d", err, p.closes.Load())
@@ -48,6 +49,11 @@ func TestStartFailureClosesStore(t *testing.T) {
 		if canceled && !errors.Is(err, context.Canceled) {
 			t.Fatalf("lost startup cancellation: %v", err)
 		}
+		lock, err := lockWorkspace(path)
+		if err != nil {
+			t.Fatalf("startup failure retained workspace lock: %v", err)
+		}
+		_ = lock.Close()
 	}
 }
 
@@ -56,7 +62,7 @@ func TestWaitClosesStoreAfterRequests(t *testing.T) {
 		entered: make(chan struct{}), release: make(chan struct{}),
 		closed: make(chan struct{}), closeErr: errors.New("close failed"),
 	}
-	s, err := start(t.Context(), Config{Address: "127.0.0.1"}, p, "unused")
+	s, err := startWithStore(t, t.Context(), Config{Address: "127.0.0.1"}, p, "unused")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,6 +89,10 @@ func TestWaitClosesStoreAfterRequests(t *testing.T) {
 		t.Fatal("closed storage while a request was still using it")
 	case <-time.After(20 * time.Millisecond):
 	}
+	if lock, err := lockWorkspace(s.Workspace); err == nil {
+		_ = lock.Close()
+		t.Fatal("released workspace while a request was still using storage")
+	}
 	close(p.release)
 	<-finished
 	if err := s.Wait(); !errors.Is(err, p.closeErr) {
@@ -93,4 +103,9 @@ func TestWaitClosesStoreAfterRequests(t *testing.T) {
 	if p.closes.Load() != 1 {
 		t.Fatalf("close calls = %d", p.closes.Load())
 	}
+	lock, err := lockWorkspace(s.Workspace)
+	if err != nil {
+		t.Fatalf("Wait retained workspace lock: %v", err)
+	}
+	_ = lock.Close()
 }

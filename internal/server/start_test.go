@@ -9,11 +9,41 @@ import (
 	"os"
 	"sync"
 	"testing"
+
+	"github.com/kurtisvg/ahh/internal/store"
 )
 
+func startWithStore(
+	t *testing.T,
+	ctx context.Context,
+	config Config,
+	storage store.Store,
+	executable string,
+	args ...string,
+) (*Server, error) {
+	t.Helper()
+	if config.Workspace == "" {
+		config.Workspace = t.TempDir()
+	}
+	lock, err := lockWorkspace(config.Workspace)
+	if err != nil {
+		_ = storage.Close()
+		return nil, err
+	}
+	return start(ctx, config, storage, lock, executable, args...)
+}
+
 // Existing terminal tests opt into launch; production startup remains lazy.
-func startRunning(ctx context.Context, address string, port int, executable string, args ...string) (*Server, error) {
-	s, err := start(ctx, Config{Address: address, Port: port}, testProjects{}, executable, args...)
+func startRunning(
+	t *testing.T,
+	ctx context.Context,
+	address string,
+	port int,
+	executable string,
+	args ...string,
+) (*Server, error) {
+	t.Helper()
+	s, err := startWithStore(t, ctx, Config{Address: address, Port: port}, testProjects{}, executable, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -29,7 +59,14 @@ func startRunning(ctx context.Context, address string, port int, executable stri
 
 func TestStartOnDemand(t *testing.T) {
 	useTestWrapper(t)
-	s, err := start(t.Context(), Config{Address: "127.0.0.1"}, testProjects{}, os.Args[0], "-test.run=^TestChildWrapper$")
+	s, err := startWithStore(
+		t,
+		t.Context(),
+		Config{Address: "127.0.0.1"},
+		testProjects{},
+		os.Args[0],
+		"-test.run=^TestChildWrapper$",
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +112,7 @@ func TestStartOnDemand(t *testing.T) {
 func TestFailedLaunchKeepsHTTPAvailable(t *testing.T) {
 	for _, command := range []string{"/does-not-exist/codex", "sh"} {
 		t.Run(command, func(t *testing.T) {
-			s, err := start(t.Context(), Config{Address: "127.0.0.1"}, testProjects{}, command, "-c", "echo invalid")
+			s, err := startWithStore(t, t.Context(), Config{Address: "127.0.0.1"}, testProjects{}, command, "-c", "echo invalid")
 			if err != nil {
 				t.Fatal(err)
 			}
