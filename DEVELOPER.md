@@ -39,7 +39,7 @@ The workspace is Ahh's storage root for Project repositories and metadata.
 ```text
 <workspace>/
   .ahh.lock   # Server ownership lock
-  projects/   # Project repository storage
+  ahh.db      # Project metadata
 ```
 
 Select it with `--workspace PATH` (default: `./ahh-workspace`). Relative paths
