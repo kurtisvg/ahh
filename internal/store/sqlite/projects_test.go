@@ -42,6 +42,11 @@ func TestInsertProject(t *testing.T) {
 	testutils.TestInsertProject(t, s)
 }
 
+func TestDeleteProject(t *testing.T) {
+	s := openTestStore(t, filepath.Join(t.TempDir(), "ahh.db"))
+	testutils.TestDeleteProject(t, s)
+}
+
 func TestUpdateProject(t *testing.T) {
 	s := openTestStore(t, filepath.Join(t.TempDir(), "ahh.db"))
 	testutils.TestUpdateProject(t, s)
@@ -90,6 +95,7 @@ func TestProjectStorageFailures(t *testing.T) {
 		"get":    func() error { _, err := s.GetProject(t.Context(), p.ID); return err },
 		"insert": func() error { return s.InsertProject(t.Context(), p) },
 		"update": func() error { _, err := s.UpdateProject(t.Context(), p, p); return err },
+		"delete": func() error { return s.DeleteProject(t.Context(), p) },
 	} {
 		t.Run(name, func(t *testing.T) {
 			err := operation()

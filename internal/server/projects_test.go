@@ -27,6 +27,10 @@ func (p testProjects) InsertProject(context.Context, project.Project) error {
 	return errors.New("unexpected InsertProject call")
 }
 
+func (p testProjects) DeleteProject(context.Context, project.Project) error {
+	return errors.New("unexpected DeleteProject call")
+}
+
 func (p testProjects) UpdateProject(context.Context, project.Project, project.Project) (project.Project, error) {
 	return project.Project{}, errors.New("unexpected UpdateProject call")
 }
