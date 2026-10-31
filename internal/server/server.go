@@ -28,6 +28,7 @@ type Server struct {
 	http           *http.Server
 	store          store.Store
 	projects       project.Manager
+	projectLocks   sync.Map // Project ID to *sync.Mutex.
 	workspaceLock  *os.File
 	executions     *executionManager
 	cancelRequests context.CancelFunc
@@ -152,6 +153,7 @@ func start(
 	mux.HandleFunc("GET /api/projects", server.listProjects)
 	mux.HandleFunc("POST /api/projects", server.createProject)
 	mux.HandleFunc("PATCH /api/projects/{id}", server.renameProject)
+	mux.HandleFunc("DELETE /api/projects/{id}", server.deleteProject)
 	mux.HandleFunc("GET /api/projects/{id}", server.getProject)
 	const conversations = "/api/projects/{id}/conversations"
 	const terminal = conversations + "/default/terminal"

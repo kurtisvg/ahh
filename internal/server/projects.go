@@ -1,12 +1,15 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 	"os"
+	"sync"
+	"time"
 
 	"github.com/kurtisvg/ahh/internal/project"
 	"github.com/kurtisvg/ahh/internal/store"
@@ -15,6 +18,13 @@ import (
 type apiError struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+}
+
+// Retain locks until shutdown so deletion and ID reuse cannot split waiting
+// requests for the same project across different locks.
+func (s *Server) projectLock(id string) *sync.Mutex {
+	lock, _ := s.projectLocks.LoadOrStore(id, new(sync.Mutex))
+	return lock.(*sync.Mutex)
 }
 
 func decodeBody(w http.ResponseWriter, r *http.Request, value any) bool {
@@ -129,6 +139,10 @@ func (s *Server) renameProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
+	lock := s.projectLock(id)
+	lock.Lock()
+	defer lock.Unlock()
+
 	p, err := s.projects.Rename(r.Context(), id, body.Name, body.Version)
 	if errors.Is(err, store.ErrConflict) {
 		current, readErr := s.projects.Get(r.Context(), id)
@@ -153,4 +167,45 @@ func (s *Server) renameProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, p)
+}
+
+func (s *Server) deleteProject(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Get("discard") != "true" {
+		writeJSON(w, http.StatusBadRequest, apiError{
+			Code:    "confirmation_required",
+			Message: "Confirm discarding all project files with discard=true",
+		})
+		return
+	}
+	id := r.PathValue("id")
+	lock := s.projectLock(id)
+	lock.Lock()
+	defer lock.Unlock()
+
+	p, err := s.projects.Get(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if err != nil {
+		projectError(w, err)
+		return
+	}
+	if p.State == project.StateCreating || p.State == project.StateDeleting {
+		projectError(w, store.ErrConflict)
+		return
+	}
+	// Finish stopping the child even if the requesting browser disconnects.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 10*time.Second)
+	defer cancel()
+
+	if err := s.executions.Stop(ctx, projectExecutionKey(p)); err != nil {
+		projectError(w, err)
+		return
+	}
+	if err := s.projects.Delete(ctx, p); err != nil {
+		projectError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
