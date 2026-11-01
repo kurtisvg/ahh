@@ -77,6 +77,25 @@ func TestDeleteProject(t *testing.T, s store.Store) {
 	if got, err := s.GetProject(t.Context(), p.ID); err != nil || got != ready {
 		t.Fatalf("ready project changed: %+v, %v", got, err)
 	}
+	deleting := ready
+	deleting.State = project.StateDeleting
+	deleting, err = s.UpdateProject(t.Context(), ready, deleting)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := deleting
+	stale.Version--
+	if err := s.DeleteProject(t.Context(), stale); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("stale deleting version: %v", err)
+	}
+	stale = deleting
+	stale.CreatorToken = p.CreatorToken
+	if err := s.DeleteProject(t.Context(), stale); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("stale deleting token: %v", err)
+	}
+	if err := s.DeleteProject(t.Context(), deleting); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func testProject() project.Project {

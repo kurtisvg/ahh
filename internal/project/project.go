@@ -26,6 +26,10 @@ type Manager interface {
 	// Rename updates the display name if the stored version still matches.
 	Rename(context.Context, string, string, int64) (Project, error)
 
+	// Delete removes an unchanged project after its users have stopped.
+	// The caller must prevent new users until deletion finishes.
+	Delete(context.Context, Project) error
+
 	// Close releases resources after project operations have stopped.
 	Close() error
 }
@@ -62,7 +66,7 @@ type Project struct {
 	Name  string `json:"name"`
 	State State  `json:"state"`
 	Error string `json:"error,omitempty"` // User-facing preparation or deletion failure.
-	// CreatorToken identifies the current repository preparation attempt.
+	// CreatorToken distinguishes generations when a deleted project ID is reused.
 	CreatorToken string `json:"-" db:"creator_token"`
 
 	// Version is incremented by the store on each update to reject stale writes.
@@ -75,16 +79,17 @@ type State struct{ value string }
 
 // Predefined states are shared values; callers must not reassign them.
 var (
-	StateCreating = State{value: "creating"}
-	StateReady    = State{value: "ready"}
-	StateFailed   = State{value: "failed"}
-	StateDeleting = State{value: "deleting"}
+	StateCreating     = State{value: "creating"}
+	StateReady        = State{value: "ready"}
+	StateFailed       = State{value: "failed"}
+	StateDeleting     = State{value: "deleting"}
+	StateDeleteFailed = State{value: "delete_failed"}
 )
 
 // ParseState accepts only recognized lifecycle states, with exact spelling.
 func ParseState(value string) (State, error) {
 	switch value {
-	case "creating", "ready", "failed", "deleting":
+	case "creating", "ready", "failed", "deleting", "delete_failed":
 		return State{value: value}, nil
 	default:
 		return State{}, fmt.Errorf("invalid project state %q", value)

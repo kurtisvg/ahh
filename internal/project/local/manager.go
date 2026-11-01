@@ -104,6 +104,47 @@ func (m *Manager) Create(ctx context.Context, id, name string) (project.Project,
 	return ready, nil
 }
 
+// Delete removes files before releasing the project ID. The caller must stop
+// processes using the project and prevent new starts until Delete returns.
+// Failed deletions can be retried with the latest project snapshot. An interrupted
+// deletion stays reserved in deleting until recovery is implemented.
+func (m *Manager) Delete(ctx context.Context, expected project.Project) error {
+	switch expected.State {
+	case project.StateReady, project.StateFailed, project.StateDeleteFailed:
+	default:
+		return store.ErrConflict
+	}
+
+	// Only one caller can claim deleting; retries must wait for delete_failed.
+	next := expected
+	next.State, next.Error = project.StateDeleting, ""
+	deleting, err := m.store.UpdateProject(ctx, expected, next)
+	if err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return m.recordDeletionFailure(ctx, deleting, err)
+	}
+	if err := m.root.RemoveAll(deleting.ID); err != nil {
+		return m.recordDeletionFailure(ctx, deleting, err)
+	}
+	if err := m.store.DeleteProject(ctx, deleting); err != nil {
+		return m.recordDeletionFailure(ctx, deleting, err)
+	}
+	return nil
+}
+
+// Keep metadata if removal fails; never present a partially removed project as ready.
+func (m *Manager) recordDeletionFailure(ctx context.Context, deleting project.Project, err error) error {
+	reportCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	failed := deleting
+	failed.State = project.StateDeleteFailed
+	failed.Error = "Deletion could not finish. Check the server logs and retry."
+	_, reportErr := m.store.UpdateProject(reportCtx, deleting, failed)
+	return errors.Join(fmt.Errorf("delete project %q: %w", deleting.ID, err), reportErr)
+}
+
 // Remove only this attempt's files before releasing its registered ID.
 func (m *Manager) rollback(ctx context.Context, p project.Project, cleanup func() error) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)

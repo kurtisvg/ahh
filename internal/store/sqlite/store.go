@@ -59,18 +59,19 @@ func (s *Store) migrate(ctx context.Context) error {
 	if err := tx.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		return err
 	}
-	switch version {
-	case 0:
-		script, err := migrations.ReadFile("migrations/001.sql")
+	const latestVersion = 2
+	if version < 0 || version > latestVersion {
+		return fmt.Errorf("unsupported schema version %d", version)
+	}
+	for next := version + 1; next <= latestVersion; next++ {
+		path := fmt.Sprintf("migrations/%03d.sql", next)
+		script, err := migrations.ReadFile(path)
 		if err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, string(script)); err != nil {
 			return err
 		}
-	case 1:
-	default:
-		return fmt.Errorf("unsupported schema version %d", version)
 	}
 	return tx.Commit()
 }

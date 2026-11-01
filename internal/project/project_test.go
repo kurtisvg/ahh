@@ -17,6 +17,7 @@ func TestStateRoundTrip(t *testing.T) {
 		{"ready", project.StateReady},
 		{"failed", project.StateFailed},
 		{"deleting", project.StateDeleting},
+		{"delete_failed", project.StateDeleteFailed},
 	} {
 		t.Run(tt.value, func(t *testing.T) {
 			state, err := project.ParseState(tt.value)

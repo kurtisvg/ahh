@@ -3,9 +3,11 @@ package local
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/kurtisvg/ahh/internal/project"
 	"github.com/kurtisvg/ahh/internal/store"
@@ -368,5 +370,269 @@ func TestCleanupUsesOpenedProjectsDirectory(t *testing.T) {
 	}
 	if data, err := os.ReadFile(marker); err != nil || string(data) != "keep" {
 		t.Fatalf("cleanup touched replacement directory: %q, %v", data, err)
+	}
+}
+
+func TestDelete(t *testing.T) {
+	m, _, workspace := openTestManager(t)
+	p, err := m.Create(t.Context(), "example", "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(workspace, "projects", p.ID)
+	if err := os.WriteFile(filepath.Join(path, "repo", "note"), []byte("local work"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	renamed, err := m.Rename(t.Context(), p.ID, "New name", p.Version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Delete(t.Context(), p); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("stale delete: %v", err)
+	}
+	if err := m.Delete(t.Context(), renamed); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("files remain: %v", err)
+	}
+	if _, err := m.Get(t.Context(), p.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("row remains: %v", err)
+	}
+	replacement, err := m.Create(t.Context(), p.ID, "Replacement")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Delete(t.Context(), p); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("old generation: %v", err)
+	}
+	if got, err := m.Get(t.Context(), p.ID); err != nil || got != replacement {
+		t.Fatalf("replacement changed: %+v %v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(path, "repo", ".git")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDeletePreservesSymlinkTarget(t *testing.T) {
+	m, _, workspace := openTestManager(t)
+	p, err := m.Create(t.Context(), "linked", "Linked")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(workspace, "projects", p.ID)
+	saved := filepath.Join(t.TempDir(), "saved")
+	if err := os.Rename(path, saved); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(saved, path); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Delete(t.Context(), p); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("symlink remains: %v", err)
+	}
+	if _, err := m.Get(t.Context(), p.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("row remains: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(saved, "repo", ".git")); err != nil {
+		t.Fatalf("symlink target changed: %v", err)
+	}
+}
+
+func TestDeleteRetry(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses directory permissions")
+	}
+	m, _, workspace := openTestManager(t)
+	p, err := m.Create(t.Context(), "retry", "Retry")
+	if err != nil {
+		t.Fatal(err)
+	}
+	projects := filepath.Join(workspace, "projects")
+	if err := os.Chmod(projects, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(projects, 0o700) })
+	if err := m.Delete(t.Context(), p); err == nil {
+		t.Fatal("deleted from an unwritable directory")
+	}
+	current, err := m.Get(t.Context(), p.ID)
+	if err != nil || current.State != project.StateDeleteFailed || current.Error == "" {
+		t.Fatalf("failed deletion: %+v %v", current, err)
+	}
+	if err := os.Chmod(projects, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Delete(t.Context(), current); err != nil {
+		t.Fatal(err)
+	}
+	replacement, err := m.Create(t.Context(), p.ID, "Replacement")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Delete(t.Context(), current); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("stale retry: %v", err)
+	}
+	if got, err := m.Get(t.Context(), p.ID); err != nil || got != replacement {
+		t.Fatalf("replacement: %+v %v", got, err)
+	}
+}
+
+func TestDeleteDoesNotInterruptCreation(t *testing.T) {
+	m, s, _ := openTestManager(t)
+	p := testProject("creating")
+	if err := s.InsertProject(t.Context(), p); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Delete(t.Context(), p); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("creating: %v", err)
+	}
+	if got, err := m.Get(t.Context(), p.ID); err != nil || got != p {
+		t.Fatalf("creation changed: %+v %v", got, err)
+	}
+}
+
+func TestDeleteAfterFilesRemoved(t *testing.T) {
+	m, _, workspace := openTestManager(t)
+	p, err := m.Create(t.Context(), "missing", "missing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(workspace, "projects", p.ID)); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Delete(t.Context(), p); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Get(t.Context(), p.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("row remains: %v", err)
+	}
+}
+
+type pausedDeletionStore struct {
+	store.Store
+	claimed chan struct{}
+	release chan struct{}
+}
+
+func (s pausedDeletionStore) UpdateProject(ctx context.Context, before, after project.Project) (project.Project, error) {
+	p, err := s.Store.UpdateProject(ctx, before, after)
+	if err == nil && p.ID == "first" && p.State == project.StateDeleting {
+		close(s.claimed)
+		<-s.release
+	}
+	return p, err
+}
+
+func TestDeleteClaimsProjectWithoutBlockingOtherProjects(t *testing.T) {
+	m, storage, _ := openTestManager(t)
+	first, err := m.Create(t.Context(), "first", "First")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := m.Create(t.Context(), "second", "Second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	paused := pausedDeletionStore{
+		Store:   storage,
+		claimed: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	m.store = paused
+	finished := make(chan struct{})
+	var checksDone chan struct{}
+	result := make(chan error, 1)
+	go func() {
+		defer close(finished)
+		result <- m.Delete(t.Context(), first)
+	}()
+	t.Cleanup(func() {
+		close(paused.release)
+		<-finished
+		if checksDone != nil {
+			<-checksDone
+		}
+	})
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	select {
+	case <-paused.claimed:
+	case <-ctx.Done():
+		t.Fatal("deletion was not claimed", ctx.Err())
+	}
+	current, err := m.Get(ctx, first.ID)
+	if err != nil || current.State != project.StateDeleting {
+		t.Fatalf("claim: %+v, %v", current, err)
+	}
+	checks := make(chan error, 1)
+	checksDone = make(chan struct{})
+	go func() {
+		defer close(checksDone)
+		if err := m.Delete(ctx, current); !errors.Is(err, store.ErrConflict) {
+			checks <- fmt.Errorf("active deletion accepted a retry: %v", err)
+			return
+		}
+		if err := m.Delete(ctx, first); !errors.Is(err, store.ErrConflict) {
+			checks <- fmt.Errorf("active deletion accepted a stale request: %v", err)
+			return
+		}
+		checks <- m.Delete(ctx, second)
+	}()
+	select {
+	case err := <-checks:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-ctx.Done():
+		t.Fatal("another project was blocked by deletion", ctx.Err())
+	}
+	// The blocked call must still own the first project until it resumes.
+	if _, err := m.Create(ctx, first.ID, "Replacement"); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("active deletion released its ID: %v", err)
+	}
+	// Resume and join before cleanup closes the manager.
+	paused.release <- struct{}{}
+	if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+}
+
+type failedDeletionStore struct {
+	store.Store
+	err error
+}
+
+func (s failedDeletionStore) DeleteProject(context.Context, project.Project) error {
+	return s.err
+}
+
+func TestDeleteRetriesMetadataRemoval(t *testing.T) {
+	m, storage, workspace := openTestManager(t)
+	p, err := m.Create(t.Context(), "retry-metadata", "Retry metadata")
+	if err != nil {
+		t.Fatal(err)
+	}
+	failure := errors.New("metadata removal failed")
+	m.store = failedDeletionStore{Store: storage, err: failure}
+	if err := m.Delete(t.Context(), p); !errors.Is(err, failure) {
+		t.Fatalf("delete: %v", err)
+	}
+	current, err := m.Get(t.Context(), p.ID)
+	if err != nil || current.State != project.StateDeleteFailed || current.Error == "" {
+		t.Fatalf("failure was not retryable: %+v, %v", current, err)
+	}
+	if _, err := os.Stat(filepath.Join(workspace, "projects", p.ID)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("files remain: %v", err)
+	}
+	m.store = storage
+	if err := m.Delete(t.Context(), current); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Get(t.Context(), p.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("row remains: %v", err)
 	}
 }
