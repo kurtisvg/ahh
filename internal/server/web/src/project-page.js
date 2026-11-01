@@ -6,11 +6,8 @@ export function renderProject({ detail, project }) {
       <dd id="project-name"></dd>
       <dt>Type</dt>
       <dd>Git</dd>
-      <dt>Repository</dt>
-      <dd id="project-state"></dd>
     </dl>
   `;
   detail.querySelector('h2').textContent = `${project.name} settings`;
   detail.querySelector('#project-name').textContent = project.name;
-  detail.querySelector('#project-state').textContent = project.state;
 }
