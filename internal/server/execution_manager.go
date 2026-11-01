@@ -114,7 +114,8 @@ func (m *executionManager) start(
 func (m *executionManager) Status(id string) processStatus {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	status := processStatus{State: "stopped"}
+	allowed := !m.closed
+	status := processStatus{State: "stopped", StartAllowed: &allowed}
 	state := m.states[id]
 	if state == nil {
 		return status
@@ -124,10 +125,12 @@ func (m *executionManager) Status(id string) processStatus {
 		select {
 		case <-state.stopDone:
 			if state.stopErr != nil {
+				allowed = false
 				status.State = "failed"
 				status.Error = "Harness exit is unconfirmed. Check the server logs."
 			}
 		default:
+			allowed = false
 			status.State = "stopping"
 		}
 		return status
@@ -145,6 +148,7 @@ func (m *executionManager) Status(id string) processStatus {
 	status.State = "running"
 	select {
 	case <-state.process.done:
+		allowed = state.process.result != nil && !m.closed
 		status.State = "failed"
 		if result := state.process.result; result != nil {
 			status.State = "exited"

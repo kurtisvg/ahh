@@ -54,13 +54,18 @@ func (s *Server) conversationStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	status := s.terminalStatus(p)
-	allowed := p.State == project.StateReady
+	allowed := p.State == project.StateReady && *status.StartAllowed
 	status.StartAllowed = &allowed
 	writeJSON(w, http.StatusOK, status)
 }
 
 func (s *Server) startConversation(w http.ResponseWriter, r *http.Request) {
-	p, err := s.projects.Get(r.Context(), r.PathValue("id"))
+	id := r.PathValue("id")
+	lock := s.projectLock(id)
+	lock.Lock()
+	defer lock.Unlock()
+
+	p, err := s.projects.Get(r.Context(), id)
 	if err != nil {
 		projectError(w, err)
 		return
