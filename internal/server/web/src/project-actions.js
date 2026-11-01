@@ -9,4 +9,3 @@ export async function mutate(path, body, signal, method = 'POST') {
   if (!response.ok) throw new Error(result.message || 'Project operation failed');
   return result;
 }
-
