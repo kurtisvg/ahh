@@ -9,7 +9,7 @@ import (
 
 func TestRenamePreservesIdentityAndRejectsStaleWrites(t *testing.T) {
 	m, _, _ := openTestManager(t)
-	p, err := m.Create(t.Context(), "my-project")
+	p, err := m.Create(t.Context(), "my-project", "My Project")
 	if err != nil {
 		t.Fatal(err)
 	}

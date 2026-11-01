@@ -75,7 +75,8 @@ func (s *Server) getProject(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		ID string `json:"id"`
+		ID   string `json:"id"`
+		Name string `json:"name"`
 	}
 	if !decodeBody(w, r, &body) {
 		return
@@ -87,7 +88,11 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	p, err := s.projects.Create(r.Context(), body.ID)
+	if err := project.ValidateName(body.Name); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiError{Code: "invalid_request", Message: err.Error()})
+		return
+	}
+	p, err := s.projects.Create(r.Context(), body.ID, body.Name)
 	if errors.Is(err, store.ErrConflict) || errors.Is(err, os.ErrExist) {
 		writeJSON(w, http.StatusConflict, apiError{
 			Code:    "conflict",

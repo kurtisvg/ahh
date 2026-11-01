@@ -14,8 +14,8 @@ import (
 
 // Manager provides project operations independently of their backend.
 type Manager interface {
-	// Create initializes a Git project with the given ID and registers it.
-	Create(context.Context, string) (Project, error)
+	// Create initializes and registers a Git project with the given ID and display name.
+	Create(context.Context, string, string) (Project, error)
 
 	// List returns all registered projects.
 	List(context.Context) ([]Project, error)

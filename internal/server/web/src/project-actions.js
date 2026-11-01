@@ -9,6 +9,7 @@ export async function mutate(path, body, signal, method = 'POST') {
   const result = await response.json();
   if (!response.ok) {
     const error = new Error(result.message || 'Project operation failed');
+    error.code = result.code;
     error.current = result.current;
     throw error;
   }

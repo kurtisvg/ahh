@@ -70,13 +70,15 @@ func TestProjectReads(t *testing.T) {
 
 type mockCreationManager struct {
 	project.Manager
-	requestedID string
-	err         error
+	requestedID   string
+	requestedName string
+	err           error
 }
 
-func (p *mockCreationManager) Create(_ context.Context, id string) (project.Project, error) {
+func (p *mockCreationManager) Create(_ context.Context, id, name string) (project.Project, error) {
 	p.requestedID = id
-	return project.Project{ID: id, Name: id, Type: "git", State: project.StateReady}, p.err
+	p.requestedName = name
+	return project.Project{ID: id, Name: name, Type: "git", State: project.StateReady}, p.err
 }
 
 func TestProjectCreationAPI(t *testing.T) {
@@ -85,16 +87,69 @@ func TestProjectCreationAPI(t *testing.T) {
 		err        error
 		status     int
 	}{
-		{name: "created", body: `{"id":"alpha"}`, status: 201},
-		{name: "display name is not an ID", body: `{"name":"alpha"}`, status: 400},
-		{name: "empty", body: `{"id":""}`, status: 400},
-		{name: "unsafe", body: `{"id":"../alpha"}`, status: 400},
-		{name: "too long", body: `{"id":"` + strings.Repeat("a", 65) + `"}`, status: 400},
-		{name: "unknown field", body: `{"id":"alpha","surprise":true}`, status: 400},
-		{name: "trailing data", body: `{"id":"alpha"} {}`, status: 400},
-		{name: "duplicate", body: `{"id":"alpha"}`, err: store.ErrConflict, status: 409},
-		{name: "existing directory", body: `{"id":"alpha"}`, err: os.ErrExist, status: 409},
-		{name: "setup failure", body: `{"id":"alpha"}`, err: errors.New("private path"), status: 503},
+		{
+			name:   "created",
+			body:   `{"name":"My Project","id":"alpha"}`,
+			status: 201,
+		},
+		{
+			name:   "display name is not an ID",
+			body:   `{"name":"alpha"}`,
+			status: 400,
+		},
+		{
+			name:   "missing display name",
+			body:   `{"id":"alpha"}`,
+			status: 400,
+		},
+		{
+			name:   "empty display name",
+			body:   `{"id":"alpha","name":" "}`,
+			status: 400,
+		},
+		{
+			name:   "empty",
+			body:   `{"name":"My Project","id":""}`,
+			status: 400,
+		},
+		{
+			name:   "unsafe",
+			body:   `{"name":"My Project","id":"../alpha"}`,
+			status: 400,
+		},
+		{
+			name:   "too long",
+			body:   `{"name":"My Project","id":"` + strings.Repeat("a", 65) + `"}`,
+			status: 400,
+		},
+		{
+			name:   "unknown field",
+			body:   `{"name":"My Project","id":"alpha","surprise":true}`,
+			status: 400,
+		},
+		{
+			name:   "trailing data",
+			body:   `{"name":"My Project","id":"alpha"} {}`,
+			status: 400,
+		},
+		{
+			name:   "duplicate",
+			body:   `{"name":"My Project","id":"alpha"}`,
+			err:    store.ErrConflict,
+			status: 409,
+		},
+		{
+			name:   "existing directory",
+			body:   `{"name":"My Project","id":"alpha"}`,
+			err:    os.ErrExist,
+			status: 409,
+		},
+		{
+			name:   "setup failure",
+			body:   `{"name":"My Project","id":"alpha"}`,
+			err:    errors.New("private path"),
+			status: 503,
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -109,8 +164,8 @@ func TestProjectCreationAPI(t *testing.T) {
 			if response.Code != test.status {
 				t.Fatalf("%d: %s", response.Code, response.Body.String())
 			}
-			if test.status == 201 && p.requestedID != "alpha" {
-				t.Fatalf("wrong creation ID: %q", p.requestedID)
+			if test.status == 201 && (p.requestedID != "alpha" || p.requestedName != "My Project") {
+				t.Fatalf("wrong creation input: ID %q, name %q", p.requestedID, p.requestedName)
 			}
 			if test.status == 400 && p.requestedID != "" {
 				t.Fatal("dispatched invalid creation")
