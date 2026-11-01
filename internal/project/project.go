@@ -1,16 +1,43 @@
-// Package project defines Project metadata and lifecycle states.
+// Package project defines project data and management operations.
 package project
 
 import (
+	"context"
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
+	"regexp"
 )
 
-// Metadata describes a Project's identity and lifecycle.
-type Metadata struct {
+// Manager provides project operations independently of their backend.
+type Manager interface {
+	// List returns all registered projects.
+	List(context.Context) ([]Project, error)
+
+	// Get returns the registered project with the given ID.
+	Get(context.Context, string) (Project, error)
+
+	// Close releases resources after project operations have stopped.
+	Close() error
+}
+
+var idPattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+
+// ValidateID checks a project name for use as one URL segment and directory name.
+func ValidateID(id string) error {
+	if len(id) > 64 || !idPattern.MatchString(id) {
+		return fmt.Errorf(
+			"invalid project ID %q: use 1-64 lowercase letters or digits, separated by single hyphens",
+			id,
+		)
+	}
+	return nil
+}
+
+// Project describes a project's identity, settings, and lifecycle.
+type Project struct {
 	// Immutable after creation.
-	ID   string `json:"id"`
+	ID   string `json:"id"`   // User-chosen URL-safe project name.
 	Type string `json:"type"` // Repository kind; currently "git".
 
 	// Mutable settings and lifecycle.

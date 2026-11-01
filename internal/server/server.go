@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kurtisvg/ahh/internal/project"
+	"github.com/kurtisvg/ahh/internal/project/local"
 	"github.com/kurtisvg/ahh/internal/store"
 )
 
@@ -25,6 +27,7 @@ type Server struct {
 
 	http           *http.Server
 	store          store.Store
+	projects       project.Manager
 	workspaceLock  *os.File
 	wrapperMu      sync.Mutex // Serializes launch and shutdown; proxies snapshot the process.
 	wrapper        *wrapperProcess
@@ -90,6 +93,15 @@ func start(
 	if err != nil {
 		return nil, fmt.Errorf("prepare page: %w", err)
 	}
+	projects, err := local.New(ctx, filepath.Dir(lock.Name()), storage)
+	if err != nil {
+		return nil, fmt.Errorf("open project manager: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			err = errors.Join(err, projects.Close())
+		}
+	}()
 
 	listenAddress := net.JoinHostPort(config.Address, strconv.Itoa(config.Port))
 	var listenConfig net.ListenConfig
@@ -123,6 +135,7 @@ func start(
 		Port:          actualPort,
 		Workspace:     filepath.Dir(lock.Name()),
 		store:         storage,
+		projects:      projects,
 		workspaceLock: lock,
 		http: &http.Server{
 			ReadHeaderTimeout: 5 * time.Second,
@@ -160,7 +173,7 @@ func (s *Server) serve(ctx context.Context, listener net.Listener) {
 		}
 		s.wrapperMu.Unlock()
 		s.requests.Wait()
-		s.err = errors.Join(s.err, s.store.Close(), s.workspaceLock.Close())
+		s.err = errors.Join(s.err, s.projects.Close(), s.store.Close(), s.workspaceLock.Close())
 	}()
 
 	serveErr := make(chan error, 1)

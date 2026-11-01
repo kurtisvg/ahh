@@ -20,8 +20,8 @@ func openTestStore(t *testing.T, path string) *Store {
 	return s
 }
 
-func testProject() project.Metadata {
-	return project.Metadata{
+func testProject() project.Project {
+	return project.Project{
 		ID: "project", Name: "Example", Type: "git",
 		State: project.StateCreating, Version: 1, CreatorToken: "first",
 	}

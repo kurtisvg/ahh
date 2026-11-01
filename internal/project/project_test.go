@@ -2,6 +2,7 @@ package project_test
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/kurtisvg/ahh/internal/project"
@@ -89,5 +90,39 @@ func TestStateRejectsInvalidValues(t *testing.T) {
 	}
 	if _, err := json.Marshal(project.State{}); err == nil {
 		t.Fatal("serialized unset state")
+	}
+}
+
+func TestValidateID(t *testing.T) {
+	tests := []struct {
+		name  string
+		id    string
+		valid bool
+	}{
+		{name: "name", id: "my-project", valid: true},
+		{name: "digits", id: "project-123", valid: true},
+		{name: "single character", id: "a", valid: true},
+		{name: "maximum length", id: strings.Repeat("a", 64), valid: true},
+		{name: "too long", id: strings.Repeat("a", 65)},
+		{name: "empty", id: ""},
+		{name: "uppercase", id: "My-Project"},
+		{name: "spaces", id: "my project"},
+		{name: "leading hyphen", id: "-project"},
+		{name: "trailing hyphen", id: "project-"},
+		{name: "repeated hyphen", id: "my--project"},
+		{name: "traversal", id: "../project"},
+		{name: "nested path", id: "my/project"},
+		{name: "backslash", id: `my\project`},
+		{name: "encoded separator", id: "my%2fproject"},
+		{name: "query", id: "project?x=1"},
+		{name: "fragment", id: "project#section"},
+		{name: "unicode", id: "café"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := project.ValidateID(test.id); (err == nil) != test.valid {
+				t.Fatalf("ValidateID(%q) = %v", test.id, err)
+			}
+		})
 	}
 }

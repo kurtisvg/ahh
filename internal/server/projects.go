@@ -27,7 +27,7 @@ func projectError(w http.ResponseWriter, err error) {
 }
 
 func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
-	projects, err := s.store.ListProjects(r.Context())
+	projects, err := s.projects.List(r.Context())
 	if err != nil {
 		projectError(w, err)
 		return
@@ -36,7 +36,7 @@ func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getProject(w http.ResponseWriter, r *http.Request) {
-	p, err := s.store.GetProject(r.Context(), r.PathValue("id"))
+	p, err := s.projects.Get(r.Context(), r.PathValue("id"))
 	if err != nil {
 		projectError(w, err)
 		return
