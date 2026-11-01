@@ -28,13 +28,19 @@ type wrapperProcess struct {
 }
 
 // startWrapper waits for the wrapper's startup JSON before returning ownership.
-// On failure it stops the child and releases its output pipe.
-func startWrapper(ctx context.Context, executable string, args ...string) (*wrapperProcess, error) {
+// On failure it stops the child and releases its output pipe. A non-nil child
+// returned with an error retains evidence of an unconfirmed harness lifetime.
+func startWrapper(
+	ctx context.Context,
+	directory, executable string,
+	args ...string,
+) (*wrapperProcess, error) {
 	ready, stop := context.WithTimeout(ctx, 10*time.Second)
 	defer stop()
 
 	ctx, cancel := context.WithCancel(ctx)
 	command := exec.CommandContext(ctx, executable, args...)
+	command.Dir = directory
 	command.Cancel = func() error {
 		return command.Process.Signal(syscall.SIGTERM)
 	}
@@ -111,15 +117,20 @@ func startWrapper(ctx context.Context, executable string, args ...string) (*wrap
 		close(p.done)
 	}()
 
+	setupFailed := false
 	select {
 	case data := <-startup:
 		var started struct {
 			Address string `json:"address"`
 			Port    int    `json:"port"`
+			Error   string `json:"error"`
 		}
 		err = json.Unmarshal(data, &started)
 		if err == nil {
-			if !net.ParseIP(started.Address).IsLoopback() || started.Port < 1 || started.Port > 65535 {
+			if started.Error != "" && started.Address == "" && started.Port == 0 {
+				setupFailed = true
+				err = errors.New(started.Error)
+			} else if !net.ParseIP(started.Address).IsLoopback() || started.Port < 1 || started.Port > 65535 {
 				err = errors.New("wrapper did not report a loopback address and valid port")
 			} else {
 				p.url = &url.URL{
@@ -136,7 +147,10 @@ func startWrapper(ctx context.Context, executable string, args ...string) (*wrap
 		defer stop()
 		_ = p.Shutdown(shutdown)
 		_ = p.Wait()
-		return nil, fmt.Errorf("wrapper startup: %w", err)
+		if setupFailed {
+			return nil, fmt.Errorf("wrapper startup: %w", err)
+		}
+		return p, fmt.Errorf("wrapper startup: %w", err)
 	}
 	return p, nil
 }

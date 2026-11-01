@@ -119,7 +119,7 @@ func TestServerLifecycle(t *testing.T) {
 				t.Fatal("server did not stop")
 			}
 
-			if server.wrapper.command.ProcessState == nil {
+			if server.currentWrapper().command.ProcessState == nil {
 				t.Fatal("Wait returned before the wrapper was reaped")
 			}
 			// Signal 0 checks existence without sending a signal to the process.

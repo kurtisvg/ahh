@@ -29,9 +29,8 @@ type Server struct {
 	store          store.Store
 	projects       project.Manager
 	workspaceLock  *os.File
-	wrapperMu      sync.Mutex // Serializes launch and shutdown; proxies snapshot the process.
-	wrapper        *wrapperProcess
-	launch         func() (*wrapperProcess, error)
+	executions     *executionManager
+	startupDir     string
 	cancelRequests context.CancelFunc
 	requestsMu     sync.Mutex // Prevents registration after shutdown starts.
 	requests       sync.WaitGroup
@@ -141,14 +140,20 @@ func start(
 			ReadHeaderTimeout: 5 * time.Second,
 			BaseContext:       func(net.Listener) context.Context { return requestCtx },
 		},
-		launch: func() (*wrapperProcess, error) {
+		executions: newExecutionManager(func(ctx context.Context, directory string) (*wrapperProcess, error) {
 			if err := requestCtx.Err(); err != nil {
 				return nil, err
 			}
-			return startWrapper(requestCtx, executable, args...)
-		},
+			return startWrapper(ctx, directory, executable, args...)
+		}),
 		cancelRequests: cancelRequests,
 		done:           make(chan struct{}),
+	}
+	server.startupDir, err = os.Getwd()
+	if err != nil {
+		cancelRequests()
+		_ = listener.Close()
+		return nil, err
 	}
 	mux.HandleFunc("GET /api/projects", server.listProjects)
 	mux.HandleFunc("POST /api/projects", server.createProject)
@@ -168,12 +173,7 @@ func (s *Server) serve(ctx context.Context, listener net.Listener) {
 		s.stopRequests()
 		shutdown, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cancel()
-		s.wrapperMu.Lock()
-		if s.wrapper != nil {
-			_ = s.wrapper.Shutdown(shutdown)
-			_ = s.wrapper.Wait()
-		}
-		s.wrapperMu.Unlock()
+		s.err = errors.Join(s.err, s.executions.Close(shutdown))
 		s.requests.Wait()
 		s.err = errors.Join(s.err, s.projects.Close(), s.store.Close(), s.workspaceLock.Close())
 	}()

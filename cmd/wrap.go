@@ -18,8 +18,9 @@ type wrapOpts struct {
 }
 
 type wrapStartup struct {
-	Address string `json:"address"`
-	Port    int    `json:"port"`
+	Address string `json:"address,omitempty"`
+	Port    int    `json:"port,omitempty"`
+	Error   string `json:"error,omitempty"`
 }
 
 func newWrapCommand() *cobra.Command {
@@ -48,6 +49,10 @@ func runWrapCommand(cmd *cobra.Command, opts wrapOpts, name string) error {
 		name,
 	)
 	if err != nil {
+		// Start returns only after failed setup has released its resources. This
+		// explicit report lets the orchestrator distinguish a safe retry from a
+		// wrapper that disappeared while it may still own a harness.
+		_ = json.NewEncoder(cmd.OutOrStdout()).Encode(wrapStartup{Error: err.Error()})
 		return fmt.Errorf("start wrapper server: %w", err)
 	}
 	defer func() {

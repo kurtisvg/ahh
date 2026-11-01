@@ -128,8 +128,11 @@ func TestFailedLaunchKeepsHTTPAvailable(t *testing.T) {
 					t.Fatal(err)
 				}
 				_ = resp.Body.Close()
-				if resp.StatusCode != http.StatusOK || s.currentWrapper() != nil {
+				if resp.StatusCode != http.StatusOK {
 					t.Fatal("launch failure damaged server state")
+				}
+				if (s.currentWrapper() != nil) != (command == "sh") {
+					t.Fatal("startup failure lost ownership evidence")
 				}
 			}
 		})

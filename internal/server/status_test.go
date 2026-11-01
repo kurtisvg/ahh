@@ -29,7 +29,7 @@ func TestWrapperExitReport(t *testing.T) {
 
 			// Both records can arrive in one read, before startup returns.
 			script := `printf '%s\n' '{"address":"127.0.0.1","port":12345}' '` + test.report + `'`
-			child, err := startWrapper(ctx, "sh", "-c", script)
+			child, err := startWrapper(ctx, "", "sh", "-c", script)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -38,7 +38,14 @@ func TestWrapperExitReport(t *testing.T) {
 				t.Fatalf("wrapper result error = %v", err)
 			}
 
-			server := &Server{wrapper: child}
+			manager := newExecutionManager(func(context.Context, string) (*wrapperProcess, error) {
+				return child, nil
+			})
+			if err := manager.startAndWait(ctx, "", ""); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = manager.Close(t.Context()) })
+			server := &Server{executions: manager}
 			response := httptest.NewRecorder()
 			server.serveStatus(response, httptest.NewRequest(http.MethodGet, "/status", nil))
 			var status processStatus
