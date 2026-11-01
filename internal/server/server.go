@@ -128,6 +128,8 @@ func start(
 	mux.Handle("GET /{$}", page)
 	mux.Handle("GET /terminal", page)
 	mux.Handle("GET /p", page)
+	mux.Handle("GET /c", page)
+	mux.Handle("GET /p/{id}/c", page)
 	mux.Handle("GET /p/{id}", page)
 	server := &Server{
 		Address:       actualAddress,

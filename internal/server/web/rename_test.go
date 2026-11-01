@@ -39,7 +39,7 @@ func TestRenameDraftAndConflict(t *testing.T) {
 		Exact: playwright.Bool(true),
 	}).Click())
 	requireNoError(t, page.GetByRole("link", playwright.PageGetByRoleOptions{
-		Name:  "Alpha · ready",
+		Name:  "Alpha",
 		Exact: playwright.Bool(true),
 	}).Click())
 	requireNoError(t, expect.Locator(name).ToHaveValue("Renamed"))
