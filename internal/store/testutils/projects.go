@@ -3,12 +3,81 @@
 package testutils
 
 import (
+	"context"
 	"errors"
 	"testing"
 
 	"github.com/kurtisvg/ahh/internal/project"
 	"github.com/kurtisvg/ahh/internal/store"
 )
+
+func TestDeleteProject(t *testing.T, s store.Store) {
+	t.Helper()
+	p := testProject()
+	if err := s.InsertProject(t.Context(), p); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name   string
+		mutate func(*project.Project)
+	}{
+		{name: "wrong ID", mutate: func(p *project.Project) { p.ID = "other" }},
+		{name: "wrong type", mutate: func(p *project.Project) { p.Type = "other" }},
+		{name: "wrong version", mutate: func(p *project.Project) { p.Version++ }},
+		{name: "wrong state", mutate: func(p *project.Project) { p.State = project.StateReady }},
+		{name: "wrong token", mutate: func(p *project.Project) { p.CreatorToken = "other" }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			before := p
+			test.mutate(&before)
+			if err := s.DeleteProject(t.Context(), before); !errors.Is(err, store.ErrConflict) {
+				t.Fatalf("stale deletion: %v", err)
+			}
+		})
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := s.DeleteProject(ctx, p); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled deletion: %v", err)
+	}
+	if got, err := s.GetProject(t.Context(), p.ID); err != nil || got != p {
+		t.Fatalf("rejected deletion changed metadata: %+v, %v", got, err)
+	}
+	if err := s.DeleteProject(t.Context(), p); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetProject(t.Context(), p.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("deleted project still present: %v", err)
+	}
+	if got, err := s.ListProjects(t.Context()); err != nil || len(got) != 0 {
+		t.Fatalf("deleted project still listed: %+v, %v", got, err)
+	}
+	if err := s.DeleteProject(t.Context(), p); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("repeated deletion: %v", err)
+	}
+
+	replacement := p
+	replacement.CreatorToken = "new-attempt"
+	if err := s.InsertProject(t.Context(), replacement); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteProject(t.Context(), p); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("old attempt deleted replacement: %v", err)
+	}
+	ready := replacement
+	ready.State = project.StateReady
+	ready, err := s.UpdateProject(t.Context(), replacement, ready)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteProject(t.Context(), ready); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("deleted a ready project: %v", err)
+	}
+	if got, err := s.GetProject(t.Context(), p.ID); err != nil || got != ready {
+		t.Fatalf("ready project changed: %+v, %v", got, err)
+	}
+}
 
 func testProject() project.Project {
 	return project.Project{

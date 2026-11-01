@@ -111,3 +111,30 @@ func (s *Store) UpdateProject(ctx context.Context, before, after project.Project
 
 	return p, nil
 }
+
+func (s *Store) DeleteProject(ctx context.Context, before project.Project) error {
+	if before.State != project.StateCreating || before.Version < 1 || before.CreatorToken == "" {
+		return store.ErrConflict
+	}
+
+	query := `
+		DELETE FROM projects
+		WHERE id = :id
+			AND type = :type
+			AND version = :version
+			AND state = :state
+			AND state = 'creating'
+			AND creator_token = :creator_token`
+	result, err := s.db.NamedExecContext(ctx, query, before)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return store.ErrConflict
+	}
+	return nil
+}
