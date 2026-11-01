@@ -51,7 +51,7 @@ func TestCreateWithoutHarness(t *testing.T) {
 				Name:  "Add Project",
 				Exact: playwright.Bool(true),
 			}).Click())
-			requireNoError(t, page.GetByLabel("Project ID", playwright.PageGetByLabelOptions{
+			requireNoError(t, page.GetByLabel("Display name", playwright.PageGetByLabelOptions{
 				Exact: playwright.Bool(true),
 			}).Fill("alpha"))
 			requireNoError(t, page.GetByRole("button", playwright.PageGetByRoleOptions{
@@ -79,7 +79,7 @@ func TestCreateWithoutHarness(t *testing.T) {
 			_, err = page.Reload()
 			requireNoError(t, err)
 			requireNoError(t,
-				expect.Locator(page.Locator("#project-name")).ToHaveText("alpha"),
+				expect.Locator(page.Locator("#project-name")).ToHaveValue("alpha"),
 			)
 		})
 	}
@@ -114,7 +114,7 @@ exec %q "$@"
 		Name:  "Add Project",
 		Exact: playwright.Bool(true),
 	}).Click())
-	requireNoError(t, page.GetByLabel("Project ID", playwright.PageGetByLabelOptions{
+	requireNoError(t, page.GetByLabel("Display name", playwright.PageGetByLabelOptions{
 		Exact: playwright.Bool(true),
 	}).Fill("slow-setup"))
 	requireNoError(t, page.GetByRole("button", playwright.PageGetByRoleOptions{
@@ -130,7 +130,66 @@ exec %q "$@"
 	requireNoError(t, expect.Page(page).ToHaveURL(strings.TrimRight(url, "/")+"/p"))
 	requireNoError(t, os.WriteFile(release, nil, 0o600))
 	requireNoError(t,
-		expect.Locator(page.Locator("#project-name")).ToHaveText("slow-setup"),
+		expect.Locator(page.Locator("#project-name")).ToHaveValue("slow-setup"),
 	)
 	requireNoError(t, expect.Locator(page.Locator("dialog[open]")).ToHaveCount(0))
+}
+
+func TestCreationNameAndID(t *testing.T) {
+	if testing.Short() {
+		t.Skip("browser tests are excluded in short mode")
+	}
+	url, _ := startBrowserServer(t, buildBrowserBinary(t), t.TempDir(), "/")
+	page, err := newBrowserContext(t).NewPage()
+	requireNoError(t, err)
+	_, err = page.Goto(url + "/p")
+	requireNoError(t, err)
+	expect := playwright.NewPlaywrightAssertions()
+	add := page.GetByRole("button", playwright.PageGetByRoleOptions{
+		Name: "Add Project", Exact: playwright.Bool(true),
+	})
+	requireNoError(t, add.Click())
+	name := page.GetByLabel("Display name", playwright.PageGetByLabelOptions{
+		Exact: playwright.Bool(true),
+	})
+	id := page.GetByLabel("Project ID", playwright.PageGetByLabelOptions{
+		Exact: playwright.Bool(true),
+	})
+	create := page.GetByRole("button", playwright.PageGetByRoleOptions{
+		Name: "Create Project", Exact: playwright.Bool(true),
+	})
+	requireNoError(t, expect.Locator(create).ToBeDisabled())
+	requireNoError(t, name.Fill("  Café & Notes!  "))
+	requireNoError(t, expect.Locator(id).ToHaveValue("cafe-notes"))
+	requireNoError(t, name.Fill("Updated Project"))
+	requireNoError(t, expect.Locator(id).ToHaveValue("updated-project"))
+	requireNoError(t, id.Fill("Invalid ID"))
+	requireNoError(t, expect.Locator(id).ToHaveAttribute("aria-invalid", "true"))
+	requireNoError(t, expect.Locator(page.Locator("#create-project-id-error")).
+		ToContainText("lowercase letters or digits"))
+	requireNoError(t, expect.Locator(create).ToBeDisabled())
+	requireNoError(t, id.Fill(strings.Repeat("a", 65)))
+	requireNoError(t, expect.Locator(page.Locator("#create-project-id-error")).
+		ToContainText("64 characters"))
+	requireNoError(t, id.Fill("custom-id"))
+	requireNoError(t, name.Fill(" A Different Display Name "))
+	requireNoError(t, expect.Locator(id).ToHaveValue("custom-id"))
+	requireNoError(t, expect.Locator(id).ToHaveAttribute("aria-invalid", "false"))
+	requireNoError(t, expect.Locator(create).ToBeEnabled())
+	requireNoError(t, create.Click())
+	requireNoError(t, expect.Page(page).ToHaveURL(url+"/p/custom-id"))
+	requireNoError(t, expect.Locator(page.Locator("#project-name")).
+		ToHaveValue("A Different Display Name"))
+	_, err = page.Reload()
+	requireNoError(t, err)
+	requireNoError(t, expect.Locator(page.Locator("#project-name")).
+		ToHaveValue("A Different Display Name"))
+	requireNoError(t, add.Click())
+	requireNoError(t, name.Fill("Custom ID"))
+	requireNoError(t, create.Click())
+	requireNoError(t, expect.Locator(page.Locator("#create-project-id-error")).
+		ToContainText("ID is taken"))
+	requireNoError(t, expect.Locator(create).ToBeDisabled())
+	requireNoError(t, id.Fill("another-id"))
+	requireNoError(t, expect.Locator(create).ToBeEnabled())
 }

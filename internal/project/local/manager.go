@@ -70,20 +70,23 @@ func (m *Manager) Get(ctx context.Context, id string) (project.Project, error) {
 	return m.store.GetProject(ctx, id)
 }
 
-// Create initializes a Git project; its initial display name is the ID. It returns only
+// Create initializes a Git project with the given ID and display name. It returns
 // after files and metadata are ready. Existing project directories are rejected.
-func (m *Manager) Create(ctx context.Context, id string) (project.Project, error) {
+func (m *Manager) Create(ctx context.Context, id, name string) (project.Project, error) {
 	if err := ctx.Err(); err != nil {
 		return project.Project{}, err
 	}
 	if err := project.ValidateID(id); err != nil {
 		return project.Project{}, err
 	}
+	if err := project.ValidateName(name); err != nil {
+		return project.Project{}, err
+	}
 	p := project.Project{
-		ID: id, Name: id, Type: "git",
+		ID: id, Name: strings.TrimSpace(name), Type: "git",
 		State: project.StateCreating, Version: 1, CreatorToken: rand.Text(),
 	}
-	// Inserting first gives this attempt exclusive ownership of the name.
+	// Inserting first gives this attempt exclusive ownership of the ID.
 	if err := m.store.InsertProject(ctx, p); err != nil {
 		return project.Project{}, fmt.Errorf("create project %q: %w", p.ID, err)
 	}
@@ -101,7 +104,7 @@ func (m *Manager) Create(ctx context.Context, id string) (project.Project, error
 	return ready, nil
 }
 
-// Remove only this attempt's files before releasing its registered name.
+// Remove only this attempt's files before releasing its registered ID.
 func (m *Manager) rollback(ctx context.Context, p project.Project, cleanup func() error) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()

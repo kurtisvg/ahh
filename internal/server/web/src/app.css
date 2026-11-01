@@ -36,3 +36,10 @@ label { display: grid; gap: 8px; }
 input, select { min-width: 0; max-width: 100%; }
 .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
 [role="alert"] { color: #fda4af; }
+.form-field + .form-field { margin-top: 20px; }
+.form-field label { margin-bottom: 8px; }
+.form-field input { width: 100%; }
+.form-field .field-help { margin: 10px 0 0; color: #94a3b8; font-size: 12px; line-height: 1.5; }
+.form-field .field-error { margin: 8px 0 0; color: #ffb6bc; font-size: 12px; }
+.form-field .field-error:empty { margin: 0; }
+.form-field input[aria-invalid="true"] { border-color: #ffb6bc; }

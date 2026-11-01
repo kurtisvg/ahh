@@ -97,11 +97,11 @@ func TestManagerCreatesProject(t *testing.T) {
 	m, s, workspace := openTestManager(t)
 	outside := t.TempDir()
 	t.Setenv("GIT_DIR", outside)
-	p, err := m.Create(t.Context(), "my-project")
+	p, err := m.Create(t.Context(), "my-project", " My Project ")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.ID != "my-project" || p.Name != p.ID || p.Type != "git" ||
+	if p.ID != "my-project" || p.Name != "My Project" || p.Type != "git" ||
 		p.State != project.StateReady || p.Version != 2 {
 		t.Fatalf("created metadata: %+v", p)
 	}
@@ -123,7 +123,7 @@ func TestManagerCreatesProject(t *testing.T) {
 	if err := os.WriteFile(work, []byte("keep"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := m.Create(t.Context(), p.ID); !errors.Is(err, store.ErrConflict) {
+	if _, err := m.Create(t.Context(), p.ID, "My Project"); !errors.Is(err, store.ErrConflict) {
 		t.Fatalf("duplicate name: %v", err)
 	}
 	if data, err := os.ReadFile(work); err != nil || string(data) != "keep" {
@@ -137,7 +137,7 @@ func TestManagerCreationFailureReleasesName(t *testing.T) {
 	id := "my-project"
 	originalPath := os.Getenv("PATH")
 	t.Setenv("PATH", t.TempDir())
-	if got, err := m.Create(t.Context(), id); err == nil || got != (project.Project{}) {
+	if got, err := m.Create(t.Context(), id, "My Project"); err == nil || got != (project.Project{}) {
 		t.Fatalf("failed creation: %+v, %v", got, err)
 	}
 	if _, err := s.GetProject(t.Context(), id); !errors.Is(err, store.ErrNotFound) {
@@ -147,7 +147,7 @@ func TestManagerCreationFailureReleasesName(t *testing.T) {
 		t.Fatalf("failed creation retained files: %v", err)
 	}
 	t.Setenv("PATH", originalPath)
-	if _, err := m.Create(t.Context(), id); err != nil {
+	if _, err := m.Create(t.Context(), id, "My Project"); err != nil {
 		t.Fatalf("fresh creation could not reuse name: %v", err)
 	}
 }
@@ -169,7 +169,7 @@ func TestCanceledCreationCleansMetadata(t *testing.T) {
 	defer cancel()
 	m.store = cancelAfterInsert{Store: s, cancel: cancel}
 	id := "my-project"
-	if _, err := m.Create(ctx, id); !errors.Is(err, context.Canceled) {
+	if _, err := m.Create(ctx, id, "My Project"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled creation: %v", err)
 	}
 	if _, err := s.GetProject(t.Context(), id); !errors.Is(err, store.ErrNotFound) {
@@ -189,7 +189,7 @@ func TestUncertainCompletionPreservesTrackedFiles(t *testing.T) {
 	m, s, workspace := openTestManager(t)
 	m.store = failingCompletion{Store: s}
 	id := "my-project"
-	if got, err := m.Create(t.Context(), id); err == nil || got != (project.Project{}) {
+	if got, err := m.Create(t.Context(), id, "My Project"); err == nil || got != (project.Project{}) {
 		t.Fatalf("unconfirmed completion: %+v, %v", got, err)
 	}
 	saved, err := s.GetProject(t.Context(), id)
@@ -207,7 +207,7 @@ func TestConcurrentProjectCreation(t *testing.T) {
 	results := make(chan error, 2)
 	for range 2 {
 		go func() {
-			_, err := m.Create(t.Context(), "same-name")
+			_, err := m.Create(t.Context(), "same-name", "My Project")
 			results <- err
 		}()
 	}
@@ -238,7 +238,7 @@ func TestCleanupFailureRetainsCreationRecord(t *testing.T) {
 	}
 	t.Setenv("PATH", bin)
 	t.Cleanup(func() { _ = os.Chmod(path, 0o700) })
-	if _, err := m.Create(t.Context(), id); err == nil {
+	if _, err := m.Create(t.Context(), id, "My Project"); err == nil {
 		t.Fatal("creation unexpectedly succeeded")
 	}
 	if got, err := s.GetProject(t.Context(), id); err != nil || got.State != project.StateCreating {
@@ -248,15 +248,16 @@ func TestCleanupFailureRetainsCreationRecord(t *testing.T) {
 
 func TestCreationValidatesBeforeInserting(t *testing.T) {
 	tests := []struct {
-		name, id string
+		name, id, displayName string
 	}{
-		{name: "unsafe ID", id: "../escape"},
-		{name: "empty ID", id: ""},
+		{name: "unsafe ID", id: "../escape", displayName: "My Project"},
+		{name: "empty ID", id: "", displayName: "My Project"},
+		{name: "empty display name", id: "my-project", displayName: " "},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			m, s, _ := openTestManager(t)
-			if _, err := m.Create(t.Context(), test.id); err == nil {
+			if _, err := m.Create(t.Context(), test.id, test.displayName); err == nil {
 				t.Fatal("accepted invalid project")
 			}
 			if got, err := s.ListProjects(t.Context()); err != nil || len(got) != 0 {
@@ -300,7 +301,7 @@ func TestCreationPreservesExistingFiles(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := m.Create(t.Context(), id); err == nil {
+			if _, err := m.Create(t.Context(), id, "My Project"); err == nil {
 				t.Fatal("accepted occupied project path")
 			}
 			after, err := os.Lstat(path)
@@ -328,7 +329,7 @@ func TestCreationRejectsExistingEmptyDirectory(t *testing.T) {
 	if err := os.Mkdir(path, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := m.Create(t.Context(), id); !errors.Is(err, os.ErrExist) {
+	if _, err := m.Create(t.Context(), id, "My Project"); !errors.Is(err, os.ErrExist) {
 		t.Fatalf("existing directory: %v", err)
 	}
 	entries, err := os.ReadDir(path)
