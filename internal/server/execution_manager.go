@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
+	"log/slog"
 	"sync"
 )
 
@@ -94,6 +95,9 @@ func (m *executionManager) start(
 	m.states[id] = state
 	go func() {
 		process, err := m.launch(ctx, directory)
+		if err != nil {
+			slog.Error("launch execution", "id", id, "error", err)
+		}
 		m.mu.Lock()
 		defer m.mu.Unlock()
 		state.process, state.startErr = process, err
