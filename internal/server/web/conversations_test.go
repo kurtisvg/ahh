@@ -30,9 +30,9 @@ func createBrowserProject(t *testing.T, page playwright.Page, url, name string) 
 func TestConversationNavigation(t *testing.T) {
 	testConnections(t, "", func(t *testing.T, f browserTest) {
 		page := f.page
-		a := createBrowserProject(t, page, f.url, "Alpha")
-		b := createBrowserProject(t, page, f.url, "Beta")
-		base := strings.TrimRight(f.url, "/")
+		a := createBrowserProject(t, page, f.baseURL, "Alpha")
+		b := createBrowserProject(t, page, f.baseURL, "Beta")
+		base := f.baseURL
 		bookmark := base + "/p/" + a.ID + "/c"
 		_, err := page.Goto(base + "/c")
 		requireNoError(t, err)

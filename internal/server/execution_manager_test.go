@@ -246,3 +246,25 @@ func TestExecutionStopDuringStartup(t *testing.T) {
 		t.Fatalf("restart after cleanup: %v", err)
 	}
 }
+
+// startAndWait lets tests wait for a launch attempt to finish.
+// Canceling the wait does not cancel the conversation's execution.
+func (m *executionManager) startAndWait(ctx context.Context, id, directory string) error {
+	state, err := m.start(ctx, id, directory)
+	if err != nil {
+		return err
+	}
+	m.mu.Lock()
+	starting := state.starting
+	m.mu.Unlock()
+	if starting != nil {
+		select {
+		case <-starting:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return state.startErr
+}

@@ -3,10 +3,9 @@ import { renderProject } from './project-page.js';
 import { projectList, renderProjectPicker } from './project-sidebar.js';
 import { link } from './navigation.js';
 import { renderConversation } from './conversation-page.js';
-import { mountTerminal } from './terminal.js';
 import { icon } from './icons.js';
 import { addProject } from './project-create.js';
-import { startRouter, appURL, baseURL } from './router.js';
+import { startRouter, appURL } from './router.js';
 
 const app = document.querySelector('#app');
 let activeView = () => {};
@@ -25,16 +24,10 @@ const navigate = startRouter(async path => {
   document.title = `${conversations ? 'Conversations' : 'Settings'} · Ahh`;
   const { sidebar, detail, projectsLink, conversationsLink } = renderShell(app, {
     id,
-    conversations: conversations || path === 'terminal',
+    conversations,
   });
   detail.tabIndex = -1;
   detail.focus();
-  if (path === 'terminal') {
-    sidebar.textContent = 'Local terminal (startup directory)';
-    detail.innerHTML = '<div class="toolbar"><p id="status" role="status">Loading…</p><button id="start" hidden>Start terminal</button></div><div id="terminal" aria-label="Codex terminal"></div><p id="notice" role="status"></p>';
-    terminalDispose = mountTerminal({ container: detail.querySelector('#terminal'), status: detail.querySelector('#status'), start: detail.querySelector('#start'), notice: detail.querySelector('#notice'), baseURL });
-    return;
-  }
   (conversations ? conversationsLink : projectsLink).setAttribute('aria-current', 'page');
   if (!match && !conversations) { document.title = 'Page not found · Ahh'; detail.textContent = 'Page not found'; return; }
   sidebar.innerHTML = '<div class="sidebar-heading"><h2>Projects</h2></div><p>Loading Projects…</p>';
