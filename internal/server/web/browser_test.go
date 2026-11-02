@@ -70,6 +70,12 @@ func testConnections(t *testing.T, script string, run func(*testing.T, browserTe
 
 func buildBrowserBinary(t *testing.T) string {
 	t.Helper()
+	if binary := os.Getenv("AHH_TEST_BINARY"); binary != "" {
+		if !filepath.IsAbs(binary) || os.Getenv("AHH_COVERAGE_DIR") == "" {
+			t.Fatal("coverage binary requires an absolute path and AHH_COVERAGE_DIR")
+		}
+		return binary
+	}
 	root, err := filepath.Abs("../../..")
 	requireNoError(t, err)
 	binary := filepath.Join(t.TempDir(), "ahh")
@@ -102,6 +108,10 @@ func startBrowserServer(t *testing.T, binary, directory, basePath string, env ..
 		"--workspace", filepath.Join(directory, "workspace"))
 	command.Dir = directory
 	command.Env = append(os.Environ(), env...)
+	if dir := os.Getenv("AHH_COVERAGE_DIR"); dir != "" {
+		// go test sets its own GOCOVERDIR; retain application counters separately.
+		command.Env = append(command.Env, "GOCOVERDIR="+dir)
+	}
 	command.Stderr = os.Stderr
 	command.Cancel = func() error { return command.Process.Signal(syscall.SIGTERM) }
 	command.WaitDelay = 10 * time.Second

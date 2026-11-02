@@ -19,7 +19,7 @@ jobs:
   test:
     if: "github.event.action != 'labeled' || github.event.label.name == 'tests: run'"
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     permissions:
       contents: read
       pull-requests: write
@@ -63,7 +63,17 @@ jobs:
       - name: Install browser
         run: go run github.com/mxschmitt/playwright-go/cmd/playwright install --with-deps chromium
       - name: Test
-        run: go test -count=1 -race -shuffle=on -timeout 5m ./...
+        run: go run ./tools/coverage
+      - name: Upload coverage reports
+        if: always() # Keep coverage reports available when the coverage gate fails.
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: go-coverage
+          path: |
+            coverage/run.*/coverage.out
+            coverage/run.*/coverage.html
+            coverage/run.*/summary.md
+          if-no-files-found: warn
 
   lint:
     if: "github.event.action != 'labeled' || github.event.label.name == 'tests: run'"
