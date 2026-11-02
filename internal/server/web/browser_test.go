@@ -3,6 +3,8 @@ package web_test
 import (
 	"bufio"
 	"context"
+	"flag"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -30,7 +32,8 @@ func testConnections(t *testing.T, script string, run func(*testing.T, browserTe
 	if testing.Short() {
 		t.Skip("browser tests are excluded in short mode")
 	}
-	binary := buildBrowserBinary(t)
+	t.Parallel()
+	binary := ahhBinary.Get(t)
 	if script == "" {
 		data, err := os.ReadFile("../../harness/pty/testdata/fake-harness")
 		requireNoError(t, err)
@@ -68,33 +71,22 @@ func testConnections(t *testing.T, script string, run func(*testing.T, browserTe
 	}
 }
 
-func buildBrowserBinary(t *testing.T) string {
-	t.Helper()
-	if binary := os.Getenv("AHH_TEST_BINARY"); binary != "" {
-		if !filepath.IsAbs(binary) || os.Getenv("AHH_COVERAGE_DIR") == "" {
-			t.Fatal("coverage binary requires an absolute path and AHH_COVERAGE_DIR")
-		}
-		return binary
-	}
-	root, err := filepath.Abs("../../..")
-	requireNoError(t, err)
-	binary := filepath.Join(t.TempDir(), "ahh")
-	runBrowserCommand(t, root, "go", "build", "-o", binary, ".")
-	return binary
-}
+var ahhBinary testBinary
 
-func runBrowserCommand(t *testing.T, directory string, args ...string) []byte {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
-	defer cancel()
-	command := exec.CommandContext(ctx, args[0], args[1:]...)
-	command.Dir = directory
-	command.WaitDelay = 10 * time.Second
-	output, err := command.CombinedOutput()
-	if err != nil {
-		t.Fatalf("%s: %v\n%s", args[0], err, output)
+func TestMain(m *testing.M) {
+	flag.Parse()
+	if !testing.Short() {
+		if err := ahhBinary.Build(os.Getenv("AHH_TEST_BINARY")); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	}
-	return output
+	code := m.Run()
+	if err := ahhBinary.Close(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		code = 1
+	}
+	os.Exit(code)
 }
 
 // startBrowserServer returns the ready URL and a graceful stop function.

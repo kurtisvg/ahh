@@ -95,7 +95,7 @@ golangci-lint run --fix --timeout 5m
 Run all tests, including browser tests, with race detection:
 
 ```sh
-go test -count=1 -race -shuffle=on -timeout 5m ./...
+go test -count=1 -race -shuffle=on ./...
 ```
 
 Browser tests use a fake harness and run the built binary outside the checkout.
@@ -112,7 +112,7 @@ include its smoke test with:
 
 ```sh
 go generate ./...
-go test -tags=integration_codex -count=1 -race -shuffle=on -timeout 5m ./...
+go test -tags=integration_codex -count=1 -race -shuffle=on ./...
 ```
 
 The Codex test checks startup, terminal rendering, resizing, and shutdown in a
