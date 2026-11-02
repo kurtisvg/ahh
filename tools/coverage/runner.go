@@ -13,8 +13,21 @@ import (
 	"time"
 )
 
-func collect(ctx context.Context, minimum int) error {
-	moduleFile, err := exec.CommandContext(ctx, "go", "env", "GOMOD").Output()
+type runner struct {
+	dir         string
+	minimum     int
+	stdout      io.Writer
+	summaryPath string
+	goRun       func(context.Context, ...string) error
+}
+
+func collect(ctx context.Context, minimum int, stdout, stderr io.Writer) error {
+	moduleFile, err := exec.CommandContext(
+		ctx,
+		"go",
+		"env",
+		"GOMOD",
+	).Output()
 	if err != nil {
 		return fmt.Errorf("locate module: %w", err)
 	}
@@ -32,12 +45,14 @@ func collect(ctx context.Context, minimum int) error {
 	if err != nil {
 		return err
 	}
-	defer fmt.Fprintln(os.Stdout, "Coverage reports:", dir)
+	defer fmt.Fprintln(stdout, "Coverage reports:", dir)
 	if err := os.Mkdir(filepath.Join(dir, "subprocess"), 0o755); err != nil {
 		return err
 	}
 	r := runner{
-		dir: dir, minimum: minimum, stdout: os.Stdout,
+		dir:         dir,
+		minimum:     minimum,
+		stdout:      stdout,
 		summaryPath: os.Getenv("GITHUB_STEP_SUMMARY"),
 		goRun: func(ctx context.Context, args ...string) error {
 			cmd := exec.CommandContext(ctx, "go", args...)
@@ -45,7 +60,7 @@ func collect(ctx context.Context, minimum int) error {
 			cmd.Env = append(cmd.Environ(),
 				"AHH_TEST_BINARY="+filepath.Join(dir, "ahh"),
 				"AHH_COVERAGE_DIR="+filepath.Join(dir, "subprocess"))
-			cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+			cmd.Stdout, cmd.Stderr = stdout, stderr
 			cmd.WaitDelay = 10 * time.Second
 			if err := cmd.Run(); err != nil {
 				return fmt.Errorf("go %s: %w", strings.Join(args, " "), err)
@@ -56,20 +71,13 @@ func collect(ctx context.Context, minimum int) error {
 	return r.run(ctx)
 }
 
-type runner struct {
-	dir         string
-	minimum     int
-	stdout      io.Writer
-	summaryPath string
-	goRun       func(context.Context, ...string) error
-}
-
 func (r runner) run(ctx context.Context) error {
 	commands := [][]string{
 		{"build", "-cover", "-covermode=atomic", "-coverpkg=./...", "-o", filepath.Join(r.dir, "ahh"), "."},
 		{"test", "-count=1", "-race", "-shuffle=on", "-timeout", "10m", "-covermode=atomic",
 			"-coverpkg=./...", "-coverprofile=" + filepath.Join(r.dir, "tests.out"), "./..."},
-		{"tool", "covdata", "textfmt", "-i=" + filepath.Join(r.dir, "subprocess"), "-o=" + filepath.Join(r.dir, "subprocess.out")},
+		{"tool", "covdata", "textfmt",
+			"-i=" + filepath.Join(r.dir, "subprocess"), "-o=" + filepath.Join(r.dir, "subprocess.out")},
 	}
 	for _, args := range commands {
 		if err := r.goRun(ctx, args...); err != nil {
@@ -78,8 +86,12 @@ func (r runner) run(ctx context.Context) error {
 	}
 	var summary bytes.Buffer
 	profile := filepath.Join(r.dir, "coverage.out")
-	gateErr := run([]string{filepath.Join(r.dir, "tests.out"), filepath.Join(r.dir, "subprocess.out")},
-		profile, r.minimum, &summary)
+	gateErr := writeReport(
+		[]string{filepath.Join(r.dir, "tests.out"), filepath.Join(r.dir, "subprocess.out")},
+		profile,
+		r.minimum,
+		&summary,
+	)
 	// A failed threshold still produces all reports before returning failure.
 	reportErr := os.WriteFile(filepath.Join(r.dir, "summary.md"), summary.Bytes(), 0o600)
 	_, printErr := r.stdout.Write(summary.Bytes())
@@ -89,11 +101,23 @@ func (r runner) run(ctx context.Context) error {
 	}
 	var htmlErr error
 	if _, err := os.Stat(profile); err == nil {
-		htmlErr = r.goRun(ctx, "tool", "cover", "-html="+profile, "-o="+filepath.Join(r.dir, "coverage.html"))
+		htmlErr = r.goRun(
+			ctx,
+			"tool",
+			"cover",
+			"-html="+profile,
+			"-o="+filepath.Join(r.dir, "coverage.html"),
+		)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		htmlErr = err
 	}
-	return errors.Join(gateErr, reportErr, printErr, appendErr, htmlErr)
+	return errors.Join(
+		gateErr,
+		reportErr,
+		printErr,
+		appendErr,
+		htmlErr,
+	)
 }
 
 func appendSummary(path string, data []byte) error {

@@ -65,7 +65,7 @@ jobs:
       - name: Test
         run: go run ./tools/coverage
       - name: Upload coverage reports
-        if: always()
+        if: always() # Keep coverage reports available when the coverage gate fails.
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: go-coverage
