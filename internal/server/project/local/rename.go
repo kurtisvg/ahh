@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	"github.com/kurtisvg/ahh/internal/project"
-	"github.com/kurtisvg/ahh/internal/store"
+	"github.com/kurtisvg/ahh/internal/server/project"
+	"github.com/kurtisvg/ahh/internal/server/store"
 )
 
 // Rename changes the display name while preserving the project ID and files.

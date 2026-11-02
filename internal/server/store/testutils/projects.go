@@ -7,8 +7,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/kurtisvg/ahh/internal/project"
-	"github.com/kurtisvg/ahh/internal/store"
+	"github.com/kurtisvg/ahh/internal/server/project"
+	"github.com/kurtisvg/ahh/internal/server/store"
 )
 
 func TestDeleteProject(t *testing.T, s store.Store) {

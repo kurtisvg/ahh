@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kurtisvg/ahh/internal/store/sqlite"
+	"github.com/kurtisvg/ahh/internal/server/store/sqlite"
 	"github.com/mxschmitt/playwright-go"
 )
 

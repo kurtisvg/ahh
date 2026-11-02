@@ -13,9 +13,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kurtisvg/ahh/internal/project"
-	"github.com/kurtisvg/ahh/internal/project/local"
-	"github.com/kurtisvg/ahh/internal/store"
+	"github.com/kurtisvg/ahh/internal/server/project"
+	"github.com/kurtisvg/ahh/internal/server/project/local"
+	"github.com/kurtisvg/ahh/internal/server/store"
 )
 
 // Server owns the workspace lock, HTTP, storage, wrapper, and terminal proxies.

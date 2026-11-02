@@ -69,6 +69,8 @@ The project uses one Go module. Tests live beside the code they exercise.
 | `cmd/` | Cobra commands, arguments, I/O, and exit handling. |
 | `internal/version/` | Version text embedded in the binary. |
 | `internal/server/` | Orchestrator HTTP server and its lifetime. |
+| `internal/server/project/` | Project contracts and local repository management. |
+| `internal/server/store/` | Persistence contracts, SQLite adapter, and migrations. |
 | `internal/server/web/` | Browser sources, asset build, and browser tests. |
 | `internal/wrapper/` | HTTP/WebSocket server, terminal attachments, and harness lifetime. |
 | `internal/harness/` | Harness selection and lifecycle interface. |

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kurtisvg/ahh/internal/store"
+	"github.com/kurtisvg/ahh/internal/server/store"
 )
 
 func TestWorkspaceLock(t *testing.T) {

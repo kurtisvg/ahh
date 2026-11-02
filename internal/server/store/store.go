@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/kurtisvg/ahh/internal/project"
+	"github.com/kurtisvg/ahh/internal/server/project"
 )
 
 var ErrNotFound = errors.New("record not found")

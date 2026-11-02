@@ -22,7 +22,7 @@ func (t totals) percent() float64 { return 100 * float64(t.covered) / float64(t.
 func isApplicationFile(file string) bool {
 	pkg := path.Dir(file)
 	switch pkg {
-	case modulePath + "/internal/store/testutils", modulePath + "/tools/coverage":
+	case modulePath + "/internal/server/store/testutils", modulePath + "/tools/coverage":
 		return false
 	}
 	return strings.HasPrefix(file, modulePath+"/")

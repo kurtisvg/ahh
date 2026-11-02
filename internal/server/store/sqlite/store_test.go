@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/kurtisvg/ahh/internal/project"
+	"github.com/kurtisvg/ahh/internal/server/project"
 )
 
 func TestOpenRelativePath(t *testing.T) {

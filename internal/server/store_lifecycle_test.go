@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kurtisvg/ahh/internal/project"
+	"github.com/kurtisvg/ahh/internal/server/project"
 )
 
 type lifecycleStore struct {

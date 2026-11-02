@@ -7,8 +7,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/kurtisvg/ahh/internal/project"
-	"github.com/kurtisvg/ahh/internal/store"
+	"github.com/kurtisvg/ahh/internal/server/project"
+	"github.com/kurtisvg/ahh/internal/server/store"
 )
 
 type conversation struct {

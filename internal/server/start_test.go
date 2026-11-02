@@ -10,7 +10,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/kurtisvg/ahh/internal/store"
+	"github.com/kurtisvg/ahh/internal/server/store"
 )
 
 func startWithStore(

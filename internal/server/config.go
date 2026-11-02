@@ -8,8 +8,8 @@ import (
 	"path"
 	"strings"
 
-	"github.com/kurtisvg/ahh/internal/store"
-	"github.com/kurtisvg/ahh/internal/store/sqlite"
+	"github.com/kurtisvg/ahh/internal/server/store"
+	"github.com/kurtisvg/ahh/internal/server/store/sqlite"
 )
 
 // Config selects the workspace, HTTP listener, and metadata backend.

@@ -26,7 +26,7 @@ func TestCoverageGate(t *testing.T) {
 				"mode: atomic\n" + modulePath + "/a/a.go:1.1,2.1 2 1\n" + modulePath + "/b/b.go:1.1,2.1 2 0\n",
 				"mode: atomic\n" +
 					modulePath + "/a/a.go:1.1,2.1 2 4\n" +
-					modulePath + "/internal/store/testutils/x.go:1.1,2.1 99 1\n",
+					modulePath + "/internal/server/store/testutils/x.go:1.1,2.1 99 1\n",
 			}
 			files := []string{}
 			for i, content := range data {
@@ -86,7 +86,7 @@ func TestMergeRejectsInvalidProfiles(t *testing.T) {
 }
 
 func TestApplicationExclusions(t *testing.T) {
-	for _, pkg := range []string{"internal/store/testutils", "tools/coverage"} {
+	for _, pkg := range []string{"internal/server/store/testutils", "tools/coverage"} {
 		if isApplicationFile(modulePath + "/" + pkg + "/file.go") {
 			t.Errorf("included %s", pkg)
 		}
