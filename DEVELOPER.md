@@ -118,46 +118,18 @@ temporary Git directory. It sends no model prompt.
 
 ### Coverage
 
-After completing setup, run the same coverage gate used by CI:
+Run the CI coverage gate locally:
 
 ```sh
 go run ./tools/coverage
 ```
 
-This runs the full suite with race detection and shuffled test order. It builds
-one coverage-instrumented application for the browser tests, collects server and
-wrapper subprocess counters, and merges them with Go test coverage. It needs no
-model account. Coverage runs allow ten minutes for tests.
+This runs the full suite and measures application Go statements, including code
+exercised by browser subprocesses. Open `coverage/run.*/coverage.html` to inspect
+uncovered code; CI publishes the same reports as artifacts.
 
-Each invocation writes a fresh `coverage/run.*` directory containing
-`coverage.out`, `coverage.html`, and `summary.md`. Open the HTML file to inspect
-uncovered code, or run `go tool cover -func=coverage/run.<id>/coverage.out`.
-CI publishes the summary and uploads these reports even when the floor fails.
-Test failures and missing coverage data fail the gate.
+The minimum is set in [tools/coverage/minimum.txt](tools/coverage/minimum.txt).
+Raise it toward 95% as tests improve: take the lower of two successful full runs
+and round down to a whole percent. Do not lower it to accommodate uncovered code.
 
-The gate measures application Go statements, including packages without tests.
-It excludes `internal/store/testutils` and `tools/coverage`, which are test
-infrastructure. JavaScript and optional installed-Codex tests are outside
-this metric. Package percentages help locate gaps; only the weighted overall
-percentage is enforced, using exact counts rather than rounded display values.
-
-`tools/coverage/minimum.txt` contains the required whole percentage. Raise it
-in reviewed changes as meaningful tests improve coverage, toward 95%; do not
-lower it to accommodate uncovered features. Establish a higher floor with two
-successful full runs and round the lower result down to a whole percent.
-CI never updates this value automatically.
-
-To check saved profiles without rerunning tests:
-
-```sh
-go run ./tools/coverage report -out coverage/rechecked.out coverage/run.<id>/tests.out coverage/run.<id>/subprocess.out
-```
-
-The report command uses the same minimum by default; `-minimum N` overrides it
-for local comparisons. The full coverage run always uses the checked-in minimum.
-
-`AHH_TEST_BINARY` and `AHH_COVERAGE_DIR` are test-only hooks set by the runner.
-Normal `go test` runs continue to build their own browser-test binaries.
-
-The initial 90% floor was established from two full runs measuring 90.92% and
-90.84% combined coverage. Coverage reports retain the exact statement counts.
+See `go run ./tools/coverage report -h` for options to recheck saved profiles.
