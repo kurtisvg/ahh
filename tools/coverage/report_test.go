@@ -38,12 +38,7 @@ func TestCoverageGate(t *testing.T) {
 			}
 			var report bytes.Buffer
 			output := filepath.Join(dir, "merged.out")
-			err := writeReport(
-				files,
-				output,
-				tt.minimum,
-				&report,
-			)
+			err := writeReport(files, output, tt.minimum, &report)
 			if (err != nil) != tt.wantError {
 				t.Fatalf("error = %v", err)
 			}
@@ -116,12 +111,7 @@ func TestWeightedSubprocessCoverage(t *testing.T) {
 	}
 	var report bytes.Buffer
 	output := filepath.Join(dir, "merged.out")
-	if err := writeReport(
-		[]string{unit},
-		output,
-		11,
-		&report,
-	); err == nil {
+	if err := writeReport([]string{unit}, output, 11, &report); err == nil {
 		t.Fatal("used unweighted package average")
 	}
 	// A failed gate must still leave a usable report/profile.
@@ -129,12 +119,7 @@ func TestWeightedSubprocessCoverage(t *testing.T) {
 		t.Fatal(err)
 	}
 	report.Reset()
-	if err := writeReport(
-		[]string{unit, child},
-		output,
-		100,
-		&report,
-	); err != nil {
+	if err := writeReport([]string{unit, child}, output, 100, &report); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(report.String(), "10/10 statements") {

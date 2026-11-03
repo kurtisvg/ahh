@@ -49,12 +49,7 @@ func TestRunnerReportsOnThresholdFailure(t *testing.T) {
 	for _, name := range []string{"coverage.out", "summary.md"} {
 		data, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil || len(data) == 0 {
-			t.Fatalf(
-				"%s: %q, %v",
-				name,
-				data,
-				err,
-			)
+			t.Fatalf("%s: %q, %v", name, data, err)
 		}
 	}
 	summary, err := os.ReadFile(jobSummary)

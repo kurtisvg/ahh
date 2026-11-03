@@ -11,7 +11,7 @@ import (
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	err := executeCommand(ctx, os.Args[1:])
+	err := newCommand().ExecuteContext(ctx)
 	stop()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)

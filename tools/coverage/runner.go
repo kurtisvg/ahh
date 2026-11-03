@@ -21,13 +21,10 @@ type runner struct {
 	goRun       func(context.Context, ...string) error
 }
 
+// collect runs the full suite and combines Go test and browser subprocess coverage.
+// It retains profiles and reports in a separate directory for each run.
 func collect(ctx context.Context, minimum int, stdout, stderr io.Writer) error {
-	moduleFile, err := exec.CommandContext(
-		ctx,
-		"go",
-		"env",
-		"GOMOD",
-	).Output()
+	moduleFile, err := exec.CommandContext(ctx, "go", "env", "GOMOD").Output()
 	if err != nil {
 		return fmt.Errorf("locate module: %w", err)
 	}
@@ -74,49 +71,30 @@ func collect(ctx context.Context, minimum int, stdout, stderr io.Writer) error {
 }
 
 func (r runner) run(ctx context.Context) error {
-	commands := [][]string{
-		{
-			"build",
-			"-cover",
-			"-covermode=atomic",
-			"-coverpkg=./...",
-			"-o",
-			filepath.Join(r.dir, "ahh"),
-			".",
-		},
-		{
-			"test",
-			"-count=1",
-			"-race",
-			"-shuffle=on",
-			"-timeout",
-			"10m",
-			"-covermode=atomic",
-			"-coverpkg=./...",
-			"-coverprofile=" + filepath.Join(r.dir, "tests.out"),
-			"./...",
-		},
-		{
-			"tool",
-			"covdata",
-			"textfmt",
-			"-i=" + filepath.Join(r.dir, "subprocess"),
-			"-o=" + filepath.Join(r.dir, "subprocess.out"),
-		},
+	if err := r.goRun(
+		ctx, "build", "-cover", "-covermode=atomic", "-coverpkg=./...",
+		"-o", filepath.Join(r.dir, "ahh"), ".",
+	); err != nil {
+		return err
 	}
-	for _, args := range commands {
-		if err := r.goRun(ctx, args...); err != nil {
-			return err
-		}
+	if err := r.goRun(
+		ctx, "test", "-count=1", "-race", "-shuffle=on", "-timeout", "10m",
+		"-covermode=atomic", "-coverpkg=./...",
+		"-coverprofile="+filepath.Join(r.dir, "tests.out"), "./...",
+	); err != nil {
+		return err
+	}
+	if err := r.goRun(
+		ctx, "tool", "covdata", "textfmt",
+		"-i="+filepath.Join(r.dir, "subprocess"),
+		"-o="+filepath.Join(r.dir, "subprocess.out"),
+	); err != nil {
+		return err
 	}
 	var summary bytes.Buffer
 	profile := filepath.Join(r.dir, "coverage.out")
-	gateErr := writeReport(
-		[]string{filepath.Join(r.dir, "tests.out"), filepath.Join(r.dir, "subprocess.out")},
-		profile,
-		r.minimum,
-		&summary,
-	)
+	inputs := []string{filepath.Join(r.dir, "tests.out"), filepath.Join(r.dir, "subprocess.out")}
+	gateErr := writeReport(inputs, profile, r.minimum, &summary)
 	// A failed threshold still produces all reports before returning failure.
 	reportErr := os.WriteFile(filepath.Join(r.dir, "summary.md"), summary.Bytes(), 0o600)
 	_, printErr := r.stdout.Write(summary.Bytes())
@@ -127,22 +105,14 @@ func (r runner) run(ctx context.Context) error {
 	var htmlErr error
 	if _, err := os.Stat(profile); err == nil {
 		htmlErr = r.goRun(
-			ctx,
-			"tool",
-			"cover",
+			ctx, "tool", "cover",
 			"-html="+profile,
 			"-o="+filepath.Join(r.dir, "coverage.html"),
 		)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		htmlErr = err
 	}
-	return errors.Join(
-		gateErr,
-		reportErr,
-		printErr,
-		appendErr,
-		htmlErr,
-	)
+	return errors.Join(gateErr, reportErr, printErr, appendErr, htmlErr)
 }
 
 func appendSummary(path string, data []byte) error {

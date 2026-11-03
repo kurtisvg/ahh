@@ -28,6 +28,8 @@ func isApplicationFile(file string) bool {
 	return strings.HasPrefix(file, modulePath+"/")
 }
 
+// mergeProfiles combines atomic profiles, excluding test helpers and coverage tooling.
+// Each input must contain application statements; matching blocks count only once.
 func mergeProfiles(files []string) ([]*cover.Profile, error) {
 	if len(files) == 0 {
 		return nil, errors.New("no coverage profiles supplied")
@@ -63,6 +65,8 @@ func mergeProfiles(files []string) ([]*cover.Profile, error) {
 	return cover.ParseProfilesFromReader(&input)
 }
 
+// writeReport writes the merged profile and summary before checking the minimum,
+// so a threshold failure leaves reports available to diagnose missing coverage.
 func writeReport(files []string, output string, minimum int, report io.Writer) error {
 	if minimum < 0 || minimum > 100 {
 		return errors.New("minimum must be between 0 and 100")
@@ -106,15 +110,8 @@ func writeReport(files []string, output string, minimum int, report io.Writer) e
 
 func writeProfileBlock(buffer *bytes.Buffer, file string, block cover.ProfileBlock) {
 	fmt.Fprintf(
-		buffer,
-		"%s:%d.%d,%d.%d %d %d\n",
-		file,
-		block.StartLine,
-		block.StartCol,
-		block.EndLine,
-		block.EndCol,
-		block.NumStmt,
-		block.Count,
+		buffer, "%s:%d.%d,%d.%d %d %d\n", file,
+		block.StartLine, block.StartCol, block.EndLine, block.EndCol, block.NumStmt, block.Count,
 	)
 }
 
@@ -128,21 +125,13 @@ func formatSummary(total totals, packages map[string]totals, minimum int) []byte
 	fmt.Fprintf(
 		&summary,
 		"Go coverage: **%.2f%%** (%d/%d statements); minimum: **%d%%**\n\n",
-		total.percent(),
-		total.covered,
-		total.statements,
-		minimum,
+		total.percent(), total.covered, total.statements, minimum,
 	)
 	summary.WriteString("| Package | Coverage |\n| --- | ---: |\n")
 	for _, name := range names {
 		sum := packages[name]
 		if sum.statements > 0 {
-			fmt.Fprintf(
-				&summary,
-				"| %s | %.2f%% |\n",
-				name,
-				sum.percent(),
-			)
+			fmt.Fprintf(&summary, "| %s | %.2f%% |\n", name, sum.percent())
 		}
 	}
 	return summary.Bytes()

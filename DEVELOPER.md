@@ -132,5 +132,3 @@ uncovered code; CI publishes the same reports as artifacts.
 [the test workflow](.github/workflows/test.yml); use the same value locally.
 Raise it toward 95% as tests improve: take the lower of two successful full runs
 and round down to a whole percent. Do not lower it to accommodate uncovered code.
-
-See `go run ./tools/coverage report -h` for options to recheck saved profiles.
