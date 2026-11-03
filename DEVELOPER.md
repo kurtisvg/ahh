@@ -115,3 +115,20 @@ go test -tags=integration_codex -count=1 -race -shuffle=on -timeout 5m ./...
 
 The Codex test checks startup, terminal rendering, resizing, and shutdown in a
 temporary Git directory. It sends no model prompt.
+
+### Coverage
+
+Run the CI coverage gate locally:
+
+```sh
+AHH_COVERAGE_MINIMUM=90 go run ./tools/coverage
+```
+
+This runs the full suite and measures application Go statements, including code
+exercised by browser subprocesses. Open `coverage/run.*/coverage.html` to inspect
+uncovered code; CI publishes the same reports as artifacts.
+
+`AHH_COVERAGE_MINIMUM` defaults to 95% when unset. CI sets its threshold in
+[the test workflow](.github/workflows/test.yml); use the same value locally.
+Raise it toward 95% as tests improve: take the lower of two successful full runs
+and round down to a whole percent. Do not lower it to accommodate uncovered code.
