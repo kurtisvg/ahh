@@ -25,7 +25,10 @@ func TestRunnerReportsOnThresholdFailure(t *testing.T) {
 	var output bytes.Buffer
 	htmlGenerated := false
 	r := runner{
-		dir: dir, minimum: 84, stdout: &output, summaryPath: jobSummary,
+		dir:         dir,
+		minimum:     84,
+		stdout:      &output,
+		summaryPath: jobSummary,
 		goRun: func(_ context.Context, args ...string) error {
 			if args[0] == "tool" && args[1] == "cover" {
 				htmlGenerated = true
@@ -69,7 +72,10 @@ func TestRunnerStopsOnCommandFailure(t *testing.T) {
 			failure := errors.New("command failed")
 			failed := false
 			dir := t.TempDir()
-			r := runner{dir: dir, minimum: 84, stdout: &bytes.Buffer{},
+			r := runner{
+				dir:     dir,
+				minimum: 84,
+				stdout:  &bytes.Buffer{},
 				goRun: func(_ context.Context, args ...string) error {
 					if failed {
 						t.Fatal("continued after failed command")

@@ -57,9 +57,11 @@ func collect(ctx context.Context, minimum int, stdout, stderr io.Writer) error {
 		goRun: func(ctx context.Context, args ...string) error {
 			cmd := exec.CommandContext(ctx, "go", args...)
 			cmd.Dir = root
-			cmd.Env = append(cmd.Environ(),
+			cmd.Env = append(
+				cmd.Environ(),
 				"AHH_TEST_BINARY="+filepath.Join(dir, "ahh"),
-				"AHH_COVERAGE_DIR="+filepath.Join(dir, "subprocess"))
+				"AHH_COVERAGE_DIR="+filepath.Join(dir, "subprocess"),
+			)
 			cmd.Stdout, cmd.Stderr = stdout, stderr
 			cmd.WaitDelay = 10 * time.Second
 			if err := cmd.Run(); err != nil {
@@ -73,11 +75,34 @@ func collect(ctx context.Context, minimum int, stdout, stderr io.Writer) error {
 
 func (r runner) run(ctx context.Context) error {
 	commands := [][]string{
-		{"build", "-cover", "-covermode=atomic", "-coverpkg=./...", "-o", filepath.Join(r.dir, "ahh"), "."},
-		{"test", "-count=1", "-race", "-shuffle=on", "-timeout", "10m", "-covermode=atomic",
-			"-coverpkg=./...", "-coverprofile=" + filepath.Join(r.dir, "tests.out"), "./..."},
-		{"tool", "covdata", "textfmt",
-			"-i=" + filepath.Join(r.dir, "subprocess"), "-o=" + filepath.Join(r.dir, "subprocess.out")},
+		{
+			"build",
+			"-cover",
+			"-covermode=atomic",
+			"-coverpkg=./...",
+			"-o",
+			filepath.Join(r.dir, "ahh"),
+			".",
+		},
+		{
+			"test",
+			"-count=1",
+			"-race",
+			"-shuffle=on",
+			"-timeout",
+			"10m",
+			"-covermode=atomic",
+			"-coverpkg=./...",
+			"-coverprofile=" + filepath.Join(r.dir, "tests.out"),
+			"./...",
+		},
+		{
+			"tool",
+			"covdata",
+			"textfmt",
+			"-i=" + filepath.Join(r.dir, "subprocess"),
+			"-o=" + filepath.Join(r.dir, "subprocess.out"),
+		},
 	}
 	for _, args := range commands {
 		if err := r.goRun(ctx, args...); err != nil {

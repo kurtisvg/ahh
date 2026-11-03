@@ -2,16 +2,15 @@ package main
 
 import (
 	"context"
-	_ "embed"
 	"errors"
+	"os"
 	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
 )
 
-//go:embed minimum.txt
-var minimumText string
+const defaultMinimum = 95
 
 func executeCommand(ctx context.Context, args []string) error {
 	cmd, err := newCommand()
@@ -23,14 +22,14 @@ func executeCommand(ctx context.Context, args []string) error {
 }
 
 func newCommand() (*cobra.Command, error) {
-	minimum, err := strconv.Atoi(strings.TrimSpace(minimumText))
-	validMinimum := minimum >= 0 && minimum <= 100
-	if err != nil || !validMinimum {
-		return nil, errors.New("minimum.txt must contain a whole percentage between 0 and 100")
+	minimum, err := coverageMinimum()
+	if err != nil {
+		return nil, err
 	}
 	cmd := &cobra.Command{
 		Use:           "coverage",
-		Short:         "Run the full coverage suite and enforce minimum.txt",
+		Short:         "Run the full suite and check Go coverage",
+		Long:          "Run the full suite and check Go coverage. AHH_COVERAGE_MINIMUM sets the minimum (default: 95%).",
 		Args:          cobra.NoArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -46,6 +45,19 @@ func newCommand() (*cobra.Command, error) {
 	}
 	cmd.AddCommand(newReportCommand(minimum))
 	return cmd, nil
+}
+
+func coverageMinimum() (int, error) {
+	value, ok := os.LookupEnv("AHH_COVERAGE_MINIMUM")
+	if !ok {
+		return defaultMinimum, nil
+	}
+	minimum, err := strconv.Atoi(strings.TrimSpace(value))
+	validMinimum := minimum >= 0 && minimum <= 100
+	if err != nil || !validMinimum {
+		return 0, errors.New("AHH_COVERAGE_MINIMUM must be a whole percentage between 0 and 100")
+	}
+	return minimum, nil
 }
 
 func newReportCommand(minimum int) *cobra.Command {

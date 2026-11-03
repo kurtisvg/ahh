@@ -61,8 +61,12 @@ func TestMergeRejectsInvalidProfiles(t *testing.T) {
 		{name: "malformed", content: "mode: atomic\nbroken\n"},
 		{name: "wrong mode", content: "mode: set\n" + modulePath + "/a.go:1.1,2.1 1 1\n"},
 		{name: "negative", content: "mode: atomic\n" + modulePath + "/a.go:1.1,2.1 1 -1\n"},
-		{name: "inconsistent", content: "mode: atomic\n" +
-			modulePath + "/a.go:1.1,2.1 1 1\n" + modulePath + "/a.go:1.1,2.1 2 1\n"},
+		{
+			name: "inconsistent",
+			content: "mode: atomic\n" +
+				modulePath + "/a.go:1.1,2.1 1 1\n" +
+				modulePath + "/a.go:1.1,2.1 2 1\n",
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			file := filepath.Join(t.TempDir(), "input.out")

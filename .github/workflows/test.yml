@@ -19,6 +19,8 @@ jobs:
     if: "github.event.action != 'labeled' || github.event.label.name == 'tests: run'"
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    env:
+      AHH_COVERAGE_MINIMUM: "90"
     permissions:
       contents: read
       pull-requests: write
