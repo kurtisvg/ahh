@@ -47,21 +47,65 @@ func TestTerminalInputAndResize(t *testing.T) {
 	})
 }
 
-func TestTerminalSharedInput(t *testing.T) {
+func TestTerminalSharedTabs(t *testing.T) {
 	testConnections(t, "", func(t *testing.T, fixture browserTest) {
 		openTerminal(t, fixture.page, fixture.url)
+		sendLine(t, fixture.page, "first-tab")
+		requireOutput(t, fixture.page, "received: first-tab")
 		second, err := fixture.context.NewPage()
 		requireNoError(t, err)
-		openTerminal(t, second, fixture.url)
 
-		pages := []playwright.Page{fixture.page, second}
-		for index, page := range pages {
-			line := fmt.Sprintf("from-browser-%d", index)
-			sendLine(t, page, line)
-			for _, reader := range pages {
-				requireOutput(t, reader, "received: "+line)
-			}
+		err = second.AddInitScript(playwright.Script{
+			Content: playwright.String(`
+				window.resizeMessages = [];
+				const send = WebSocket.prototype.send;
+				WebSocket.prototype.send = function(data) {
+				  const message = JSON.parse(data);
+				  if (message.type === 'resize') {
+				    window.resizeMessages.push(message);
+				  }
+				  return send.call(this, data);
+				};
+			`),
+		})
+		requireNoError(t, err)
+		_, err = second.Goto(fixture.url)
+		requireNoError(t, err)
+		requireStatus(t, second, "Connected")
+		sendLine(t, fixture.page, "both-attached")
+		requireOutput(t, fixture.page, "received: both-attached")
+		requireOutput(t, second, "received: both-attached")
+		sendLine(t, second, "second-tab")
+		requireOutput(t, fixture.page, "received: second-tab")
+		requireOutput(t, second, "received: second-tab")
+
+		// Headless Chromium reports every page focused; provide the background
+		// focus state while keeping real layout, sockets, and harness resizing.
+		_, err = second.Evaluate(`
+			document.hasFocus = () => false;
+			window.resizeMessages = [];
+		`)
+		requireNoError(t, err)
+		requireNoError(t, second.SetViewportSize(900, 600))
+		requireTerminalFits(t, second)
+		messages, err := second.Evaluate("window.resizeMessages.length")
+		requireNoError(t, err)
+		if messages != 0 {
+			t.Fatal("background tab resized the shared terminal", messages)
 		}
+		_, err = second.Evaluate(`
+			document.hasFocus = () => true;
+			window.dispatchEvent(new Event('focus'));
+		`)
+		requireNoError(t, err)
+		handle, err := second.WaitForFunction("window.resizeMessages.length > 0", nil)
+		requireNoError(t, err)
+		requireNoError(t, handle.Dispose())
+		requireNoError(t, fixture.page.Close())
+		requireStatus(t, second, "Connected")
+		requireOutput(t, second, "received: first-tab")
+		sendLine(t, second, "remaining-tab")
+		requireOutput(t, second, "received: remaining-tab")
 	})
 }
 

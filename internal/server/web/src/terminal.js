@@ -86,7 +86,12 @@ export function mountTerminal({ container, status, start, notice, baseURL = docu
   }
 
   terminal.onData(sendInput);
-  terminal.onResize(({ rows, cols }) => send({ type: 'resize', rows, cols }));
+  // Each tab fits its own view; only the focused page sets the shared PTY size.
+  function resizeHarness() {
+    if (document.hasFocus()) send({ type: 'resize', rows: terminal.rows, cols: terminal.cols });
+  }
+  terminal.onResize(resizeHarness);
+  window.addEventListener('focus', resizeHarness);
   let fitting = false;
   const observer = new ResizeObserver(async () => {
     if (disposed || fitting) return;
@@ -121,7 +126,7 @@ export function mountTerminal({ container, status, start, notice, baseURL = docu
       if (disposed || socket !== connection || exited || outputComplete) return;
       setStatus('Connected', 'connected');
       terminal.options.disableStdin = false;
-      send({ type: 'resize', rows: terminal.rows, cols: terminal.cols }, connection);
+      resizeHarness();
     };
 
     connection.onmessage = ({ data }) => {
@@ -235,6 +240,7 @@ export function mountTerminal({ container, status, start, notice, baseURL = docu
     clearTimeout(retryTimer);
     start.removeEventListener('click', startTerminal);
     observer.disconnect();
+    window.removeEventListener('focus', resizeHarness);
     socket?.close();
     terminal.dispose();
   };

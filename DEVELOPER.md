@@ -3,6 +3,9 @@
 Ahh runs a local harness terminal in your browser.
 Run the commands below from the repository root.
 
+Multiple tabs share terminal input and output. The focused tab controls terminal
+size; disconnecting a tab leaves execution running.
+
 ## Setup
 
 - [Go](https://go.dev/doc/install) >= 1.27.3 and a C compiler for race tests.

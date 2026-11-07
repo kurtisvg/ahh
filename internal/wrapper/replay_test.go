@@ -61,3 +61,30 @@ func TestAttachmentLimit(t *testing.T) {
 		terminal.finish()
 	}
 }
+
+func TestAttachmentsReceiveIndependentReplayAndLiveOutput(t *testing.T) {
+	terminal := newTerminal()
+	_, _ = terminal.Write([]byte("before"))
+	first, err := terminal.attach(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer terminal.detach(first.client)
+	second, err := terminal.attach(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer terminal.detach(second.client)
+	if !bytes.Equal(first.history.data, second.history.data) {
+		t.Fatal("different replay")
+	}
+	for range 17 {
+		_, _ = terminal.Write([]byte("output"))
+		if got := <-second.client.output; string(got.data) != "output" {
+			t.Fatal("missing broadcast")
+		}
+	}
+	if terminal.clients[first.client] || !terminal.clients[second.client] {
+		t.Fatal("slow reader affected the other attachment")
+	}
+}
