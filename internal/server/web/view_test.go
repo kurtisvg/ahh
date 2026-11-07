@@ -32,7 +32,7 @@ func TestTerminalViewDisposal(t *testing.T) {
 			t.Fatal("status was not polled")
 		}
 		_, err = page.Evaluate(`async () => {
-			const app = await import(new URL('app.js', document.baseURI));
+			const app = await import(document.querySelector('script[type=module]').src);
 			app.dispose();
 			app.dispose();
 			document.querySelector('#status').textContent = 'Away';
