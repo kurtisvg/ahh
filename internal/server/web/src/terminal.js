@@ -39,6 +39,21 @@ export function mountTerminal({ container, status, start, notice, baseURL = docu
   });
   const fit = new FitAddon.FitAddon();
   terminal.loadAddon(fit);
+  const clipboardError = 'Could not copy to clipboard. '
+    + 'Use HTTPS or localhost and allow clipboard access.';
+  terminal.loadAddon(new ClipboardAddon.ClipboardAddon(undefined, {
+    // Only explicit browser paste shares clipboard contents with the harness.
+    readText: () => '',
+    async writeText(selection, text) {
+      if (selection !== 'c' || disposed) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        if (!disposed && notice.textContent === clipboardError) notice.textContent = '';
+      } catch {
+        if (!disposed) notice.textContent = clipboardError;
+      }
+    },
+  }));
   terminal.open(container);
   fit.fit();
 

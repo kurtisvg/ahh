@@ -1,6 +1,7 @@
 package web_test
 
 import (
+	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -72,6 +73,95 @@ func TestTerminalLargePaste(t *testing.T) {
 				}
 			}
 			requireStatus(t, page, "Connected")
+		}
+	})
+}
+
+func TestTerminalClipboard(t *testing.T) {
+	const text = "copied from the terminal: 界 🙂"
+	script := fmt.Sprintf(`#!/bin/sh
+		while IFS= read -r line; do
+			if [ "$line" = query ]; then
+				stty raw -echo
+				printf '\033]52;c;?\007'
+				head -c 8 > clipboard-response
+				stty sane
+				printf 'query completed\n'
+				continue
+			fi
+			printf '\033]52;c;%s\007'
+			printf 'copy completed: %%s\n' "$line"
+		done
+	`, base64.StdEncoding.EncodeToString([]byte(text)))
+	testConnections(t, script, func(t *testing.T, fixture browserTest) {
+		page := fixture.page
+		requireNoError(t, fixture.context.GrantPermissions([]string{
+			"clipboard-read", "clipboard-write",
+		}))
+		openTerminal(t, page, fixture.url)
+		expect := playwright.NewPlaywrightAssertions()
+
+		sendLine(t, page, "initial")
+		requireOutput(t, page, "copy completed: initial")
+		copied, err := page.Evaluate("() => navigator.clipboard.readText()")
+		requireNoError(t, err)
+		if copied != text {
+			t.Fatalf("clipboard = %q, want %q", copied, text)
+		}
+
+		sendLine(t, page, "query")
+		requireOutput(t, page, "query completed")
+		response, err := os.ReadFile(filepath.Join(fixture.directory, "clipboard-response"))
+		requireNoError(t, err)
+		if string(response) != "\x1b]52;c;\x07" {
+			t.Fatalf("clipboard query response = %q, want empty clipboard text", response)
+		}
+
+		// Browser restrictions must leave rendering and subsequent input working.
+		for _, mode := range []string{"denied", "unavailable"} {
+			t.Run(mode, func(t *testing.T) {
+				t.Cleanup(func() {
+					_, err := page.Evaluate(`() => {
+						delete navigator.clipboard;
+						delete navigator.clipboard.writeText;
+					}`)
+					requireNoError(t, err)
+				})
+				_, err := page.Evaluate(`mode => {
+					if (mode === 'denied') {
+						Object.defineProperty(navigator.clipboard, 'writeText', {
+							configurable: true,
+							value: () => Promise.reject(
+								new DOMException('Denied', 'NotAllowedError')
+							),
+						});
+					} else {
+						Object.defineProperty(navigator, 'clipboard', {
+							configurable: true, value: undefined,
+						});
+					}
+				}`, mode)
+				requireNoError(t, err)
+				sendLine(t, page, mode)
+				requireOutput(t, page, "copy completed: "+mode)
+				requireNoError(t, expect.Locator(page.Locator("#notice")).ToContainText("Could not copy to clipboard"))
+				requireStatus(t, page, "Connected")
+
+				_, err = page.Evaluate(`async () => {
+					delete navigator.clipboard;
+					delete navigator.clipboard.writeText;
+					await navigator.clipboard.writeText('before retry');
+				}`)
+				requireNoError(t, err)
+				sendLine(t, page, mode+"-retry")
+				requireOutput(t, page, "copy completed: "+mode+"-retry")
+				requireNoError(t, expect.Locator(page.Locator("#notice")).ToBeEmpty())
+				copied, err := page.Evaluate("() => navigator.clipboard.readText()")
+				requireNoError(t, err)
+				if copied != text {
+					t.Fatalf("clipboard after retry = %q, want %q", copied, text)
+				}
+			})
 		}
 	})
 }
