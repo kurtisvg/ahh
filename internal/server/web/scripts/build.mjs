@@ -11,6 +11,8 @@ for (const [source, target] of [
   ['@xterm/xterm/LICENSE', 'xterm-LICENSE'],
   ['@xterm/addon-fit/lib/addon-fit.js', 'addon-fit.js'],
   ['@xterm/addon-fit/LICENSE', 'addon-fit-LICENSE'],
+  ['@xterm/addon-image/lib/addon-image.js', 'addon-image.js'],
+  ['@xterm/addon-image/LICENSE', 'addon-image-LICENSE'],
   ['@xterm/addon-clipboard/lib/addon-clipboard.js', 'addon-clipboard.js'],
   ['@xterm/addon-clipboard/LICENSE', 'addon-clipboard-LICENSE'],
   ['js-base64/LICENSE.md', 'js-base64-LICENSE'],

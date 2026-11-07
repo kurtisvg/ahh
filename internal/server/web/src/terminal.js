@@ -39,6 +39,7 @@ export function mountTerminal({ container, status, start, notice, baseURL = docu
   });
   const fit = new FitAddon.FitAddon();
   terminal.loadAddon(fit);
+  terminal.loadAddon(new ImageAddon.ImageAddon());
   const clipboardError = 'Could not copy to clipboard. '
     + 'Use HTTPS or localhost and allow clipboard access.';
   terminal.loadAddon(new ClipboardAddon.ClipboardAddon(undefined, {
@@ -86,7 +87,22 @@ export function mountTerminal({ container, status, start, notice, baseURL = docu
 
   terminal.onData(sendInput);
   terminal.onResize(({ rows, cols }) => send({ type: 'resize', rows, cols }));
-  const observer = new ResizeObserver(() => { if (!disposed) fit.fit(); });
+  let fitting = false;
+  const observer = new ResizeObserver(async () => {
+    if (disposed || fitting) return;
+    fitting = true;
+    try {
+      // Resizing flushes xterm's parser synchronously. Finish async image writes first.
+      let rendering;
+      do {
+        rendering = pending;
+        await rendering;
+      } while (!disposed && rendering !== pending);
+      if (!disposed) fit.fit();
+    } finally {
+      fitting = false;
+    }
+  });
   observer.observe(container);
 
   function connect() {
