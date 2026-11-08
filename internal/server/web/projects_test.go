@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/kurtisvg/ahh/internal/server/store/sqlite"
@@ -31,7 +32,7 @@ func TestProjectPages(t *testing.T) {
 	if testing.Short() {
 		t.Skip("browser tests are excluded in short mode")
 	}
-	binary := buildBrowserBinary(t)
+	binary := ahhBinary.Get(t)
 	for _, mode := range []string{"direct", "proxy"} {
 		t.Run(mode, func(t *testing.T) {
 			directory := t.TempDir()
@@ -75,13 +76,21 @@ func TestProjectPages(t *testing.T) {
 			requireNoError(t, err)
 			requireNoError(t, expect.Locator(page.Locator("#detail")).ToContainText("Project not found"))
 			requireNoError(t, expect.Page(page).ToHaveURL(url+"/p/unknown"))
+			// The request handler reads this flag from another goroutine.
+			var restored atomic.Bool
 			requireNoError(t, page.Route("**/api/projects", func(route playwright.Route) {
+				if restored.Load() {
+					if err := route.Continue(); err != nil {
+						t.Error(err)
+					}
+					return
+				}
 				requireNoError(t, route.Fulfill(playwright.RouteFulfillOptions{Status: playwright.Int(503)}))
 			}))
 			_, err = page.Reload()
 			requireNoError(t, err)
 			requireNoError(t, expect.Locator(page.Locator("#detail")).ToContainText("Could not load Projects"))
-			requireNoError(t, page.Unroute("**/api/projects"))
+			restored.Store(true)
 			requireNoError(t, page.GetByRole("button", playwright.PageGetByRoleOptions{Name: "Retry", Exact: playwright.Bool(true)}).Click())
 			requireNoError(t, expect.Locator(page.Locator("#detail")).ToContainText("Project not found"))
 			requireNoError(t, expect.Locator(page.Locator("#detail")).ToBeFocused())

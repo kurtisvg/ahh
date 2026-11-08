@@ -3,14 +3,31 @@
 package web_test
 
 import (
+	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mxschmitt/playwright-go"
 )
+
+func runBrowserCommand(t *testing.T, directory string, args ...string) []byte {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	defer cancel()
+	command := exec.CommandContext(ctx, args[0], args[1:]...)
+	command.Dir = directory
+	command.WaitDelay = 10 * time.Second
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("%s: %v\n%s", args[0], err, output)
+	}
+	return output
+}
 
 func TestCodexSmoke(t *testing.T) {
 	if testing.Short() {
@@ -21,7 +38,7 @@ func TestCodexSmoke(t *testing.T) {
 	t.Logf("Codex version: %s", strings.TrimSpace(string(version)))
 	requireNoError(t, os.WriteFile(filepath.Join(t.ArtifactDir(), "codex-version.txt"), version, 0o600))
 	directory := t.TempDir()
-	url, stop := startBrowserServer(t, buildBrowserBinary(t), directory, "/", "TERM=")
+	url, stop := startBrowserServer(t, ahhBinary.Get(t), directory, "/", "TERM=")
 	browser := newBrowserContext(t)
 	page, err := browser.NewPage()
 	requireNoError(t, err)

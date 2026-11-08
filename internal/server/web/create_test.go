@@ -15,7 +15,7 @@ func TestCreateWithoutHarness(t *testing.T) {
 	if testing.Short() {
 		t.Skip("browser tests are excluded in short mode")
 	}
-	binary := buildBrowserBinary(t)
+	binary := ahhBinary.Get(t)
 	git, err := exec.LookPath("git")
 	requireNoError(t, err)
 	for _, mode := range []string{"direct", "proxy"} {
@@ -104,7 +104,7 @@ done
 exec %q "$@"
 `, release, git)
 	requireNoError(t, os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0o700))
-	url, _ := startBrowserServer(t, buildBrowserBinary(t), directory, "/", "PATH="+bin)
+	url, _ := startBrowserServer(t, ahhBinary.Get(t), directory, "/", "PATH="+bin)
 	page, err := newBrowserContext(t).NewPage()
 	requireNoError(t, err)
 	_, err = page.Goto(strings.TrimRight(url, "/") + "/p")
@@ -139,7 +139,7 @@ func TestCreationNameAndID(t *testing.T) {
 	if testing.Short() {
 		t.Skip("browser tests are excluded in short mode")
 	}
-	url, _ := startBrowserServer(t, buildBrowserBinary(t), t.TempDir(), "/")
+	url, _ := startBrowserServer(t, ahhBinary.Get(t), t.TempDir(), "/")
 	page, err := newBrowserContext(t).NewPage()
 	requireNoError(t, err)
 	_, err = page.Goto(url + "/p")

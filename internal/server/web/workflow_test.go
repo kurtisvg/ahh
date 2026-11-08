@@ -13,7 +13,7 @@ func TestProjectWorkflowAfterRestart(t *testing.T) {
 	if testing.Short() {
 		t.Skip("browser tests are excluded in short mode")
 	}
-	binary := buildBrowserBinary(t)
+	binary := ahhBinary.Get(t)
 	for _, mode := range []string{"direct", "proxy"} {
 		t.Run(mode, func(t *testing.T) {
 			directory := t.TempDir()

@@ -17,7 +17,7 @@ func TestTerminalWithoutInstalledHarness(t *testing.T) {
 	git, err := exec.LookPath("git")
 	requireNoError(t, err)
 	requireNoError(t, os.Symlink(git, filepath.Join(directory, "git")))
-	url, _ := startBrowserServer(t, buildBrowserBinary(t), directory, "/", "PATH="+directory)
+	url, _ := startBrowserServer(t, ahhBinary.Get(t), directory, "/", "PATH="+directory)
 	browser := newBrowserContext(t)
 	page, err := browser.NewPage()
 	requireNoError(t, err)

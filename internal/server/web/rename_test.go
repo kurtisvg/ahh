@@ -13,7 +13,7 @@ func TestRenameDraftAndConflict(t *testing.T) {
 	}
 	directory := t.TempDir()
 	setupTestDB(t, directory)
-	url, _ := startBrowserServer(t, buildBrowserBinary(t), directory, "/")
+	url, _ := startBrowserServer(t, ahhBinary.Get(t), directory, "/")
 	page, err := newBrowserContext(t).NewPage()
 	requireNoError(t, err)
 	_, err = page.Goto(url + "/p/a")
