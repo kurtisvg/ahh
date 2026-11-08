@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/kurtisvg/ahh/internal/server"
-	"github.com/kurtisvg/ahh/internal/store"
+	"github.com/kurtisvg/ahh/internal/server/store"
 	"github.com/spf13/cobra"
 )
 

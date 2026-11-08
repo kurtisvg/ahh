@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/kurtisvg/ahh/internal/project"
-	"github.com/kurtisvg/ahh/internal/store"
-	"github.com/kurtisvg/ahh/internal/store/testutils"
+	"github.com/kurtisvg/ahh/internal/server/project"
+	"github.com/kurtisvg/ahh/internal/server/store"
+	"github.com/kurtisvg/ahh/internal/server/store/testutils"
 )
 
 func openTestStore(t *testing.T, path string) *Store {

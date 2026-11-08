@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kurtisvg/ahh/internal/project"
-	"github.com/kurtisvg/ahh/internal/store"
-	"github.com/kurtisvg/ahh/internal/store/sqlite"
+	"github.com/kurtisvg/ahh/internal/server/project"
+	"github.com/kurtisvg/ahh/internal/server/store"
+	"github.com/kurtisvg/ahh/internal/server/store/sqlite"
 )
 
 func openTestManager(t *testing.T) (*Manager, *sqlite.Store, string) {

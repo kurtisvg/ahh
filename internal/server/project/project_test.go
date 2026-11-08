@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kurtisvg/ahh/internal/project"
+	"github.com/kurtisvg/ahh/internal/server/project"
 )
 
 func TestStateRoundTrip(t *testing.T) {
