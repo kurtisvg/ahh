@@ -21,6 +21,9 @@ go run github.com/mxschmitt/playwright-go/cmd/playwright install --with-deps chr
 sources; `go build` and `go run` do not run it automatically. The binary embeds
 the generated files, so Node and npm are only needed during development and builds.
 
+Browser asset URLs and module imports include a content revision, so reloads use
+the matching source graph after a deployment.
+
 ## Run
 
 ```sh
