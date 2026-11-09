@@ -3,7 +3,10 @@ package wrapper
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
@@ -117,6 +120,10 @@ func TestTerminalExchangeAndDisconnect(t *testing.T) {
 	}
 	defer func() { _ = reconnected.CloseNow() }()
 	readUntil(t, ctx, reconnected, "31 92")
+	if err := wsjson.Write(ctx, reconnected, inputMessage{Type: "input", Data: "reconnected\n"}); err != nil {
+		t.Fatal(err)
+	}
+	readUntil(t, ctx, reconnected, "received: reconnected")
 }
 
 func readUntil(t *testing.T, ctx context.Context, conn *websocket.Conn, want ...string) {
@@ -183,8 +190,58 @@ func TestTerminalBoundsSlowReaders(t *testing.T) {
 func TestTerminalConnectionCloses(t *testing.T) {
 	useFakeCodex(t)
 
-	for _, reason := range []string{"shutdown", "exit", "binary input", "invalid resize"} {
-		t.Run(reason, func(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		trigger    func(context.Context, *Server, *websocket.Conn) error
+		wantOutput string
+	}{
+		{
+			name: "shutdown",
+			trigger: func(ctx context.Context, server *Server, _ *websocket.Conn) error {
+				if err := server.Shutdown(ctx); err != nil {
+					return err
+				}
+				return server.Wait()
+			},
+		},
+		{
+			name: "exit",
+			trigger: func(ctx context.Context, server *Server, conn *websocket.Conn) error {
+				msg := inputMessage{Type: "input", Data: "last output\nexit\n"}
+				if err := wsjson.Write(ctx, conn, msg); err != nil {
+					return err
+				}
+				// Exercise reading buffered output after wrapper cleanup.
+				return server.Wait()
+			},
+			wantOutput: "received: last output",
+		},
+		{
+			name: "binary input",
+			trigger: func(ctx context.Context, _ *Server, conn *websocket.Conn) error {
+				return conn.Write(ctx, websocket.MessageBinary, []byte("input"))
+			},
+		},
+		{
+			name: "invalid resize",
+			trigger: func(ctx context.Context, _ *Server, conn *websocket.Conn) error {
+				return wsjson.Write(ctx, conn, inputMessage{Type: "resize"})
+			},
+		},
+		{
+			name: "malformed JSON",
+			trigger: func(ctx context.Context, _ *Server, conn *websocket.Conn) error {
+				return conn.Write(ctx, websocket.MessageText, []byte("{"))
+			},
+		},
+		{
+			name: "unknown input",
+			trigger: func(ctx context.Context, _ *Server, conn *websocket.Conn) error {
+				return wsjson.Write(ctx, conn, inputMessage{Type: "future"})
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()
 
@@ -208,34 +265,8 @@ func TestTerminalConnectionCloses(t *testing.T) {
 			defer func() { _ = conn.CloseNow() }()
 			readUntil(t, ctx, conn, "fake harness ready")
 
-			switch reason {
-			case "shutdown":
-				if err := server.Shutdown(ctx); err != nil {
-					t.Fatal(err)
-				}
-				if err := server.Wait(); err != nil {
-					t.Fatal(err)
-				}
-			case "exit":
-				msg := inputMessage{
-					Type: "input",
-					Data: "last output\nexit\n",
-				}
-				if err := wsjson.Write(ctx, conn, msg); err != nil {
-					t.Fatal(err)
-				}
-				// Exercise a client reading buffered output after wrapper cleanup.
-				if err := server.Wait(); err != nil {
-					t.Fatal(err)
-				}
-			case "binary input":
-				if err := conn.Write(ctx, websocket.MessageBinary, []byte("input")); err != nil {
-					t.Fatal(err)
-				}
-			case "invalid resize":
-				if err := wsjson.Write(ctx, conn, inputMessage{Type: "resize"}); err != nil {
-					t.Fatal(err)
-				}
+			if err := test.trigger(ctx, server, conn); err != nil {
+				t.Fatal(err)
 			}
 
 			// Drain without acknowledgments: exit may already have closed the socket.
@@ -257,9 +288,74 @@ func TestTerminalConnectionCloses(t *testing.T) {
 			if err := ctx.Err(); err != nil {
 				t.Fatalf("connection remained open: %v", err)
 			}
-			if reason == "exit" && !strings.Contains(output.String(), "received: last output") {
+			if test.wantOutput != "" && !strings.Contains(output.String(), test.wantOutput) {
 				t.Fatalf("missing final output: %q", output.String())
 			}
 		})
+	}
+}
+
+func TestTerminalRejectsInvalidAttachments(t *testing.T) {
+	for _, test := range []struct {
+		name, cursor string
+		draining     bool
+		status       int
+	}{
+		{"draining", "", true, http.StatusServiceUnavailable},
+		{"invalid cursor", "not-a-number", false, http.StatusBadRequest},
+		{"negative cursor", "-1", false, http.StatusBadRequest},
+		{"missing upgrade", "", false, http.StatusUpgradeRequired},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			s := &Server{terminal: newTerminal(), draining: test.draining}
+			r := httptest.NewRequest(http.MethodGet, "/pty?cursor="+test.cursor, nil)
+			response := httptest.NewRecorder()
+			s.servePTY(t.Context())(response, r)
+			if response.Code != test.status {
+				t.Fatalf("attachment status = %d", response.Code)
+			}
+			if len(s.terminal.clients) != 0 {
+				t.Fatal("rejected attachment retained terminal subscription")
+			}
+		})
+	}
+}
+
+func TestCanceledInputCannotReachHarness(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	// A canceled handler must reject queued input before touching the harness.
+	s := &Server{}
+	if err := s.applyInput(ctx, inputMessage{Type: "input", Data: "discard"}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("queued input = %v", err)
+	}
+}
+
+func TestTerminalCapacityRejectionPreservesExistingReaders(t *testing.T) {
+	s := &Server{terminal: newTerminal()}
+	var clients []*attachment
+	for range 16 {
+		state, err := s.terminal.attach(nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		clients = append(clients, state.client)
+		defer s.terminal.detach(state.client)
+	}
+	response := httptest.NewRecorder()
+	s.servePTY(t.Context())(response, httptest.NewRequest(http.MethodGet, "/pty", nil))
+	if response.Code != http.StatusConflict {
+		t.Fatalf("capacity rejection = %d", response.Code)
+	}
+	_, _ = s.terminal.Write([]byte("still running"))
+	for _, client := range clients {
+		select {
+		case frame := <-client.output:
+			if string(frame.data) != "still running" {
+				t.Fatal("rejection interrupted an existing reader")
+			}
+		default:
+			t.Fatal("rejection detached an existing reader")
+		}
 	}
 }
